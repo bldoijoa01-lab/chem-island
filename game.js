@@ -859,6 +859,7 @@ function clearKeys() { keys.left = keys.right = keys.jump = false; }
 const KEYMAP = { a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', w: 'jump', arrowup: 'jump', ' ': 'jump' };
 window.addEventListener('keydown', e => {
   if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
+  if (!$('title').hidden) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); } return; }
   if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); }
@@ -979,7 +980,7 @@ function drawPeers(t) {
   ctx.textAlign = 'left';
 }
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now; tt += dt;
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));   // 첫 프레임은 rAF 시각이 last보다 이를 수 있어 음수 방지 last = now; tt += dt;
   physics(dt); stepDig(dt); stepParts(dt); netStep(dt, now);
   draw(tt);
   requestAnimationFrame(frame);
@@ -1219,5 +1220,14 @@ function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(�
 }
 window.addEventListener('resize', fit);
 refresh(); fit(); requestAnimationFrame(frame);
-boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+// 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말
+paused = true;
+$('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}일차 · 목표 ${S.qDone}/${QUESTS.length}` : '새 게임';
+function startGame() {
+  if ($('title').hidden) return;
+  $('title').hidden = true; paused = false;
+  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+}
+$('t-start').onclick = startGame;
+$('t-help').onclick = () => openHelp();
 })();
