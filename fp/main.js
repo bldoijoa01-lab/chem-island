@@ -52,9 +52,9 @@ const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 host.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, VIEW + 40);
-const ambient = new THREE.AmbientLight(0xffffff, 0.7), sunL = new THREE.DirectionalLight(0xffffff, 0.7);
-sunL.position.set(-30, 60, 20); scene.add(ambient, sunL);
+const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 1000);
+const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x6b5a3a, 0.7), sunL = new THREE.DirectionalLight(0xffffff, 0.7);   // 반구 조명(하늘색 위, 땅색 아래) + 해/달 방향광
+scene.add(hemi, sunL, sunL.target);
 function fit() { const w = innerWidth, h = innerHeight; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); }
 addEventListener('resize', fit); fit();
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -217,22 +217,54 @@ function placePlazaLabels() {
 }
 
 // ---------- 하늘·바다·낮밤 ----------
-const sea = new THREE.Mesh(new THREE.PlaneGeometry(1600, 1600), new THREE.MeshLambertMaterial({ color: 0x2c7cc0, transparent: true, opacity: 0.72, depthWrite: false }));
-sea.rotation.x = -Math.PI / 2; scene.add(sea);
+// 바다: 카메라를 따라다니는 격자(SEA_STEP 간격). 정점을 세계 좌표의 사인파 합으로 출렁이게 하고 법선도 기울인다. 보이기만 한다(헤엄·충돌은 평평한 SEA 기준)
+const SEA_STEP = 2, SEA_N = 220, WAVE = 0.28;   // 가정(임의값) 격자 간격 2 m × 220칸, 파도 높이 약 ±0.28 m
+const seaUniforms = { uT: { value: 0 } };
+const seaGeo = new THREE.PlaneGeometry(SEA_STEP * SEA_N, SEA_STEP * SEA_N, SEA_N, SEA_N); seaGeo.rotateX(-Math.PI / 2);
+const seaMat = new THREE.MeshLambertMaterial({ color: 0x2f86c8, transparent: true, opacity: 0.8, depthWrite: false });
+seaMat.onBeforeCompile = (sh) => {
+  sh.uniforms.uT = seaUniforms.uT;
+  const wave = 'float wv(vec2 p){ return 0.5*sin(p.x*0.55+uT*1.2)+0.35*sin(p.y*0.8-uT*0.9)+0.25*sin((p.x+p.y)*1.3+uT*1.9); }';
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uT;\n' + wave)
+    .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+      vec4 wp0 = modelMatrix * vec4(position, 1.0); float e = 0.5;
+      float dx = (wv(wp0.xz + vec2(e, 0.0)) - wv(wp0.xz - vec2(e, 0.0))) / (2.0 * e), dz = (wv(wp0.xz + vec2(0.0, e)) - wv(wp0.xz - vec2(0.0, e))) / (2.0 * e);
+      objectNormal = normalize(vec3(-dx * ${WAVE.toFixed(2)}, 1.0, -dz * ${WAVE.toFixed(2)}));`)
+    .replace('#include <begin_vertex>', `#include <begin_vertex>
+      transformed.y += wv((modelMatrix * vec4(position, 1.0)).xz) * ${WAVE.toFixed(2)};`);
+};
+const sea = new THREE.Mesh(seaGeo, seaMat); sea.frustumCulled = false; scene.add(sea);
+// 하늘 돔: 꼭대기 색에서 수평선 색으로(Art.sky의 시각별 색을 그대로 쓴다). 안개 색은 수평선 색
+const skyU = { top: { value: new THREE.Color() }, hor: { value: new THREE.Color() } };
+const dome = new THREE.Mesh(new THREE.SphereGeometry(600, 24, 12), new THREE.ShaderMaterial({ uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
+  vertexShader: 'varying float vY; void main(){ vY = normalize(position).y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+  fragmentShader: 'uniform vec3 top; uniform vec3 hor; varying float vY; void main(){ gl_FragColor = vec4(mix(hor, top, pow(clamp(vY, 0.0, 1.0), 0.55)), 1.0); }' }));
+dome.frustumCulled = false; scene.add(dome);
 const stars = (() => { const n = 260, pos = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) { const a = ((i * 97.31) % 1000) / 1000 * Math.PI * 2, e = 0.15 + ((i * 53.77) % 1000) / 1000 * 1.2; pos[i * 3] = Math.cos(a) * Math.cos(e) * 400; pos[i * 3 + 1] = Math.sin(e) * 400; pos[i * 3 + 2] = Math.sin(a) * Math.cos(e) * 400; }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   const s = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false })); s.frustumCulled = false; scene.add(s); return s; })();
 const mkDisc = (cv) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ map: tex(cv), transparent: true, alphaTest: 0.4, fog: false, depthWrite: false })); scene.add(m); return m; };
 const sunM = mkDisc(Art.sun), moonM = mkDisc(Art.moon);
-function sky() {
-  const hour = S.min / 60, night = nightOf(hour), bands = Art.sky(hour, 18);
-  scene.background = new THREE.Color(bands[6]); scene.fog = new THREE.Fog(new THREE.Color(bands[12]), 50, VIEW);
-  ambient.intensity = 0.7 - night * 0.38; sunL.intensity = 0.7 - night * 0.5;
+const sunDirV = new THREE.Vector3();
+function sky(dt) {
+  const hour = S.min / 60, night = nightOf(hour), [top, hor] = Art.sky(hour, 2);
+  skyU.top.value.set(top); skyU.hor.value.set(hor); dome.position.copy(camera.position);
+  scene.fog = new THREE.Fog(new THREE.Color(hor), 60, VIEW);
+  // 해와 달: 낮 12시간 / 밤 12시간에 반원을 그린다. 방향광은 떠 있는 쪽(해가 지면 달)에서 비춘다
+  const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12, up = sunT >= 0 && sunT <= 1 ? Math.sin(sunT * Math.PI) : 0;
+  const disc = (mm, t) => { mm.visible = t >= 0 && t <= 1; const a = t * Math.PI; mm.position.set(camera.position.x - Math.cos(a) * 420, camera.position.y + Math.sin(a) * 380 - 20, camera.position.z - 160); mm.lookAt(camera.position); return mm.position; };
+  const sp = disc(sunM, sunT), mp = disc(moonM, moonT);
+  const lightFrom = up > 0.02 ? sp : mp;
+  sunDirV.copy(lightFrom).sub(camera.position).normalize(); sunL.position.copy(camera.position).addScaledVector(sunDirV, 100); sunL.target.position.copy(camera.position);
+  sunL.color.set(up > 0.02 ? (up < 0.25 ? 0xffc08a : 0xffffff) : 0x9fb4ff);
+  sunL.intensity = up > 0.02 ? 0.35 + 0.55 * Math.sqrt(up) : 0.22;
+  hemi.intensity = 0.72 - night * 0.42; hemi.color.set(hor).lerp(new THREE.Color(0xffffff), 0.45);
   stars.material.opacity = night; stars.position.copy(camera.position);
-  const place = (m, t) => { m.visible = t >= 0 && t <= 1; const a = t * Math.PI; m.position.set(camera.position.x - Math.cos(a) * 300, camera.position.y + Math.sin(a) * 260 - 10, camera.position.z - 120); m.lookAt(camera.position); };
-  place(sunM, (hour - 6) / 12); place(moonM, ((hour + 6) % 24) / 12);
-  sea.position.set(camera.position.x, SEA - 0.1, camera.position.z);
+  // 바다는 카메라를 따라다니되 격자 간격 단위로만 움직여 파도가 미끄러지지 않게 한다. 평균 수면은 SEA보다 0.35 m 낮게 두어 파도 마루(+0.31)가 뗏목 바닥(SEA)을 덮지 않게 한다
+  sea.position.set(Math.round(camera.position.x / SEA_STEP) * SEA_STEP, SEA - 0.35, Math.round(camera.position.z / SEA_STEP) * SEA_STEP);
+  seaUniforms.uT.value = tNow;
+  seaMat.color.set(0x2f86c8).multiplyScalar(0.45 + 0.55 * (1 - night * 0.7));
   $('uw').style.opacity = camera.position.y < SEA - 0.1 ? 1 : 0;   // 물속 색조
 }
 
@@ -530,7 +562,7 @@ function frame(now) {
   if (!Store.paused || TEST) stepPlayer(dt, ax, az, act && keys.jump); else { p.vx = p.vz = 0; }
   stepGather(dt); stepParts(dt); netStep(dt, now);
   camera.position.set(p.x, p.y + EYE, p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');
-  syncRaft(); updateObjects(); syncDevices(tNow); syncWolves(tNow); sky(); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
+  syncRaft(); updateObjects(); syncDevices(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
