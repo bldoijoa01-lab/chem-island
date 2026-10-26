@@ -118,6 +118,20 @@ window.Art = (() => {
     return outline(c);
   })();
 
+  // 서리 늑대(얼음 몸, 오른쪽을 본다)
+  A.obj.wolf = outline(fromMap([
+    '..........c..c..',
+    '.........cCcccC.',
+    '..ccccccccCCCwCC',
+    '.cCCCCCCCCCCeCCC',
+    'cCCCCCCCCCCCCCww',
+    'cCCwCCCCCCCCCdd.',
+    '.dCCCCCCCCCCCd..',
+    '..cC..cC..cC..cC',
+    '..cC..cC..cC..cC',
+    '..dd..dd..dd..dd',
+  ], { c: '#d9f4ff', C: '#8fd0f0', d: '#4f8fbd', w: '#ffffff', e: '#ff4a4a' }));
+
   // ---------- 장치 (32x32 = 2x2 타일) ----------
   function dev(fn) { const c = mk(32, 32); fn(painter(c)); return outline(c); }
   A.dev.fire = dev(p => {

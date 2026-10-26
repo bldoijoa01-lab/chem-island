@@ -9,6 +9,14 @@ const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
 const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
 const FIRE_NAME = ['꺼짐', '약불', '중불', '강불', '최강'];
+// 서리 늑대: 얼음 몸(질량 M g = 체력). 아래 값은 모두 게임 균형용 임의값이다(DESIGN.md §6 참고)
+const WOLF_M0 = 400;        // 가정(임의값) 늑대 한 마리의 얼음 질량(g)
+const WOLF_MAX = 2;         // 가정(임의값) 하룻밤 최대 마리 수
+const WOLF_SPEED = 6;       // 가정(임의값) 이동 속도(px/분)
+const WOLF_BREAK = 30;      // 가정(임의값) 장치에 붙어 있다가 파손시키는 데 걸리는 시간(분)
+const WOLF_K_FIRE = 0.5;    // 가정(임의값) 화덕 열전달 상수(W/K): Q = k·(T_열원 − 0 ℃)
+const WOLF_K_AIR = 3;       // 가정(임의값) 0 ℃ 이상 공기와의 열전달 상수(W/K)
+const WOLF_FIRE_R = 56;     // 가정(임의값) 화덕의 열이 닿는 거리(px)
 const SEA_BUCKET = { water: 193, nacl: 7 };    // 바닷물 1통 = 200 g (NaCl 3.5 %)
 const DEV = {
   fire:      { name: '화덕',        cost: { stick: 6, sand: 4 },              unlock: 0, needFire: false },
@@ -36,6 +44,7 @@ const QUESTS = [
   { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 오른쪽 설원에서. 소금을 섞으면 어는점이 내려가요' },
   { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
   { t: '언덕 위 제단의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '소금·증류수·한제 팩·캡슐을 챙기세요' },
+  { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '기온이 영하인 밤에 나타나요. 소금으로 어는점을 내리거나 화덕 열로 녹이세요' },
 ];
 
 // ---------- 상태 ----------
@@ -43,8 +52,8 @@ function newState() {
   return {
     day: 1, min: 360, px: 48 * T, py: 24 * T - PH, vx: 0, vy: 0, face: 1, speed: 1,
     inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0 },
-    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0,
-    f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false },
+    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, wolves: [], wolfNight: 0,
+    f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
     qDone: 0, log: [], memo: '',
   };
 }
@@ -116,7 +125,7 @@ const EMO = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;   // 그
 const pix = s => String(s).replace(EMO, '').replace(/^\s+/, '');
 const ic = k => `<i class="ic" style="background-image:url(${Art.iconURL[k]})"></i>`;
 const clockText = () => `${S.day}일차 ${String(Math.floor(S.min / 60)).padStart(2, '0')}:${String(Math.floor(S.min % 60)).padStart(2, '0')}`;
-const airTemp = () => 22 + 6 * Math.sin(2 * Math.PI * (S.min - 540) / 1440);   // ℃, 오후 3시가 가장 따뜻함
+const airTemp = () => 6.5 + 21.5 * Math.sin(2 * Math.PI * (S.min - 540) / 1440);   // ℃, 오후 3시 최고 28 ℃ · 새벽 3시 최저 −15 ℃ (가정(임의값))
 let msgTimer;
 function say(t) { $('msg').textContent = pix(t); clearTimeout(msgTimer); msgTimer = setTimeout(() => $('msg').textContent = '', 6000); }
 function logEv(type, text) { S.log.push({ day: S.day, t: clockText(), type, text: pix(text) }); if (S.log.length > 300) S.log.shift(); }
@@ -130,6 +139,7 @@ function advance(dm) {
   for (let i = 0; i < dm; i++) {
     S.min += 1;
     stepDevices();
+    stepWolves();
     if (S.min >= 1440) { S.min -= 1440; S.day += 1; newDay(); }
   }
 }
@@ -166,7 +176,7 @@ function heatOf(d) {
 function stepStill(d) {
   const s = d.s;
   s.T = heatOf(d);
-  if (!s.run || s.w <= 0) return;
+  if (s.broken || !s.run || s.w <= 0) return;
   const np = 2 * s.ns;                       // NaCl → Na⁺ + Cl⁻ (i = 2 가정)
   const xw = C.xw(s.w, np);
   s.xw = xw; s.tb = C.tb(1, xw);
@@ -217,6 +227,52 @@ function stepCooker(d) {
   }
 }
 
+// ---------- 서리 늑대 (밤 기온 < 0 ℃) ----------
+const wolfY = w => GY[Math.max(0, Math.min(WW - 1, Math.floor(w.x / T)))] * T;
+function purify(w, how) {
+  S.wolves.splice(S.wolves.indexOf(w), 1); S.f.wolf++;
+  say(`서리 늑대를 정화했습니다! (${how})`);
+  logEv('늑대 정화', `${how}으로 얼음 몸 ${WOLF_M0} g 모두 녹음 (기온 ${fmt(airTemp(), 1)}℃)`);
+  puff(w.x, wolfY(w) - 8, '#bfe9ff', 12);
+}
+function stepWolves() {
+  const Ta = airTemp(), night = S.min >= 1200 || S.min < 480;
+  if (S.min === 1140 && S.placed.length) say('해가 지고 있습니다. 기온이 영하로 내려가면 서리 늑대가 나타나요.');
+  const key = S.min >= 720 ? S.day : S.day - 1;      // 자정 이후는 전날 밤으로 센다
+  if (S.wolfNight !== key && Ta < 0 && night && S.placed.length) {
+    S.wolfNight = key;
+    const n = Math.min(WOLF_MAX, 1 + Math.floor(S.placed.length / 3));
+    for (let i = 0; i < n; i++) S.wolves.push({ x: 104 * T + i * 40, M: WOLF_M0, M0: WOLF_M0, hit: 0, face: -1 });
+    say(`기온 ${fmt(Ta, 1)} ℃ — 서리 늑대 ${n}마리가 나타났습니다! 장치를 지키세요.`);
+    logEv('늑대 출현', `기온 ${fmt(Ta, 1)}℃ < 0℃, 서리 늑대 ${n}마리(각 ${WOLF_M0} g)`);
+  }
+  for (const w of S.wolves.slice()) {
+    // 가열: 화덕 Q = k·ΔT·t, 0 ℃ 이상 공기 Q = k·T·t → 녹는 질량 = Q / 융해열(LF)  [#21]
+    let qFire = 0;
+    for (const f of S.placed) if (f.id === 'fire' && f.s.level > 0 && f.s.fuel > 0 && !f.s.broken && Math.abs(f.x * T + 16 - w.x) <= WOLF_FIRE_R) qFire += WOLF_K_FIRE * FIRE_T[f.s.level] * 60;
+    const q = qFire + (Ta > 0 ? WOLF_K_AIR * Ta * 60 : 0);
+    w.melting = q > 0; w.M -= C.iceMeltByHeat(q);
+    if (w.M <= 0.5) {
+      if (qFire > 0) purify(w, '화덕의 열');
+      else { S.wolves.splice(S.wolves.indexOf(w), 1); say('서리 늑대가 기온이 올라 녹아 사라졌습니다.'); logEv('늑대 소멸', `기온 ${fmt(Ta, 1)}℃ > 0℃에서 자연 융해`); }
+      continue;
+    }
+    // 이동·공격: 가장 가까운 멀쩡한 장치로 간다
+    const tg = S.placed.filter(d => !d.s.broken).sort((a, b) => Math.abs(a.x * T + 16 - w.x) - Math.abs(b.x * T + 16 - w.x))[0];
+    if (!tg) continue;
+    const dx = tg.x * T + 16 - w.x;
+    if (Math.abs(dx) > 20) { w.x += Math.sign(dx) * Math.min(WOLF_SPEED, Math.abs(dx) - 20); w.face = Math.sign(dx); w.hit = 0; continue; }
+    if (++w.hit >= WOLF_BREAK) {
+      w.hit = 0; tg.s.broken = true; tg.s.run = false;
+      if (tg.id === 'fire') tg.s.level = 0;
+      if (tg.id === 'cooker') tg.s.prog = 0;
+      say(`서리 늑대가 ${DEV[tg.id].name}을(를) 부쉈습니다! 수리가 필요해요.`);
+      logEv('장치 파손', `서리 늑대(${fmt(w.M, 0)} g)가 ${DEV[tg.id].name}을(를) ${WOLF_BREAK}분간 공격 → 파손 (기온 ${fmt(Ta, 1)}℃)`);
+      burst(tg);
+    }
+  }
+}
+
 // ---------- 퀘스트 ----------
 function checkQuests() {
   while (S.qDone < QUESTS.length && QUESTS[S.qDone].ok(S.f)) {
@@ -244,12 +300,14 @@ function targets() {
     add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : o.type === 'box' ? '광장 보급 상자' : '솥 골렘 제단');
   }
   for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name);
+  for (const w of S.wolves) add('wolf', w, w.x, wolfY(w) - 8, `서리 늑대 ${fmt(w.M, 0)} g`);
   if (nearWater()) add('water', null, cx, cy + 4, '바닷물 뜨기');
   return out.sort((a, b) => a.d - b.d);
 }
 function interact(t) {
   if (!t) return;
   if (t.kind === 'dev') return openDevice(t.ref);
+  if (t.kind === 'wolf') return uiWolf(t.ref);
   if (t.kind === 'water') { S.inv.sea++; S.f.sea = true; advance(5); say('바닷물 1통(200 g)을 떴습니다.'); return refresh(); }
   if (t.kind === 'box') return openBox();
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
@@ -332,11 +390,53 @@ const setw = (id, pct, cls) => { const e = $(id); if (e) { e.style.width = Math.
 
 // ---------- 장치 패널 ----------
 function openDevice(d) {
+  if (d.s.broken && d.id !== 'cooker') return uiBroken(d);
   ({ fire: uiFire, still: uiStill, cooker: uiCooker, cooler: uiCooler, collector: uiCollector }[d.id])(d);
 }
 let curDev = null;
 window.act = (name, arg) => { ACT[name](curDev, arg); if (modalTick) modalTick(); refresh(); };
 const ACT = {};
+
+function uiBroken(d) {
+  curDev = d;
+  openModal(`${DEV[d.id].name} (파손)`, `<div class="box">서리 늑대에게 부서졌습니다. 수리하려면 나뭇가지 2개가 필요합니다.</div>
+    <div class="row"><button class="primary" onclick="act('repair')">수리(나뭇가지 2)</button></div>`,
+  () => { if (!d.s.broken) openDevice(d); });
+}
+function uiWolf(w) {
+  curDev = w;
+  const max = Math.max(0, Math.min(150, Math.floor(S.inv.salt)));
+  openModal('서리 늑대', `
+    <div class="box">
+      <div class="kv"><span>현재 기온 T</span><b id="w-T"></b></div>
+      <div class="kv"><span>늑대 질량 M (체력)</span><b id="w-M"></b></div>
+      <div class="kv"><span>평형 몰랄농도 m_eq = |T| / (i·Kf)</span><b id="w-m"></b></div>
+      <div class="row" style="margin-top:6px"><label>뿌릴 소금 <b id="w-sv"></b> g <input type="range" id="w-s" min="0" max="${max}" step="1" value="${Math.min(20, max)}" oninput="G.tick()"></label></div>
+      <div class="kv"><span>예상 녹는 얼음</span><b id="w-melt"></b></div>
+      <div class="kv"><span>전부 녹이는 데 필요한 소금</span><b id="w-need"></b></div>
+      <div id="w-st" class="mut"></div>
+      <div class="row" style="margin-top:8px"><button class="primary" onclick="act('salt')">소금 뿌리기</button></div></div>
+    <div class="warnbox">소금이 녹으면 얼음 표면의 소금물 어는점이 내려가 얼음이 녹습니다. 녹은 물의 몰랄농도가 m_eq = |T|/(i·Kf) (i=2, Kf=1.86)가 될 때까지 녹아, 녹는 얼음은 w = (소금 mol / m_eq)·1000 g 입니다. 기온이 공융점 −21.1 ℃ 이하이면 소금이 통하지 않아 화덕 열(Q = m·융해열 334 J/g)로 녹여야 합니다. (열수지 무시, 이상 용액, NaCl 완전 해리 가정)</div>`,
+  () => {
+    if (!S.wolves.includes(w) || !$('w-s')) return closeModal();
+    const T = airTemp(), s = Math.min(+$('w-s').value, S.inv.salt), need = C.saltForMelt(T, w.M);
+    set('w-T', fmt(T, 1) + ' ℃'); set('w-M', fmt(w.M, 0) + ' g / ' + w.M0 + ' g'); set('w-sv', s);
+    set('w-m', T < 0 && T > C.EUTECTIC ? fmt(-T / (2 * C.KF), 3) + ' mol/kg' : '-');
+    set('w-melt', fmt(C.iceMeltBySalt(T, s, w.M), 1) + ' g'); set('w-need', isFinite(need) ? fmt(need, 1) + ' g' : '불가');
+    set('w-st', T >= 0 ? '0 ℃ 이상: 소금 없이도 녹고 있습니다.' : T <= C.EUTECTIC ? '공융점 이하: 소금이 통하지 않습니다. 화덕 가까이로 유인하세요.' : S.inv.salt < 1 ? '소금이 없습니다.' : '');
+  });
+}
+ACT.salt = w => {
+  if (!S.wolves.includes(w)) return;
+  const T = airTemp(), s = Math.min(+$('w-s').value, S.inv.salt);
+  if (T >= 0) return say('기온이 0 ℃ 이상이라 소금 없이도 녹고 있습니다.');
+  if (T <= C.EUTECTIC) return say(`공융점(${C.EUTECTIC} ℃) 이하에서는 소금이 통하지 않습니다.`);
+  if (s <= 0) return say('뿌릴 소금이 없습니다.');
+  const use = Math.min(s, C.saltForMelt(T, w.M)), melt = C.iceMeltBySalt(T, use, w.M), M = w.M;
+  S.inv.salt -= use; w.M -= melt;
+  logEv('소금 퇴치', `기온 ${fmt(T, 1)}℃ (m_eq ${fmt(-T / (2 * C.KF), 3)} mol/kg), 소금 ${fmt(use, 1)} g → 얼음 ${fmt(melt, 1)} g 녹음 (늑대 ${fmt(M, 0)} → ${fmt(Math.max(0, w.M), 0)} g)`);
+  if (w.M <= 0.5) purify(w, '소금'); else say(`얼음 ${fmt(melt, 0)} g이 녹았습니다. 남은 질량 ${fmt(w.M, 0)} g`);
+};
 
 function uiFire(d) {
   curDev = d;
@@ -439,7 +539,7 @@ ACT.cook = d => {
   s.saltG = salt; s.valve = +$('c-valve').value; s.prog = 0; s.run = true;
 };
 ACT.take = d => { if (!d.s.done) return say('아직 완성되지 않았습니다.'); d.s.done = false; S.inv.ramen++; S.f.ramenP = Math.max(S.f.ramenP, d.s.doneP); say('라면 1개를 얻었습니다.'); };
-ACT.repair = d => { if (!d.s.broken) return; if (S.inv.stick < 2) return say('나뭇가지 2개가 필요합니다.'); S.inv.stick -= 2; d.s.broken = false; };
+ACT.repair = d => { if (!d.s.broken) return; if (S.inv.stick < 2) return say('나뭇가지 2개가 필요합니다.'); S.inv.stick -= 2; d.s.broken = false; logEv('수리', `${DEV[d.id].name} 수리(나뭇가지 2개)`); };
 
 function uiCooler(d) {
   curDev = d;
@@ -572,7 +672,7 @@ window.G = {
   craft(id) { const r = RECIPES.find(x => x.id === id); if (!has(r.cost)) return; pay(r.cost); S.inv[r.out] += r.n; advance(10); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
-  showAuth, openSave,
+  showAuth, openSave, tick() { if (modalTick) modalTick(); },
   async upgrade() {
     const pw = $('up-pw').value;
     if (pw.length < 6) { say('비밀번호는 6자 이상이어야 합니다.'); return; }
@@ -795,6 +895,17 @@ function draw(t) {
     if (d.id === 'cooker' && d.s.broken) { ctx.fillStyle = '#ff5a4a'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
     if (d.id === 'cooker' && d.s.done) { ctx.fillStyle = '#ffe066'; ctx.fillRect(sx + 14, sy - 6 - Math.round(Math.sin(t * 6) * 2), 4, 4); }
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(d.x * T + 16, d.y * T + 10, '#ffb347', 1);
+  }
+  // 서리 늑대
+  for (const w of S.wolves) {
+    const img = Art.obj.wolf, k = Math.max(0.45, Math.sqrt(w.M / w.M0)), dw = Math.round(img.width * k), dh = Math.round(img.height * k);
+    const sx = Math.round(w.x - cam.x), gy = Math.round(wolfY(w) - cam.y);
+    if (sx < -30 || sx > VW + 30) continue;
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx - dw / 2, gy - 1, dw, 2);
+    ctx.save(); ctx.translate(sx, gy - dh - Math.round(Math.abs(Math.sin(t * 8)) * (w.hit > 0 ? 0 : 1)));
+    if (w.face < 0) ctx.scale(-1, 1);
+    ctx.drawImage(img, -Math.round(dw / 2), 0, dw, dh); ctx.restore();
+    if (w.melting && Math.random() < 0.12) puff(w.x, wolfY(w) - 4, '#bfe9ff', 1);
   }
   // 플레이어
   const moving = Math.abs(S.vx) > 1, fr = !onGround ? 3 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;

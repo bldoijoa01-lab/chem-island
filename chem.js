@@ -44,6 +44,22 @@
     return Math.max(-i * C.KF * m, C.EUTECTIC);
   };
 
+  // 소금 s(g)가 기온 T(℃, 0 미만)의 얼음을 녹이는 양(g).                       [#37, #39, #21]
+  // 평형: 녹은 물의 몰랄농도가 m_eq = |T|/(i·Kf)가 될 때까지 얼음이 녹는다 → 녹은 물 w = n_소금/m_eq.
+  // 공융점 이하(T ≤ −21.1 ℃)에서는 소금물이 얼음과 평형을 이룰 수 없어 0. iceG를 주면 그 질량을 넘지 못한다.
+  C.iceMeltBySalt = (Tc, saltG, iceG = Infinity, i = 2) => {
+    if (!(Tc < 0) || Tc <= C.EUTECTIC || saltG <= 0) return 0;
+    const meq = -Tc / (i * C.KF);
+    return Math.min(saltG / C.MW_NACL / meq * 1000, iceG);
+  };
+  // 위의 역: 얼음 iceG(g)를 모두 녹이는 데 필요한 소금(g). 불가능(T ≥ 0 또는 공융점 이하)하면 Infinity
+  C.saltForMelt = (Tc, iceG, i = 2) => {
+    if (!(Tc < 0) || Tc <= C.EUTECTIC) return Infinity;
+    return iceG / 1000 * (-Tc / (i * C.KF)) * C.MW_NACL;
+  };
+  // 열 Q(J)가 녹이는 얼음 질량(g) = Q / 융해열 (0 ℃ 얼음 기준)                  [#21]
+  C.iceMeltByHeat = (QJ) => Math.max(0, QJ) / C.LF;
+
   // 이상 기체: n = PV/RT                                                    [#4, #6, #8]
   C.moles = (P, V, Tc) => (P * V) / (C.R * (Tc + 273.15));
   // 분압 P_i = n_i RT / V  (= x_i · P_total)                                 [#9, #10, #11]
