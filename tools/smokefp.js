@@ -27,37 +27,56 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     if (await ev(() => !document.getElementById('modal').hidden)) await page.click('#mclose');
     await page.waitForTimeout(1500);
     // 서 있다: 발밑이 단단하다
-    const st0 = await ev(() => { const f = __fp; return { y: f.p.y, g: f.p.onGround, below: f.solid(Math.floor(f.p.x), Math.floor(f.p.y) - 1, Math.floor(f.p.z)) }; });
-    ok('땅에 선다', st0.g && st0.below, JSON.stringify(st0));
+    const st0 = await ev(() => { const f = __fp; return { y: f.p.y, g: f.p.onGround, ground: f.groundAt(f.p.x, f.p.z) }; });
+    ok('땅에 선다', st0.g && Math.abs(st0.y - st0.ground) < 0.05, JSON.stringify(st0));
     // 걷기: 동쪽(+x)을 보고 W
     await ev(() => __fp.setLook(-Math.PI / 2, 0));
     const x0 = await ev(() => __fp.p.x);
     await page.keyboard.down('w'); await page.waitForTimeout(1200); await page.keyboard.up('w');
     const moved = await ev(() => __fp.p.x) - x0;
     ok('걷는다', Math.abs(moved) > 1.5, moved.toFixed(2));
-    // 화면이 비어 있지 않다
-    // 땅 파기: 서쪽 땅(섬)으로 가서 아래를 보고 꾹 누른다
-    await ev(() => { const f = __fp, I = f.island(); const x = 30, z = 24, y = I.topY(x, z); f.p.x = x + 0.5; f.p.z = z + 0.5; f.p.y = y + 0.1; f.p.vy = 0; f.setLook(0, -1.2); });
-    await page.waitForTimeout(800);
-    const dug0 = await ev(() => Object.keys(__fp.S.fp.mods.start || {}).length), inv0 = await ev(() => __fp.S.inv.dirt);
-    await page.mouse.move(500, 300); await page.mouse.down(); await page.waitForTimeout(3500); await page.mouse.up();
-    const dug1 = await ev(() => Object.keys(__fp.S.fp.mods.start || {}).length), inv1 = await ev(() => __fp.S.inv.dirt);
-    ok('땅이 파진다', dug1 > dug0 && inv1 > inv0, `${dug0}→${dug1}, 흙 ${inv0}→${inv1}`);
-    // 자원 채집: 나무 앞에서 나무를 보고 E → 나뭇가지가 늘어난다
+    // 경사 한계(자동 오르기 없음): 가짜 지형으로 완만한 비탈은 오르고, 40°를 넘는 비탈과 큰 턱은 못 오르며, 점프로 작은 턱은 넘는다
+    const slopeRes = await ev(() => {
+      const f = __fp, I = f.island(), orig = I.height.bind(I), res = {};
+      const run = (name, hf, jump) => {
+        I.height = (x, z) => (x > 15 && x < 60 ? hf(x) : orig(x, z)); f.setLook(-Math.PI / 2, 0);
+        f.p.x = 18; f.p.z = 8; f.p.y = hf(18); f.p.vy = 0; f.p.onGround = true;
+        for (let i = 0; i < 360; i++) f.stepPlayer(1 / 60, 0, 1, jump && f.p.onGround && f.p.x > 19.4 && f.p.x < 20.2);
+        res[name] = Math.round(f.p.x * 10) / 10;
+      };
+      run('경사 30°', x => 12 + Math.max(0, x - 20) * 0.58, false);
+      run('경사 35°', x => 12 + Math.max(0, x - 20) * 0.7, false);
+      run('경사 45°', x => 12 + Math.max(0, x - 20) * 1.0, false);
+      run('턱 1.5m 점프', x => x < 20 ? 12 : 13.5, true);
+      run('턱 1.5m 점프없이', x => x < 20 ? 12 : 13.5, false);
+      run('턱 3m 점프', x => x < 20 ? 12 : 15, true);
+      I.height = orig; return res;
+    });
+    ok('경사 30°·35°는 오른다', slopeRes['경사 30°'] > 26 && slopeRes['경사 35°'] > 26, JSON.stringify(slopeRes));
+    ok('경사 45°는 못 오른다', slopeRes['경사 45°'] < 21, JSON.stringify(slopeRes));
+    ok('턱: 점프로만 1.5 m, 3 m는 못 넘음', slopeRes['턱 1.5m 점프'] > 22 && slopeRes['턱 1.5m 점프없이'] < 20.2 && slopeRes['턱 3m 점프'] < 20.2, JSON.stringify(slopeRes));
+    // 바위 캐기: 곡괭이를 들고 바위를 보며 좌클릭을 꾹 누른다 → 돌이 늘어난다(2D의 DIG 시간 2.0초)
     await ev(() => { window.aim = (x, y, z) => { const f = __fp, dx = x - f.p.x, dy = y - (f.p.y + 1.6), dz = z - f.p.z, l = Math.hypot(dx, dy, dz); f.setLook(Math.atan2(-dx, -dz), Math.asin(dy / l)); }; });
-    const tree = await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'tree'); f.p.x = o.x + 3; f.p.z = o.z; f.p.y = f.island().topY(Math.floor(o.x + 3), Math.floor(o.z)) + 0.1; f.p.vy = 0; return [o.x, o.y, o.z]; });
+    const rock = await ev(() => { const f = __fp, I = f.island(), o = I.objs.find(q => q.type === 'rock'); f.S.inv.pickaxe = 1; f.p.x = o.x + 3; f.p.z = o.z; f.p.y = I.height(o.x + 3, o.z); f.p.vy = 0; return [o.x, o.y, o.z]; });
+    await page.waitForTimeout(600);
+    await ev(([x, y, z]) => aim(x, y + 0.8, z), rock); await page.waitForTimeout(300);
+    const st1 = await ev(() => __fp.S.inv.stone);
+    await page.mouse.move(500, 300); await page.mouse.down(); await page.waitForTimeout(4500); await page.mouse.up();
+    ok('바위를 꾹 눌러 캔다', await ev(() => __fp.S.inv.stone) > st1, `돌 ${st1} → ${await ev(() => __fp.S.inv.stone)}, 대상 ${await ev(() => (__fp.aimedTarget() || {}).label)}`);
+    // 자원 채집: 나무 앞에서 나무를 보고 E → 나뭇가지가 늘어난다
+    const tree = await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'tree'); f.p.x = o.x + 3; f.p.z = o.z; f.p.y = f.island().height(o.x + 3, o.z); f.p.vy = 0; return [o.x, o.y, o.z]; });
     await page.waitForTimeout(600);
     await ev(([x, y, z]) => aim(x, y + 1.5, z), tree); await page.waitForTimeout(300);
     const stick0 = await ev(() => __fp.S.inv.stick); await page.keyboard.press('e'); await page.waitForTimeout(300);
-    ok('나무 채집(E)', await ev(() => __fp.S.inv.stick) > stick0, 'E 대상: ' + JSON.stringify(await ev(() => { const f = __fp, d = new (f.camera.position.constructor)(); f.camera.getWorldDirection(d); return { p: [f.p.x, f.p.y, f.p.z], dir: [d.x, d.y, d.z], tgt: (f.aimedTarget() || {}).label, modal: !document.getElementById('modal').hidden, msg: document.getElementById('msg').textContent, col: Array.from({ length: 12 }, (_, i) => f.voxel(Math.floor(f.p.x), 16 + i, Math.floor(f.p.z))).join(''), top: f.island().topY(Math.floor(f.p.x), Math.floor(f.p.z)), mods: Object.keys(f.S.fp.mods.start || {}).slice(0, 8) }; })) + JSON.stringify(tree));
+    ok('나무 채집(E)', await ev(() => __fp.S.inv.stick) > stick0, 'E 대상: ' + await ev(() => (__fp.aimedTarget() || {}).label));
     // 바닷물 뜨기: 뗏목 가장자리에서 바다를 보고 E
-    await ev(() => { const f = __fp; f.p.x = 55.5; f.p.z = 32.5; f.p.y = 10.05; f.p.vy = 0; });
+    await ev(() => { const f = __fp; f.p.x = 55.5; f.p.z = 32.5; f.p.y = 10; f.p.vy = 0; });
     await page.waitForTimeout(500);
     await ev(() => { const f = __fp; f.setLook(-Math.PI / 2, -0.5); }); await page.waitForTimeout(300);
     const sea0 = await ev(() => __fp.S.inv.sea); await page.keyboard.press('e'); await page.waitForTimeout(300);
     ok('바닷물 뜨기(E)', await ev(() => __fp.S.inv.sea) > sea0, '대상: ' + await ev(() => (__fp.aimedTarget() || {}).kind));
     // 건설: 화덕 → 뗏목 바닥을 보고 우클릭 → 장치가 늘어난다, 목표 1 달성
-    await ev(() => { const S = __fp.S; S.inv.stick = Math.max(S.inv.stick, 10); S.inv.sand = Math.max(S.inv.sand, 10); G.startBuild('fire'); const f = __fp; f.p.x = 53.5; f.p.z = 31.5; f.p.y = 10.05; f.p.vy = 0; f.setLook(-Math.PI / 2, -1.4); });
+    await ev(() => { const S = __fp.S; S.inv.stick = Math.max(S.inv.stick, 10); S.inv.sand = Math.max(S.inv.sand, 10); G.startBuild('fire'); const f = __fp; f.p.x = 53.5; f.p.z = 31.5; f.p.y = 10; f.p.vy = 0; f.setLook(-Math.PI / 2, -1.4); });
     await page.waitForTimeout(500);
     const cell = await ev(() => __fp.ghostCell());
     await page.mouse.move(500, 300); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(400);
@@ -68,7 +87,7 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     // 공용 패널: 메뉴 5개
     for (let i = 0; i < 5; i++) { await page.click(`#menu3 button:nth-child(${i + 1})`); await page.waitForTimeout(200); if (!(await ev(() => !document.getElementById('modal').hidden))) errors.push(`메뉴 ${i + 1}번이 열리지 않았습니다`); await page.click('#mclose'); await page.waitForTimeout(100); }
     // 서리 늑대(목표 9): 밤에 장치에 붙은 늑대를 보고 소금 뿌리개(우클릭) → 질량이 줄어든다
-    await ev(() => { const f = __fp, S = f.S; S.min = 180; S.inv.salt = 200; S.inv.shaker = 1; S.mobs.push({ id: 3, k: 'wolf', M: 100, M0: 100, dx: S.placed[0].x, dy: S.placed[0].y, att: 0 }); f.p.x = 55.5; f.p.z = 30.4; f.p.y = 10.05; f.p.vy = 0; });
+    await ev(() => { const f = __fp, S = f.S; S.min = 180; S.inv.salt = 200; S.inv.shaker = 1; S.mobs.push({ id: 3, k: 'wolf', M: 100, M0: 100, dx: S.placed[0].x, dy: S.placed[0].y, att: 0 }); f.p.x = 55.5; f.p.z = 30.4; f.p.y = 10; f.p.vy = 0; });
     await page.waitForTimeout(600);
     await ev(() => { const f = __fp, m = f.S.mobs[0], d = f.S.placed[0]; const wx = 52 + d.x + 1 + (m.id % 2 ? 2.2 : -2.2), wz = 30 + d.y + 1; aim(wx, 10.6, wz); f.setSel('shaker'); });
     await page.waitForTimeout(300);
@@ -79,9 +98,9 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     // 극지 섬(목표 11): 눈 칸에 소금을 뿌려 얼음 100 g을 녹이면 물이 되고 S.f.polarMelt
     await ev(() => { const S = __fp.S; S.f.raft = true; S.qDone = 11; S.mobs.length = 0; S.inv.salt = 500; G.sail('polar'); });
     await page.waitForTimeout(1500);
-    const polar = await ev(() => { const f = __fp, I = f.island(); for (let x = 20; x < 40; x++) { const y = I.topY(x, 24) - 1, id = I.get(x, y, 24); if (id === 5 || id === 6) { f.p.x = x + 0.5; f.p.z = 26.5; f.p.y = y + 1.1; f.p.vy = 0; f.S.min = 180; f.setSel('shaker'); return { x, y, z: 24, id, isl: f.islName() }; } } return null; });
+    const polar = await ev(() => { const f = __fp, I = f.island(), o = I.objs.find(q => q.type === 'iceblock'); if (!o) return null; f.p.x = o.x + 2.5; f.p.z = o.z; f.p.y = I.height(o.x + 2.5, o.z); f.p.vy = 0; f.S.min = 180; f.setSel('shaker'); return { id: o.id, x: o.x, y: o.y, z: o.z, isl: f.islName() }; });
     await page.waitForTimeout(800);
-    if (polar) await ev(({ x, y, z }) => aim(x + 0.5, y + 0.9, z + 0.5), polar);
+    if (polar) await ev(({ x, y, z }) => aim(x, y + 0.7, z), polar);
     await page.waitForTimeout(300);
     for (let i = 0; i < 40 && polar && !(await ev(() => __fp.S.f.polarMelt)); i++) { await ev(() => { __fp.S.min = 180; }); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(60); }
     ok('극지 섬 얼음 녹이기(목표 11 조건)', !!polar && await ev(() => __fp.S.f.polarMelt), JSON.stringify(polar) + ' 소금 ' + await ev(() => __fp.S.inv.salt));
@@ -91,12 +110,12 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
       const walk = await ev(() => {
         const f = __fp, res = {};
         const go = (yaw, done) => { f.setLook(yaw, 0); let t = 0, lx = f.p.x, lz = f.p.z, stuck = 0;
-          while (t < 150 && !done()) { f.stepPlayer(1 / 60, 0, 1, f.p.onGround && stuck > 1 || f.p.inW); t += 1 / 60; stuck = Math.hypot(f.p.x - lx, f.p.z - lz) < 0.004 ? stuck + 1 : 0; lx = f.p.x; lz = f.p.z; }
+          while (t < 150 && !done()) { f.stepPlayer(1 / 60, stuck > 20 ? 1 : 0, 1, f.p.onGround && stuck > 1 || f.p.inW); t += 1 / 60; stuck = Math.hypot(f.p.x - lx, f.p.z - lz) < 0.004 ? stuck + 1 : 0; lx = f.p.x; lz = f.p.z; }
           return done(); };
-        f.p.x = 50.5; f.p.z = 32.5; f.p.y = 11; f.p.vy = 0;
+        f.p.x = 50.5; f.p.z = 32.5; f.p.y = f.groundAt(50.5, 32.5); f.p.vy = 0;
         res.west = go(Math.PI / 2, () => f.p.x < 12);
         res.east = go(-Math.PI / 2, () => f.p.x > 50);
-        return res;
+        res.at = [Math.round(f.p.x * 10) / 10, Math.round(f.p.z * 10) / 10, Math.round(f.p.y * 10) / 10]; return res;
       });
       ok(`섬 통과: ${dock}`, walk.west && walk.east, JSON.stringify(walk));
     }
@@ -107,7 +126,7 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     ok('항해(광장섬 도착)', arr.isl === 'plaza' && arr.dock === 'plaza' && arr.onG && arr.dev === 1, JSON.stringify(arr));
     // 보스: 제단을 보고 E → 골렘 화면
 
-    await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'altar'); f.p.x = o.x + 3; f.p.z = o.z; f.p.y = f.island().topY(Math.floor(o.x + 3), Math.floor(o.z)) + 0.1; f.p.vy = 0; });
+    await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'altar'); f.p.x = o.x + 3; f.p.z = o.z; f.p.y = f.island().height(o.x + 3, o.z); f.p.vy = 0; });
     await page.waitForTimeout(600);
     await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'altar'); aim(o.x, o.y + 1, o.z); }); await page.waitForTimeout(300);
     await page.keyboard.press('e'); await page.waitForTimeout(500);
@@ -127,7 +146,7 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
       const fake = {
         ok: true, user: { uid: 'u1' }, nick: '테스터', guest: true, peers: { u2: { nick: '친구', x: 30, y: 12, z: 30, yaw: 0, air: false } }, calls,
         init: () => true, restore: async () => '테스터',
-        loadSave: async () => { const s = Sim.newState(); s.fp = { x: 40.5, y: 14, z: 30.5, yaw: 1, pitch: 0, mods: { plaza: { '33,12,40': 0 } } }; s.raft.dock = 'plaza'; s.f.raft = true; s.qDone = 4; s.placed = [{ id: 'fire', x: 1, y: 1, s: { level: 0, fuel: 0 } }]; return s; },
+        loadSave: async () => { const s = Sim.newState(); s.fp = { x: 40.5, y: 14, z: 30.5, yaw: 1, pitch: 0, melted: {}, mods: { plaza: { '33,12,40': 0 } } }; s.raft.dock = 'plaza'; s.f.raft = true; s.qDone = 4; s.placed = [{ id: 'fire', x: 1, y: 1, s: { level: 0, fuel: 0 } }]; return s; },
         saveSave: async (o) => { calls.saveSave++; calls.saves.push(Object.keys(o)); }, saveRaft: async (o) => { calls.rafts++; calls.raft = o; },
         joinMap: (m, first) => calls.join.push([m, Object.keys(first)]), sendPos: (pk) => calls.pos.push(pk), leaveMap() {},
         loadRafts: async () => [{ nick: '이웃', cells: 6, dock: 'plaza', devs: [{ id: 'still', u: 0, z: 0 }] }], loadBottles: async () => [],
@@ -138,9 +157,9 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     await page2.click('#t-start'); await page2.waitForTimeout(1800);
     if (await page2.evaluate(() => !document.getElementById('modal').hidden)) await page2.click('#mclose');
     await page2.waitForTimeout(1500);
-    const on = await page2.evaluate(() => { const f = __fp; return { isl: f.islName(), dock: f.S.raft.dock, voxel: f.voxel(33, 12, 40), fire: f.S.placed.length, x: f.p.x, calls: Net.calls, labels: document.querySelectorAll('.nick3').length, lt: [...document.querySelectorAll('.nick3')].map(e => e.textContent), peers: Object.keys(Net.peers), presKeys: Object.keys(f.S.fp), pause: Store.paused, scene: f.scene.children.length }; });
+    const on = await page2.evaluate(() => { const f = __fp; return { isl: f.islName(), dock: f.S.raft.dock, hasMods: 'mods' in f.S.fp, fire: f.S.placed.length, x: f.p.x, calls: Net.calls, labels: document.querySelectorAll('.nick3').length, lt: [...document.querySelectorAll('.nick3')].map(e => e.textContent), peers: Object.keys(Net.peers), presKeys: Object.keys(f.S.fp), pause: Store.paused, scene: f.scene.children.length }; });
     ok('온라인: 서버 세이브로 광장섬 복원', on.isl === 'plaza' && on.dock === 'plaza' && on.fire === 1, JSON.stringify(on));
-    ok('온라인: 파낸 복셀 복원', on.voxel === 0, 'voxel ' + on.voxel);
+    ok('온라인: 옛 복셀 기록(mods)은 무시', !on.hasMods, JSON.stringify(on.hasMods));
     ok('온라인: 광장 접속(fp-plaza)과 위치 전송', on.calls.join.some(j => j[0] === 'fp-plaza' && j[1].includes('z') && j[1].includes('yaw')) && on.calls.pos.length >= 0, JSON.stringify(on.calls.join));
     ok('온라인: 다른 플레이어·정박 뗏목 이름표', on.labels >= 2, JSON.stringify([on.labels, on.lt, on.peers, on.pause]));
     await page2.waitForTimeout(6500);

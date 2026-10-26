@@ -3,7 +3,7 @@
 // S 객체의 자리는 바뀌지 않는다(다른 모듈이 `const S = Store.S`로 잡고 있다): 서버 세이브·초기화는 내용만 갈아 끼운다.
 window.Store = (() => {
   const FP = !!window.CHEM_FP;                                   // 1인칭(fp/)은 2D와 다른 키·다른 서버 경로(6-e)를 쓴다
-  const KEY = FP ? 'chemisle_fp_v1' : 'chemisle_side_v1';
+  const KEY = FP ? 'chemisle_fp_v2' : 'chemisle_side_v1';
   const S = (() => { try { const j = JSON.parse(localStorage.getItem(KEY) || 'null'); return j ? Sim.merge(j) : Sim.newState(); } catch { return Sim.newState(); } })();
   const St = { S, KEY, paused: false, onWarn: null, remote: true };   // remote: 서버 저장 사용 여부(fp는 /saves3·/rafts3 경로를 쓴다: net.js)   // paused: 접속 화면이 떠 있는 동안 시간이 흐르지 않게
   St.set = (obj) => { for (const k of Object.keys(S)) delete S[k]; Object.assign(S, obj); return S; };
