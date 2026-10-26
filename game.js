@@ -543,6 +543,7 @@ async function enterWorld() {
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
   $('auth').hidden = true; paused = false; lastRemote = 0; save(true); refresh();
+  Net.joinMap(MAPID, posPacket());
   say(`${Net.nick}님, 환영합니다!`);
 }
 async function busy(fn) {
@@ -675,9 +676,43 @@ const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 
 let stars = [];
 const makeStars = () => { stars = Array.from({ length: Math.max(30, Math.floor(VW * VH / 1500)) }, (_, i) => [((i * 97.31) % 1000) / 1000, ((i * 53.77) % 1000) / 1000]); };
 let last = performance.now(), tt = 0;
+// ---------- 다른 플레이어(presence) ----------
+const MAPID = 'main';
+const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !onGround });
+let lastPos = '', lastPosAt = 0;
+const ghosts = {};   // uid -> { x, y, face, vx, air, nick, seen } (보간되는 화면 위치)
+function netStep(dt, now) {
+  if (!(window.Net && Net.user) || paused) return;
+  if (now - lastPosAt >= 100) {           // 10 Hz, 변화가 없으면 생략(5초마다 생존 신호)
+    const p = posPacket(), k = JSON.stringify(p);
+    if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(p); }
+  }
+  const a = 1 - Math.exp(-dt * 14);
+  for (const id in Net.peers) {
+    const p = Net.peers[id], g = ghosts[id] || (ghosts[id] = { x: p.x, y: p.y });
+    g.x += (p.x - g.x) * a; g.y += (p.y - g.y) * a;
+    g.nick = p.nick; g.face = p.face; g.vx = p.vx; g.air = p.air;
+  }
+  for (const id in ghosts) if (!Net.peers[id]) delete ghosts[id];
+}
+function drawPeers(t) {
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.font = '8px sans-serif';
+  for (const id in ghosts) {
+    const g = ghosts[id], sx = g.x - cam.x, sy = g.y - cam.y;
+    if (sx < -40 || sx > VW + 40 || sy < -40 || sy > VH + 40) continue;
+    const fr = g.air ? 3 : Math.abs(g.vx) > 1 ? 1 + (Math.floor(t * 8) % 2) : 0, px = sx - 3, py = sy + PH - 22;
+    ctx.save(); ctx.globalAlpha = 0.9;
+    if (g.face < 0) { ctx.translate(Math.round(px) + 16, 0); ctx.scale(-1, 1); blit(Art.playerFrames[fr], 0, py); } else blit(Art.playerFrames[fr], px, py);
+    ctx.restore();
+    const nx = Math.round(sx + PW / 2), ny = Math.round(py - 2);
+    ctx.lineWidth = 2; ctx.strokeStyle = '#000000'; ctx.strokeText(g.nick || '', nx, ny);
+    ctx.fillStyle = '#9fe8ff'; ctx.fillText(g.nick || '', nx, ny);
+  }
+  ctx.textAlign = 'left';
+}
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; tt += dt;
-  physics(dt); stepParts(dt);
+  physics(dt); stepParts(dt); netStep(dt, now);
   draw(tt);
   requestAnimationFrame(frame);
 }
@@ -768,6 +803,7 @@ function draw(t) {
   ctx.save();
   if (S.face < 0) { ctx.translate(Math.round(px - cam.x) + 16, 0); ctx.scale(-1, 1); blit(Art.playerFrames[fr], 0, py); } else blit(Art.playerFrames[fr], px - cam.x, py);
   ctx.restore();
+  drawPeers(t);
   // 새·파티클
   if (hour > 7 && hour < 18) for (const b of birds) ctx.drawImage(Art.bird[Math.floor(b.ph) % 2], Math.round(b.x - cam.x), Math.round(b.y - cam.y + Math.sin(b.ph * 0.4) * 5));
   for (const p of parts) { ctx.fillStyle = p.col; ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillRect(Math.round(p.x - cam.x), Math.round(p.y - cam.y), p.s, p.s); }
