@@ -7,7 +7,8 @@ import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 import { installTheme, themed, GAME_TITLE } from '../shared/theme.js';
 import { Party } from '../shared/party.js';
-import { stepBody, blockedByObjs, HALF, BODY, COLL, COLL_H } from '../shared/move.js';
+import { stepBody, HALF, BODY } from '../shared/move.js';
+import { makeCtx, PLOT_OFF } from '../shared/ctl.js';
 import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from '../shared/hub.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
@@ -34,29 +35,11 @@ const FOV = 70, VIEW = 220;     // 시야각(°), 안개가 끝나는 거리(m)
 const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 - h) / 2 : 0;
 
 // ---------- 상태 ----------
-function ensureFp() {
-  if (!S.fp) S.fp = { x: RX0 - 3.5, y: SEA + 2, z: RZ0 + 2.5, yaw: -Math.PI / 2, pitch: 0, melted: {} };
-  if (!S.fp.melted) S.fp.melted = {};
-  delete S.fp.mods;   // 예전 복셀 버전의 파낸 칸 기록은 쓰지 않는다
-  Sim.geo.adjacent = (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 3;   // 격자 바닥: 2x2 장치 사이가 한 칸 이내(장치의 x, y = 격자 칸 x, z)
-  // 10단계 고리: 지표 부지 장치는 그 행성의 환경을, 열선으로 연결된 화덕은 열원이 된다(계산식은 그대로, 기본값은 sim.js가 가진 2D 동작)
-  Sim.geo.island = (S_, d) => d && d.plot ? d.plot : Sim.dockOf(S_).island;
-  Sim.geo.heatSources = (S_, d) => {
-    const out = S_.placed.filter(f => f !== d && f.id === 'fire' && Sim.geo.adjacent(f, d));
-    for (const l of (S_.links || [])) if (l.kind === 'heat' && l.b === d.uid) { const f = S_.placed.find(x => x.uid === l.a); if (f && f.id === 'fire' && !out.includes(f)) out.push(f); }
-    return out;
-  };
-  if (!Array.isArray(S.links)) S.links = [];
-  ensureUids();
-}
-// 장치 uid(연결선이 가리킨다): 건설 때 팀 번호표(S.team.seq)로 부여한다. 예전 세이브의 장치에도 채운다
-function nextUid() { if (!S.team) S.team = {}; S.team.seq = (S.team.seq || 0) + 1; return 'd' + S.team.seq; }
-function ensureUids() { for (const d of S.placed) if (!d.uid) d.uid = nextUid(); }
+const ctx = makeCtx(S);
+const { ensureFp, nextUid, ensureUids, raftDims, raftCell, groundAt, visible, devWorld, melted, blocked, findFree, islandName } = ctx;   // 월드 질의는 shared/ctl.js (td/와 공용)
 ensureFp();
 const p = { x: S.fp.x, y: S.fp.y, z: S.fp.z, vx: 0, vy: 0, vz: 0, onGround: false, inW: false };
 let yaw = S.fp.yaw, pitch = S.fp.pitch;
-const raftDims = () => { const cx = S.raft.cells; return { cx, cz: Math.min(8, 4 + Math.floor((cx - 4) / 2)) }; };   // 가정(임의값) 뗏목 격자 = cells × (4 + (cells−4)/2): 4×4 → 12×8
-const islandName = () => Sim.dockOf(S).island;
 
 // ---------- 장면 ----------
 const host = $('gl');
@@ -75,9 +58,6 @@ const tex = (cv) => { let t = texCache.get(cv); if (!t) { t = new THREE.CanvasTe
 // ---------- 섬(매끈한 높이 지형) ----------
 let isl = null, islName = '', terrainMesh = null, farGroup = new THREE.Group(), objGroup = new THREE.Group(), raftMesh = null, raftSig = '';
 scene.add(farGroup, objGroup);
-const raftCell = (x, z) => { const { cx, cz } = raftDims(); return x >= RX0 && x < RX0 + cx && z >= RZ0 && z < RZ0 + cz; };
-// 발 아래 높이: 지형 높이장(쌍선형)과 뗏목 바닥(칸마다 SEA 높이의 평면) 중 높은 것
-const groundAt = (x, z) => { const t = isl.height(x, z); return raftCell(Math.floor(x), Math.floor(z)) ? Math.max(t, SEA) : t; };
 function setTerrain() {
   if (terrainMesh) { scene.remove(terrainMesh); terrainMesh.geometry.dispose(); }
   terrainMesh = new THREE.Mesh(buildIslandGeometry(THREE, isl, STEP_NEAR), terrainMat); terrainMesh.frustumCulled = false; scene.add(terrainMesh);
@@ -108,7 +88,6 @@ function buildObjects() {
     objGroup.add(g); objMeshes.set(o, g);
   }
 }
-const melted = o => S.fp.melted[o.id] === S.day;   // 소금에 녹은 얼음 노드는 그날 하루 사라진다(다음 날 다시 자란다)
 function updateObjects(t) {
   for (const [o, g] of objMeshes) {
     const n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
@@ -117,10 +96,6 @@ function updateObjects(t) {
     if (g.userData.glow) { g.userData.glow.visible = !S.f.boss; g.userData.glow.material.opacity = 0.55 + 0.35 * Math.sin(t * 3); }   // 골렘이 남아 있으면 제단이 깜빡인다(2D와 같음)
   }
 }
-// 지표 부지 장치(d.plot = 행성 id)는 전역 좌표 x = 100 + 20 × 행성 번호 + 칸으로 저장해 탐사정 장치·다른 행성 장치와 겹치지 않는다(DESIGN §4-18)
-const PLOT_OFF = (plot) => 100 + ISLANDS.indexOf(plot) * 20;
-const visible = (d) => !d.plot || d.plot === islName;   // 지표 부지 장치는 그 행성에 있을 때만 보이고 조작할 수 있다(시간은 계속 흐른다)
-function devWorld(d) { if (d.plot) return [PAD.x0 + (d.x - PLOT_OFF(d.plot)) + 1, isl.padH, PAD.z0 + d.y + 1]; return [RX0 + d.x + 1, SEA, RZ0 + d.y + 1]; }   // 장치(2×2)의 가운데 바닥
 const devBob = (d) => d.plot ? 0 : bobNow;   // 탐사정 위 장치만 출렁인다
 const wolfDev = (m) => S.placed.find(x => x.x === m.dx && x.y === m.dy);
 const wolfWorld = (m) => { const d = wolfDev(m); const [x, y, z] = d && visible(d) ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
@@ -174,7 +149,7 @@ function setPad() {
   padMesh.add(slab, grid); scene.add(padMesh);
 }
 function loadIsland(name) {
-  islName = name; isl = new Island(name);
+  islName = name; isl = new Island(name); ctx.name = name; ctx.isl = isl;
   setTerrain(); setPad(); setFar(); buildObjects(); raftSig = ''; syncRaft();
 }
 
@@ -308,12 +283,6 @@ let lastTarget = null;   // 공용 UI의 연기 효과(H.puff)가 쓸 위치: �
 const fxPos = () => lastTarget ? [lastTarget.wx, lastTarget.wy, lastTarget.wz] : [p.x, p.y + 1, p.z];
 
 // ---------- 충돌·이동 ----------
-// 몸(반지름 HALF)이 자원·시설·장치에 막히는가. 자원은 원기둥(COLL), 장치는 2×2 상자. 높이를 넘으면 위로 지나간다
-function blocked(x, y, z) {
-  if (blockedByObjs(isl.objs, x, y, z, melted)) return true;
-  for (const d of S.placed) { if (!visible(d)) continue; const [wx, wy, wz] = devWorld(d); if (Math.abs(x - wx) < 1 + HALF && Math.abs(z - wz) < 1 + HALF && y < wy + 1.8) return true; }
-  return false;
-}
 let seaHintAt = 0;
 // 한 걸음·한 틱은 shared/move.js(td/와 공용). 여기서는 시선 방향(yaw)을 세계 방향으로 바꾸고 월드 질의(groundAt·blocked)를 넘긴다
 const moveWorld = { groundAt: (x, z) => groundAt(x, z), blocked, onEdge() { const t = performance.now(); if (t - seaHintAt > 5000) { seaHintAt = t; say('더 멀리 갈 수 없어요. 탐사정으로 궤도 이동하세요 (궤도 이동 단말).'); } } };
@@ -650,11 +619,6 @@ function arrive() {
   p.x = RX0 + cx / 2; p.z = RZ0 + cz / 2 + (S.placed.length ? cz / 2 - 0.5 : 0); p.y = SEA; p.vx = p.vy = p.vz = 0; yaw = -Math.PI / 2; pitch = 0;
   const free = findFree(); if (free) { p.x = free[0]; p.z = free[1]; }
   loadPlaza(); joinPresence();
-}
-function findFree() {   // 뗏목 위에서 장치와 겹치지 않는 자리
-  const { cx, cz } = raftDims();
-  for (let r = 0; r < Math.max(cx, cz); r++) for (let gx = 0; gx < cx; gx++) for (let gz = 0; gz < cz; gz++) { const x = RX0 + gx + 0.5, z = RZ0 + gz + 0.5; if (!blocked(x, SEA, z)) return [x, z]; }
-  return null;
 }
 const MAPID = 'main';
 // 팀 창(공용 openModal에 HTML을 넣는다). 버튼은 인라인 onclick으로 TeamUI를 부른다
