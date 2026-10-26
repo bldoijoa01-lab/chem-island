@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chemistry Quiz - 원소 퀴즈</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="card">
+  <h1>⚗️ 원소 퀴즈</h1>
+
+  <section id="screen-start">
+    <p class="sub">주기율표 원소를 얼마나 알고 있나요?</p>
+
+    <h2>모드</h2>
+    <div class="options" id="mode-options">
+      <button class="opt active" data-mode="sym2name">기호 → 이름</button>
+      <button class="opt" data-mode="name2sym">이름 → 기호</button>
+      <button class="opt" data-mode="num2name">원자번호 → 이름</button>
+    </div>
+
+    <h2>난이도</h2>
+    <div class="options" id="level-options">
+      <button class="opt active" data-level="20">쉬움 (1~20번)</button>
+      <button class="opt" data-level="36">보통 (1~36번)</button>
+      <button class="opt" data-level="99">어려움 (+주요 원소)</button>
+    </div>
+
+    <button class="primary" id="btn-start">게임 시작</button>
+    <p class="best">최고 점수: <span id="best">0</span></p>
+  </section>
+
+  <section id="screen-game" hidden>
+    <div class="hud">
+      <span>문제 <b id="qnum">1</b>/10</span>
+      <span>점수 <b id="score">0</b></span>
+      <span>🔥 <b id="streak">0</b></span>
+    </div>
+    <div class="timer"><div id="timerbar"></div></div>
+    <div class="question" id="question"></div>
+    <div class="answers" id="answers"></div>
+  </section>
+
+  <section id="screen-end" hidden>
+    <h2>결과</h2>
+    <p class="final"><b id="final-score">0</b>점</p>
+    <p id="final-detail"></p>
+    <p id="newbest" class="newbest" hidden>🎉 최고 점수 갱신!</p>
+    <button class="primary" id="btn-again">다시 하기</button>
+  </section>
+</main>
+<script src="game.js"></script>
+</body>
+</html>
