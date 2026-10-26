@@ -226,6 +226,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     return false;
   };
 
+  const SURF_JUMP = 240;   // 가정(임의값) 수면에서 뛰어오르는 속도(px/s) → 약 32 px(2칸). 수면보다 한 칸 높은 둑에 오르려면 약 25 px 필요. 이전: 자동 오르기가 한 칸 턱을 넘겨 줌
   // 한 프레임 이동(2D·3D 공용: x·y는 단면 규칙 그대로, 3D의 z는 보이기만 한다). input = { ax: -1|0|1, jump }, st = { onGround, bound }
   function stepPlayer(S, dt, input, st) {
     const { ax, jump } = input;
@@ -233,14 +234,16 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     S.vx = ax * (inW ? 42 : 72);
     if (ax) S.face = ax;
     if (jump) {
-      if (inW) S.vy = Math.max(S.vy - 700 * dt, -60);
-      else if (st.onGround) { S.vy = -270; st.onGround = false; }
+      if (st.onGround) { S.vy = -270; st.onGround = false; }   // 바닥을 딛고 있으면 물속에서도 뛴다(자동 오르기가 없으니 물가 한 칸 턱을 넘으려면 필요)
+      else if (inW) {                                          // 떠 있을 때는 헤엄. 수면에서는 물 밖으로 뛰어오른다(물가 한 칸 턱을 넘기 위해)
+        const surface = tileAt(Math.floor((S.px + PW / 2) / T), Math.floor((S.py - 2) / T)) !== WATER;
+        S.vy = surface ? -SURF_JUMP : Math.max(S.vy - 700 * dt, -60);
+      }
     }
     S.vy = Math.min(S.vy + (inW ? 300 : 900) * dt, inW ? 70 : 400);
     const nx = S.px + S.vx * dt;
     st.bound = false;
     if (!collides(nx, S.py)) S.px = nx;
-    else if (st.onGround && ax && !collides(nx, S.py - T)) { S.px = nx; S.py -= T; }   // 한 칸 턱은 자동으로 오름
     { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 섬 사이는 뗏목으로만 건넌다
       if (S.px < lo || S.px > hi) { S.px = Math.max(lo, Math.min(hi, S.px)); st.bound = true; } }
     const ny = S.py + S.vy * dt;

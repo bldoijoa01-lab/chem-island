@@ -19,6 +19,14 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   await page.keyboard.down('a'); await page.waitForTimeout(800); await page.keyboard.up('a');
   const moved = await page.evaluate(() => G.debug().px) - x0;
   if (!(Math.abs(moved) > 20)) errors.push(`이동하지 않았습니다(${moved.toFixed(1)} px)`);
+  // 자동 오르기 없음: 한 칸 턱 앞에서 오른쪽으로만 걸으면 멈추고, 점프하면 넘는다
+  const step = await page.evaluate(() => { const W = World, S = G.debug(); for (let x = 30; x < 100; x++) if (W.GY[x] - 1 === W.GY[x + 1] && W.tileAt(x, W.GY[x]) !== W.WATER && W.tileAt(x + 1, W.GY[x + 1]) !== W.WATER) { S.px = x * 16 + 2; S.py = (W.GY[x] - 2) * 16; S.vx = S.vy = 0; return x; } return -1; });
+  await page.waitForTimeout(600);
+  await page.keyboard.down('d'); await page.waitForTimeout(900); await page.keyboard.up('d');
+  const stuckAt = await page.evaluate(() => G.debug().px);
+  if (step < 0 || stuckAt >= (step + 1) * 16 - 9) errors.push(`한 칸 턱에서 멈추지 않았습니다(x=${step}, px=${stuckAt.toFixed(0)})`);
+  await page.keyboard.down('d'); await page.keyboard.down('w'); await page.waitForTimeout(900); await page.keyboard.up('w'); await page.keyboard.up('d');
+  if (await page.evaluate(() => G.debug().px) < (step + 1) * 16) errors.push('점프로도 한 칸 턱을 넘지 못했습니다');
   await page.waitForTimeout(500);
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
