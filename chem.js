@@ -62,6 +62,26 @@
     return Math.max(Tf, 0);
   };
 
+  // 외기 온도(℃): 하루를 사인 곡선으로 근사. 오후 3시 최고, 새벽 3시 최저          // 가정(임의값): 최고 28, 최저 −15 ℃
+  C.T_DAY_MAX = 28; C.T_NIGHT_MIN = -15;
+  C.airTemp = (min) => (C.T_DAY_MAX + C.T_NIGHT_MIN) / 2 + (C.T_DAY_MAX - C.T_NIGHT_MIN) / 2 * Math.sin(2 * Math.PI * (min - 540) / 1440);
+
+  // 소금이 녹이는 얼음의 질량(g): 기온 Tc(℃)에서 얼음-소금물이 평형이 될 때의 몰랄농도 m_eq = |Tc|/(i·Kf)   [#37, #39, #21]
+  // 소금 n mol 이 m_eq 의 용액을 만들려면 물이 n/m_eq kg 필요 → 그만큼의 얼음이 녹는다.
+  // 공융점(−21.1 ℃) 이하이거나 0 ℃ 이상이면 얼음-소금물 평형이 성립하지 않아 0. (열수지 무시, 이상 용액 가정)
+  C.iceMeltBySalt = (Tc, saltG, i = 2) => {
+    if (!(Tc < 0) || Tc <= C.EUTECTIC || saltG <= 0) return 0;
+    const meq = -Tc / (i * C.KF);
+    return (saltG / C.MW_NACL) / meq * 1000;
+  };
+  // 위의 역: 얼음 iceG(g)를 모두 녹이는 데 필요한 소금(g)
+  C.saltForIce = (Tc, iceG, i = 2) => {
+    if (!(Tc < 0) || Tc <= C.EUTECTIC || iceG <= 0) return Infinity;
+    return (-Tc / (i * C.KF)) * (iceG / 1000) * C.MW_NACL;
+  };
+  // 열량 Q(J)가 녹이는 0 ℃ 얼음의 질량(g) = Q / 융해열                              [#21]
+  C.iceMeltByHeat = (qJ) => Math.max(0, qJ) / C.LF;
+
   if (typeof module !== 'undefined' && module.exports) module.exports = C;
   root.Chem = C;
 })(typeof window !== 'undefined' ? window : globalThis);
