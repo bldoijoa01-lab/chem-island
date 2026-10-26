@@ -22,3 +22,4 @@
 #menu3 { position: absolute; right: 8px; top: 48px; display: flex; gap: 4px; }
 #menu3 button { width: 40px; height: 40px; padding: 0; background: rgba(22, 34, 66, .88); border: 2px solid #4a68b4; }
 #menu3 button i { display: block; width: 100%; height: 100%; background-size: 70% 70%; background-repeat: no-repeat; background-position: center; image-rendering: pixelated; }
+#aimlabel { position: absolute; transform: translate(-50%, -100%); background: rgba(10,16,36,.78); color: #ffd84a; border: 1px solid #4a68b4; padding: 2px 8px; font-size: 13px; pointer-events: none; white-space: nowrap; z-index: 2; }

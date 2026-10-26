@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { N, SEA, SEABED, RX0, RZ0, ISLANDS, OFFSET, Island } from './gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
+import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
 const { ITEM, NODE, DIG, TOOL, STONE, ICE, ICE_TILE_G, SHAKE_G } = World;
@@ -60,14 +61,6 @@ addEventListener('resize', fit); fit();
 const terrainMat = new THREE.MeshLambertMaterial({ vertexColors: true });
 const texCache = new Map();
 const tex = (cv) => { let t = texCache.get(cv); if (!t) { t = new THREE.CanvasTexture(cv); t.magFilter = THREE.NearestFilter; t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace; texCache.set(cv, t); } return t; };
-// 2D 그림을 세운 두 장의 판(X자)으로 세운다: 밑면 가운데가 (0,0,0)
-function cross(cv, scale = 1) {
-  const g = new THREE.Group(), w = cv.width / 16 * scale, h = cv.height / 16 * scale;
-  const mat = new THREE.MeshLambertMaterial({ map: tex(cv), transparent: true, alphaTest: 0.4, side: THREE.DoubleSide });
-  for (const r of [0, Math.PI / 2]) { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); m.position.y = h / 2; m.rotation.y = r; g.add(m); }
-  g.userData.h = h; return g;
-}
-
 // ---------- 섬(매끈한 높이 지형) ----------
 let isl = null, islName = '', terrainMesh = null, farGroup = new THREE.Group(), objGroup = new THREE.Group(), raftMesh = null, raftSig = '';
 scene.add(farGroup, objGroup);
@@ -90,40 +83,40 @@ function setFar() {
 }
 
 // ---------- 자원·시설·장치·늑대 모형 ----------
-const OBJ_ART = { cane: 'cane', wheat: 'wheat', sandpile: 'sandpile', icecrystal: 'icecrystal', rocksalt: 'rocksalt', harbor: 'harbor', box: 'box', board: 'board', fragment: 'fragment' };
-const OBJ_R = { tree: 1.5, altar: 1.6, harbor: 1.0, board: 1.0, box: 1.0, fragment: 1.0, rock: 1.3, iceblock: 1.2 };
-// 바위·얼음 덩어리 임시 그림(7-c에서 입체 모양으로 바꾼다)
-function blob(fill, edge) { const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d'); g.fillStyle = edge; g.beginPath(); g.ellipse(16, 20, 14, 11, 0, 0, 7); g.fill(); g.fillStyle = fill; g.beginPath(); g.ellipse(15, 18, 11, 8, 0, 0, 7); g.fill(); return c; }
-const ART_ROCK = blob('#9aa0aa', '#5f646d'), ART_ICEBLOCK = blob('#cdeefb', '#6fb4d6');
+const OBJ_R = { tree: 1.5, altar: 1.6, harbor: 1.0, board: 1.0, box: 1.0, fragment: 1.0, rock: 1.3, iceblock: 1.2 };   // 조준 반지름(m)
 const objMeshes = new Map(), devMeshes = new Map(), wolfMeshes = new Map();
+// 뗏목·장치·뗏목 위의 늑대는 파도에 출렁이는 것처럼 보이게 같은 값만큼 오르내린다(보이기만: 위치·충돌·계산에는 쓰지 않는다).
+// 뗏목 위에 서 있으면 카메라도 같은 값만큼 움직여 어지럽지 않게 한다. 가정(임의값): 진폭 약 0.07 m
+const raftBob = (t) => 0.045 * Math.sin(t * 1.3) + 0.025 * Math.sin(t * 2.1 + 1);
+let bobNow = 0;
 function buildObjects() {
   objGroup.clear(); objMeshes.clear();
   for (const o of isl.objs) {
-    const cv = o.type === 'tree' ? (islName === 'alpine' || (islName !== 'plaza' && isl.height(o.x, o.z) > SEA + 7) ? Art.obj.pine : Art.obj.tree) : o.type === 'altar' ? Art.dev.altar : o.type === 'rock' ? ART_ROCK : o.type === 'iceblock' ? ART_ICEBLOCK : Art.obj[OBJ_ART[o.type]];
-    if (!cv) continue;
-    const g = cross(cv, o.type === 'rock' || o.type === 'iceblock' ? 1.2 : 1); g.position.set(o.x, o.y, o.z); objGroup.add(g); objMeshes.set(o, g);
+    const pine = o.type === 'tree' && (islName === 'alpine' || (islName !== 'plaza' && isl.height(o.x, o.z) > SEA + 7));
+    const g = makeObject(o.type, { pine }); g.position.set(o.x, o.y, o.z); g.rotation.y = (o.x * 12.9898 + o.z * 78.233) % 6.28;
+    objGroup.add(g); objMeshes.set(o, g);
   }
 }
 const melted = o => S.fp.melted[o.id] === S.day;   // 소금에 녹은 얼음 노드는 그날 하루 사라진다(다음 날 다시 자란다)
-function updateObjects() {
+function updateObjects(t) {
   for (const [o, g] of objMeshes) {
     const n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
     g.visible = o.type === 'fragment' ? !S.f.raft : !melted(o);
-    g.children.forEach(mm => { mm.material.opacity = spent ? 0.4 : 1; });
+    g.scale.setScalar(spent ? 0.65 : 1);   // 오늘 다 캔 노드는 작아 보인다
+    if (g.userData.glow) { g.userData.glow.visible = !S.f.boss; g.userData.glow.material.opacity = 0.55 + 0.35 * Math.sin(t * 3); }   // 골렘이 남아 있으면 제단이 깜빡인다(2D와 같음)
   }
 }
 const devWorld = (d) => [RX0 + d.x + 1, SEA, RZ0 + d.y + 1];   // 장치(2×2)의 가운데 바닥
 const wolfWorld = (m) => { const d = S.placed.find(x => x.x === m.dx && x.y === m.dy); const [x, y, z] = d ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
 const topMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
-function devModel(id) {   // 장치 모형: 2D 그림을 옆면에 입힌 상자(화덕은 불꽃 캔버스를 더한다)
-  const side = new THREE.MeshLambertMaterial({ map: tex(Art.dev[id]), transparent: true, alphaTest: 0.4 });
-  const box = new THREE.Mesh(new THREE.BoxGeometry(2, 1.8, 2), [side, side, topMat, topMat, side, side]);
-  box.position.y = 0.9;
-  const root = new THREE.Group(); root.add(box);
-  const bad = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: 0xff5a4a })); bad.position.set(0, 2.1, 0); bad.visible = false; root.add(bad);
-  const g = { root, bad };
-  if (id === 'fire') { const cv = document.createElement('canvas'); cv.width = cv.height = 32; g.flameCv = cv; const fl = cross(cv, 1); fl.position.y = 0.3; g.flame = fl; root.add(fl); }
-  return g;
+function devModel(id) { const root = makeDevice(id); return { root, parts: root.userData.parts }; }
+function animDevice(g, d, t) {   // 장치 상태를 모양에 반영(보이기만)
+  const P = g.parts, s = d.s;
+  P.bad.visible = !!s.broken;
+  if (P.flame) { const on = s.level > 0 && s.fuel > 0, k = on ? 0.55 + s.level * 0.3 + 0.12 * Math.sin(t * 14 + s.level) : 0; P.flame.visible = P.core.visible = on; P.flame.scale.set(k, k * (1 + 0.15 * Math.sin(t * 11)), k); P.core.scale.set(k, k, k); }
+  if (P.liquid) { const f = Math.max(0.12, Math.min(1, (s.w || 0) / 300)); P.liquid.visible = (s.w || 0) > 0; P.liquid.scale.set(1, 0.55 * f, 1); }
+  if (P.weight) P.weight.position.y = 1.65 + (s.run ? 0.06 * Math.abs(Math.sin(t * 9)) : 0);
+  if (P.done) P.done.visible = !!s.done, P.done.position.y = 2.1 + Math.sin(t * 6) * 0.08;
 }
 function syncDevices(t) {
   const live = new Set(S.placed);
@@ -131,30 +124,28 @@ function syncDevices(t) {
   for (const d of S.placed) {
     let g = devMeshes.get(d);
     if (!g) { g = devModel(d.id); scene.add(g.root); devMeshes.set(d, g); }
-    const [x, y, z] = devWorld(d); g.root.position.set(x, y, z);
-    g.bad.visible = !!d.s.broken;
-    if (g.flame) { const c2 = g.flameCv.getContext('2d'); c2.clearRect(0, 0, 32, 32); Art.flame(c2, 0, 0, d.s.level, t); tex(g.flameCv).needsUpdate = true; }
+    const [x, y, z] = devWorld(d); g.root.position.set(x, y + bobNow, z);
+    animDevice(g, d, t);
     if ((d.id === 'still' || d.id === 'cooker') && d.s.run && Math.random() < 0.25) puff(x, y + 1.9, z, '#ebf5ff', 1);
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(x, y + 1, z, '#ffb347', 1);
   }
 }
 function syncWolves(t) {
   const live = new Set(S.mobs);
-  for (const [m, g] of wolfMeshes) if (!live.has(m)) { scene.remove(g); wolfMeshes.delete(m); }
-  for (const m of S.mobs) {
-    let g = wolfMeshes.get(m); if (!g) { g = cross(Art.wolf[0], 1); scene.add(g); wolfMeshes.set(m, g); }
-    const [x, y, z] = wolfWorld(m), a = 0.45 + 0.55 * Math.max(0, m.M / m.M0);
-    g.position.set(x, y, z); g.rotation.y = Math.atan2(p.x - x, p.z - z);
-    g.children.forEach(c => { c.material.opacity = a; });
+  for (const [mb, g] of wolfMeshes) if (!live.has(mb)) { scene.remove(g); wolfMeshes.delete(mb); }
+  for (const mb of S.mobs) {
+    let g = wolfMeshes.get(mb); if (!g) { g = makeWolf(); scene.add(g); wolfMeshes.set(mb, g); }
+    const [x, y, z] = wolfWorld(mb), a = 0.45 + 0.55 * Math.max(0, mb.M / mb.M0);
+    g.position.set(x, y + bobNow, z); g.rotation.y = Math.atan2(p.x - x, p.z - z) - Math.PI / 2;   // 모델은 +x를 향한다 → 플레이어 쪽으로
+    g.userData.mats.forEach(mm => { mm.opacity = a; });
+    g.userData.legs.forEach((l, i) => { l.rotation.z = Math.sin(t * 6 + i * 1.6) * 0.18; });
   }
 }
-// 뗏목 바닥: 격자 크기가 바뀌면 다시 만든다. 윗면이 바다면(SEA)에 맞는다
+// 뗏목 바닥(나무판 + 통나무 부표): 격자 크기가 바뀌면 다시 만든다. 윗면이 SEA에 맞는다(충돌은 groundAt이 SEA 평면으로 처리)
 function syncRaft() {
   const { cx, cz } = raftDims(), sig = cx + 'x' + cz + islName; if (sig === raftSig) return; raftSig = sig;
-  if (raftMesh) { scene.remove(raftMesh); raftMesh.dispose(); }
-  const m = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: tex(Art.tiles.raft[0]) }), cx * cz), dm = new THREE.Object3D();
-  let i = 0; for (let z = 0; z < cz; z++) for (let x = 0; x < cx; x++) { dm.position.set(RX0 + x + 0.5, SEA - 0.5, RZ0 + z + 0.5); dm.updateMatrix(); m.setMatrixAt(i++, dm.matrix); }
-  m.frustumCulled = false; scene.add(m); raftMesh = m;
+  if (raftMesh) scene.remove(raftMesh);
+  raftMesh = makeRaft(cx, cz, SEA, RX0, RZ0); scene.add(raftMesh);
 }
 
 function loadIsland(name) {
@@ -182,9 +173,9 @@ function netStep(dt, now) {
   for (const id in Net.peers) {
     const q = Net.peers[id]; if (typeof q.x !== 'number' || typeof q.z !== 'number') continue;
     let g = peerMeshes[id];
-    if (!g) { const label = document.createElement('div'); label.className = 'nick3'; document.body.appendChild(label); const mm = cross(Art.playerFrames[0], 1.1); scene.add(mm); g = peerMeshes[id] = { m: mm, label, x: q.x, y: q.y, z: q.z }; }
+    if (!g) { const label = document.createElement('div'); label.className = 'nick3'; document.body.appendChild(label); let hue = 0; for (const ch of id) hue = (hue * 31 + ch.charCodeAt(0)) % 360; const mm = makePlayerModel(hue / 360); scene.add(mm); g = peerMeshes[id] = { m: mm, label, x: q.x, y: q.y, z: q.z }; }
     g.x += (q.x - g.x) * a; g.y += (q.y - g.y) * a; g.z += (q.z - g.z) * a;
-    g.m.position.set(g.x, g.y, g.z); g.m.rotation.y = Math.atan2(p.x - g.x, p.z - g.z); g.label.textContent = q.nick || '';
+    g.m.position.set(g.x, g.y, g.z); g.m.rotation.y = q.yaw !== undefined ? q.yaw : 0; g.label.textContent = q.nick || '';
   }
   for (const id in peerMeshes) if (!Net.peers[id]) dropPeer(id);
 }
@@ -202,10 +193,8 @@ function syncPlaza() {
   scene.remove(plazaGroup); plazaGroup = new THREE.Group();
   rafts.forEach((r, i) => {
     const cx = Math.max(2, Math.min(12, r.cells | 0)), cz = rcz(cx), z0 = RZ0 - 10 * (i + 1);
-    const fl = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: tex(Art.tiles.raft[0]) }), cx * cz), dm = new THREE.Object3D();
-    let k = 0; for (let z = 0; z < cz; z++) for (let x = 0; x < cx; x++) { dm.position.set(RX0 + x + 0.5, SEA - 0.5, z0 + z + 0.5); dm.updateMatrix(); fl.setMatrixAt(k++, dm.matrix); }
-    fl.frustumCulled = false; plazaGroup.add(fl);
-    for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cx) { const g = devModel(d.id); g.root.position.set(RX0 + d.u + 1, SEA, z0 + (d.z | 0) + 1); g.bad.visible = !!d.broken; plazaGroup.add(g.root); }
+    plazaGroup.add(makeRaft(cx, cz, SEA, RX0, z0));
+    for (const d of (r.devs || [])) if (d && ['fire', 'still', 'cooker', 'cooler', 'collector'].includes(d.id) && d.u >= 0 && d.u + 2 <= cx) { const g = makeDevice(d.id); g.position.set(RX0 + d.u + 1, SEA, z0 + (d.z | 0) + 1); g.userData.parts.bad.visible = !!d.broken; plazaGroup.add(g); }
     const label = document.createElement('div'); label.className = 'nick3'; label.textContent = r.nick || ''; label.dataset.plaza = '1'; document.body.appendChild(label);
     plazaGroup.userData.labels = (plazaGroup.userData.labels || []).concat([[label, RX0 + cx / 2, SEA + 3, z0 + cz / 2]]);
   });
@@ -218,7 +207,7 @@ function placePlazaLabels() {
 
 // ---------- 하늘·바다·낮밤 ----------
 // 바다: 카메라를 따라다니는 격자(SEA_STEP 간격). 정점을 세계 좌표의 사인파 합으로 출렁이게 하고 법선도 기울인다. 보이기만 한다(헤엄·충돌은 평평한 SEA 기준)
-const SEA_STEP = 2, SEA_N = 220, WAVE = 0.28;   // 가정(임의값) 격자 간격 2 m × 220칸, 파도 높이 약 ±0.28 m
+const SEA_STEP = 3, SEA_N = 150, WAVE = 0.28;   // 가정(임의값) 격자 간격 3 m × 150칸(±225 m), 파도 높이 약 ±0.3 m
 const seaUniforms = { uT: { value: 0 } };
 const seaGeo = new THREE.PlaneGeometry(SEA_STEP * SEA_N, SEA_STEP * SEA_N, SEA_N, SEA_N); seaGeo.rotateX(-Math.PI / 2);
 const seaMat = new THREE.MeshLambertMaterial({ color: 0x2f86c8, transparent: true, opacity: 0.8, depthWrite: false });
@@ -498,13 +487,19 @@ function drawHUD() {
     : t ? `[E] ${t.label}` : (dig.on && dig.need ? `캐는 중 ${Math.round(dig.p / dig.need * 100)} %` : 'WASD 이동 · Space 점프 · 마우스 시점 · E 또는 좌클릭 열기·채집(바위·얼음은 꾹) · 우클릭 도구 사용');
 }
 // 시선 아래 칸 표시(파기 대상) + 건설 미리보기
-const marker = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 5), new THREE.MeshBasicMaterial({ color: 0xffd84a })); marker.rotation.x = Math.PI; marker.visible = false; scene.add(marker);   // 조준한 대상 위에 떠 있는 표시(7-c에서 윤곽 강조로 다듬는다)
+// 조준 강조: 대상 발밑의 노란 고리 + 대상 위의 이름표(조준하면 이름이 보인다)
+const ringGeo = new THREE.RingGeometry(0.86, 1, 32); ringGeo.rotateX(-Math.PI / 2);
+const marker = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffd84a, transparent: true, opacity: 0.85, depthTest: false })); marker.visible = false; marker.renderOrder = 5; scene.add(marker);
+const aimLabel = $('aimlabel'), av = new THREE.Vector3();
 function updateAim() {
   const open = UI.isModalOpen() || !canAct();
   ghost.visible = !!(mode && mode.startsWith('build:')) && !open;
   if (ghost.visible) { const c = ghostCell(), g = ghostCheck(mode.slice(6), c); ghost.material.color.set(g.ok ? 0x66ff88 : 0xff6666); if (c) ghost.position.set(RX0 + c.gx + 1, SEA + 0.9, RZ0 + c.gz + 1); else ghost.visible = false; }
   const t = open || mode ? null : aimedTarget();
-  marker.visible = !!t && t.kind !== 'water'; if (t) marker.position.set(t.wx, t.wy + (t.r || 1) + 0.5 + Math.sin(tNow * 5) * 0.08, t.wz);
+  marker.visible = !!t && t.kind !== 'water';
+  if (t) { const gy = t.kind === 'dev' || t.kind === 'wolf' ? SEA + bobNow : groundAt(t.wx, t.wz); marker.position.set(t.wx, gy + 0.06, t.wz); marker.scale.setScalar((t.r || 1) * (0.95 + 0.05 * Math.sin(tNow * 5))); }
+  if (t) { av.set(t.wx, t.wy + (t.r || 1) * 0.9 + 0.5, t.wz).project(camera); aimLabel.style.left = ((av.x + 1) / 2 * innerWidth) + 'px'; aimLabel.style.top = ((1 - av.y) / 2 * innerHeight) + 'px'; aimLabel.textContent = t.label; }
+  aimLabel.style.display = t && av.z < 1 ? '' : 'none';
 }
 
 // ---------- 시간·저장·시작·항해 ----------
@@ -561,8 +556,10 @@ function frame(now) {
   const ax = act ? (keys.d ? 1 : 0) - (keys.a ? 1 : 0) : 0, az = act ? (keys.w ? 1 : 0) - (keys.s ? 1 : 0) : 0;
   if (!Store.paused || TEST) stepPlayer(dt, ax, az, act && keys.jump); else { p.vx = p.vz = 0; }
   stepGather(dt); stepParts(dt); netStep(dt, now);
-  camera.position.set(p.x, p.y + EYE, p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');
-  syncRaft(); updateObjects(); syncDevices(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
+  const onRaft = raftCell(Math.floor(p.x), Math.floor(p.z)) && p.y <= SEA + 0.02;
+  bobNow = raftBob(tNow); if (raftMesh) raftMesh.position.y = bobNow;
+  camera.position.set(p.x, p.y + EYE + (onRaft ? bobNow : 0), p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');   // 뗏목 위에서는 카메라도 같이 출렁인다
+  syncRaft(); updateObjects(tNow); syncDevices(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
