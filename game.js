@@ -3,7 +3,8 @@
 (() => {
 'use strict';
 const C = Chem, Art = window.Art;
-const T = 16, WW = 120, WH = 56, VW = 384, VH = 224, KEY = 'chemisle_side_v1';
+const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
+let VW = 384, VH = 224;   // 화면 크기에 맞춰 fit()이 정한다(정수 배율)
 const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
 const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
@@ -68,7 +69,7 @@ const OBJS = [];
 (function gen() {
   for (let x = 0; x < WW; x++) {
     let g;
-    if (x <= 13) g = 30; else if (x <= 27) g = Math.round(30 - 6 * (x - 13) / 14); else if (x <= 66) g = 24;
+    if (x <= 13) g = 30; else if (x <= 27) g = Math.round(30 - 6 * (x - 13) / 14); else if (x <= 34) g = 24 - Math.round(1.2 * Math.sin((x - 28) / 2.5)); else if (x <= 66) g = 24;
     else if (x <= 70) g = 24 - (x - 66); else if (x <= 74) g = 20; else if (x <= 78) g = 20 + (x - 74); else if (x <= 82) g = 24;
     else if (x <= 105) g = 24 - Math.round(1.5 * Math.sin((x - 83) / 3)); else if (x <= 112) g = Math.round(24 + 6 * (x - 105) / 7); else g = 30;
     GY[x] = g;
@@ -558,7 +559,6 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys[k] = false; });
 const cv = $('cv'), ctx = cv.getContext('2d');
-cv.width = VW; cv.height = VH; ctx.imageSmoothingEnabled = false;
 function canvasPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
 cv.addEventListener('mousemove', e => Object.assign(mouse, canvasPos(e)));
 cv.addEventListener('click', e => {
@@ -610,19 +610,23 @@ function physics(dt) {
   onGround = collides(S.px, S.py + 1);
 }
 
-// ---------- 파티클 ----------
+// ---------- 파티클·환경 ----------
 const parts = [];
 function puff(x, y, col, n) { for (let i = 0; i < n; i++) parts.push({ x, y, vx: (Math.random() - 0.5) * 20, vy: -10 - Math.random() * 14, life: 0.6 + Math.random() * 0.5, col, s: 2 }); }
 function burst(d) { puff(d.x * T + 16, d.y * T + 8, '#ff7a3d', 14); puff(d.x * T + 16, d.y * T + 8, '#4a4f56', 10); }
+const birds = Array.from({ length: 6 }, (_, i) => ({ x: i * 210 + Math.random() * 90, y: 24 * T - 150 - Math.random() * 70, vx: 16 + Math.random() * 12, ph: Math.random() * 6 }));
+const flies = Array.from({ length: 22 }, (_, i) => ({ x: 30 * T + i * 52 + Math.random() * 30, y: 24 * T - 14 - Math.random() * 44, ph: Math.random() * 6 }));
 function stepParts(dt) {
   for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
   if (parts.length > 200) parts.splice(0, 50);
+  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > WW * T + 40) b.x = -40; }
 }
 
 // ---------- 그리기 ----------
 const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 - h) / 2 : 0;
-const stars = Array.from({ length: 40 }, (_, i) => [(i * 97) % VW, (i * 53) % 120]);
+let stars = [];
+const makeStars = () => { stars = Array.from({ length: Math.max(30, Math.floor(VW * VH / 1500)) }, (_, i) => [((i * 97.31) % 1000) / 1000, ((i * 53.77) % 1000) / 1000]); };
 let last = performance.now(), tt = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; tt += dt;
@@ -630,90 +634,120 @@ function frame(now) {
   draw(tt);
   requestAnimationFrame(frame);
 }
+const blit = (img, x, y) => { const p = img.pad || 0; ctx.drawImage(img, Math.round(x - p), Math.round(y - p)); };
+const isOpen = (x, y) => { const t = tileAt(x, y); return t === AIR || t === WATER; };
+const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
 function draw(t) {
   const hour = S.min / 60, night = nightOf(hour);
   cam.x = Math.max(0, Math.min(WW * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
-  cam.y = Math.max(0, Math.min(WH * T - VH, Math.round(S.py + PH / 2 - VH / 2 - 12)));
+  cam.y = Math.max(0, Math.min(WH * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
   // 하늘(띠) + 별 + 해/달
-  const bands = Art.sky(hour, 9);
+  const bands = Art.sky(hour, 18);
   for (let i = 0; i < bands.length; i++) { ctx.fillStyle = bands[i]; ctx.fillRect(0, Math.floor(i * VH / bands.length), VW, Math.ceil(VH / bands.length) + 1); }
-  if (night > 0) { ctx.fillStyle = `rgba(255,255,255,${night * 0.8})`; for (const [x, y] of stars) ctx.fillRect(x, y, 1, 1); }
-  const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12;
-  if (sunT >= 0 && sunT <= 1) ctx.drawImage(Art.sun, Math.round(sunT * (VW - 16)), Math.round(60 - Math.sin(sunT * Math.PI) * 46));
-  if (moonT >= 0 && moonT <= 1) ctx.drawImage(Art.moon, Math.round(moonT * (VW - 16)), Math.round(60 - Math.sin(moonT * Math.PI) * 46));
-  for (let i = 0; i < 4; i++) { const cx = ((i * 140 - t * 4 - cam.x * 0.1) % (VW + 64) + VW + 64) % (VW + 64) - 32; ctx.globalAlpha = 1 - night * 0.7; ctx.drawImage(Art.cloud, Math.round(cx), 18 + (i % 2) * 22); ctx.globalAlpha = 1; }
-  // 먼 산·언덕 (시차)
-  const horizon = 24 * T - cam.y;
-  for (const [img, f, dy] of [[Art.farHills, 0.2, 96], [Art.nearHills, 0.45, 70]]) {
-    const off = -Math.floor((cam.x * f) % 512);
-    for (let x = off; x < VW; x += 512) ctx.drawImage(img, x, horizon - dy);
+  if (night > 0) for (let i = 0; i < stars.length; i++) { ctx.fillStyle = `rgba(255,255,255,${night * (0.45 + 0.55 * Math.abs(Math.sin(t * 1.5 + i)))})`; ctx.fillRect(Math.floor(stars[i][0] * VW), Math.floor(stars[i][1] * VH * 0.6), 1 + (i % 7 === 0 ? 1 : 0), 1); }
+  const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12, arcY = Math.max(50, VH * 0.28);
+  const sunX = Math.round(sunT * (VW - 18)), sunY = Math.round(arcY + 14 - Math.sin(sunT * Math.PI) * (arcY - 6));
+  if (sunT >= 0 && sunT <= 1) {
+    for (const [r, a] of [[30, 0.08], [22, 0.12], [15, 0.18]]) { ctx.fillStyle = `rgba(255,240,160,${a})`; ctx.beginPath(); ctx.arc(sunX + 9, sunY + 9, r, 0, 7); ctx.fill(); }
+    ctx.drawImage(Art.sun, sunX, sunY);
   }
-  if (night > 0) { ctx.fillStyle = `rgba(8,12,40,${night * 0.55})`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 6)); }
-  // 지하 배경
-  const caveY = 31 * T - cam.y; if (caveY < VH) { ctx.fillStyle = '#2a1c12'; ctx.fillRect(0, Math.max(0, caveY), VW, VH); }
+  if (moonT >= 0 && moonT <= 1) ctx.drawImage(Art.moon, Math.round(moonT * (VW - 16)), Math.round(arcY + 14 - Math.sin(moonT * Math.PI) * (arcY - 6)));
+  for (let i = 0; i < 5; i++) {
+    const w = VW + 80, cx = ((i * 170 - t * 3 * (1 + i % 3 * 0.4) - cam.x * 0.08) % w + w) % w - 50;
+    ctx.globalAlpha = 1 - night * 0.75; ctx.drawImage(Art.clouds[i % 3], Math.round(cx), 14 + (i * 23) % Math.max(30, VH * 0.35)); ctx.globalAlpha = 1;
+  }
+  // 시차 배경: 먼 산 → 언덕 → 숲
+  const horizon = 24 * T - cam.y;
+  for (const [img, f, base, sink] of [[Art.farHills, 0.12, 100, 8], [Art.midHills, 0.28, 74, 6], [Art.forest, 0.5, 54, 4]]) {
+    const off = -Math.floor((cam.x * f) % 512);
+    for (let x = off; x < VW; x += 512) ctx.drawImage(img, x, Math.round(horizon - base + sink));
+  }
+  if (night > 0) { ctx.fillStyle = `rgba(6,10,40,${night * 0.55})`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }
   // 타일
-  const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T);
-  const drawW = [];
-  for (let ty = y0; ty <= y0 + VH / T + 1; ty++) for (let tx = x0; tx <= x0 + VW / T + 1; tx++) {
-    const id = tileAt(tx, ty); if (id === AIR) continue;
-    const sx = tx * T - cam.x, sy = ty * T - cam.y;
+  const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
+  for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
+    const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
+    if (id === AIR) { if (ty >= 31) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.min(0.55, (ty - 28) * 0.04)})`; ctx.fillRect(sx, sy, T, T); } continue; }
     if (id === WATER) {
-      ctx.fillStyle = ty - 25 < 2 ? '#3a8fd0' : ty - 25 < 4 ? '#2c78b8' : '#1f64a0'; ctx.fillRect(sx, sy, T, T);
-      drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER]); continue;
+      ctx.fillStyle = ty - 25 < 2 ? '#3f9be0' : ty - 25 < 4 ? '#2c7cc0' : '#1f66a4'; ctx.fillRect(sx, sy, T, T);
+      drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
     }
-    const v = (tx * 7 + ty * 13) % 3;
-    const set = id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : Art.tiles.ice;
-    ctx.drawImage(set[v], sx, sy);
+    const tset = id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : Art.tiles.ice;
+    ctx.drawImage(tset[v], sx, sy);
     if (ty > 26) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (ty - 26) * 0.03)})`; ctx.fillRect(sx, sy, T, T); }
+    if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(sx, sy, T, 1); }
+    if (isOpen(tx - 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy, 1, T); }
+    if (isOpen(tx + 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx + T - 1, sy, 1, T); }
+    if (isOpen(tx, ty + 1)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy + T - 1, T, 1); }
+    if (id === GRASS && tileAt(tx, ty - 1) === AIR) {   // 풀 다발·꽃·돌
+      const h = hash(tx, ty);
+      if (h % 2 === 0) ctx.drawImage(Art.tuft[h % 3], sx, sy - 5);
+      if (h % 9 === 0) ctx.drawImage(Art.flower[(h >>> 3) % 3], sx + (h % 9), sy - 6);
+      else if (h % 23 === 1) ctx.drawImage(Art.rock, sx + 4, sy - 4);
+    }
   }
   // 오브젝트
   for (const o of OBJS) {
     const sx = o.x * T - cam.x, sy = o.y * T - cam.y, n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
-    if (o.type === 'tree') ctx.drawImage(Art.obj.tree, sx - 8, sy - 48);
-    else if (o.type === 'cane') ctx.drawImage(Art.obj.cane, sx, sy - 32);
-    else if (o.type === 'wheat') ctx.drawImage(Art.obj.wheat, sx, sy - 20);
-    else if (o.type === 'sandpile') ctx.drawImage(Art.obj.sandpile, sx, sy - 8);
-    else if (o.type === 'icecrystal') ctx.drawImage(Art.obj.icecrystal, sx, sy - 24);
-    else if (o.type === 'box') ctx.drawImage(Art.obj.box, sx, sy - 16);
-    else if (o.type === 'altar') { ctx.drawImage(Art.dev.altar, sx, sy - 32); if (!S.f.boss && Math.floor(t * 2) % 2) { ctx.fillStyle = '#fff1c0'; ctx.fillRect(sx + 10, sy - 18, 2, 2); ctx.fillRect(sx + 20, sy - 18, 2, 2); } }
+    ctx.fillStyle = 'rgba(0,0,0,.22)';
+    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit(o.x >= 83 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
+    else if (o.type === 'cane') blit(Art.obj.cane, sx, sy - 32);
+    else if (o.type === 'wheat') blit(Art.obj.wheat, sx, sy - 20);
+    else if (o.type === 'sandpile') blit(Art.obj.sandpile, sx, sy - 8);
+    else if (o.type === 'icecrystal') blit(Art.obj.icecrystal, sx, sy - 24);
+    else if (o.type === 'box') { ctx.fillRect(sx, sy - 1, 16, 2); blit(Art.obj.box, sx, sy - 16); }
+    else if (o.type === 'altar') { ctx.fillRect(sx, sy - 1, 32, 2); blit(Art.dev.altar, sx, sy - 32); if (!S.f.boss) { ctx.fillStyle = `rgba(255,200,120,${0.25 + 0.2 * Math.sin(t * 3)})`; ctx.fillRect(sx + 9, sy - 21, 6, 6); ctx.fillRect(sx + 19, sy - 21, 6, 6); } }
     ctx.globalAlpha = 1;
   }
   // 장치
   const tg = targets()[0];
   for (const d of S.placed) {
     const sx = d.x * T - cam.x, sy = d.y * T - cam.y;
-    ctx.drawImage(Art.dev[d.id], sx, sy);
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx, sy + 31, 32, 2);
+    blit(Art.dev[d.id], sx, sy);
     if (d.id === 'fire') Art.flame(ctx, sx, sy, d.s.level, t);
     if (d.id === 'collector') { ctx.fillStyle = '#ffffff'; for (let i = 0; i < 3; i++) ctx.fillRect(sx + 8 + i * 4, sy + 26 - ((t * 10 + i * 7) % 16), 2, 2); }
     if ((d.id === 'still' || d.id === 'cooker') && d.s.run && Math.random() < 0.25) puff(d.x * T + (d.id === 'still' ? 11 : 16), d.y * T + 2, 'rgba(235,245,255,.85)', 1);
-    if (d.id === 'cooker' && d.s.broken) { ctx.fillStyle = '#e74c3c'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
+    if (d.id === 'cooker' && d.s.broken) { ctx.fillStyle = '#ff5a4a'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
     if (d.id === 'cooker' && d.s.done) { ctx.fillStyle = '#ffe066'; ctx.fillRect(sx + 14, sy - 6 - Math.round(Math.sin(t * 6) * 2), 4, 4); }
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(d.x * T + 16, d.y * T + 10, '#ffb347', 1);
   }
   // 플레이어
-  const moving = Math.abs(S.vx) > 1, fr = !onGround ? 1 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;
+  const moving = Math.abs(S.vx) > 1, fr = !onGround ? 3 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;
+  const px = S.px - 3, py = S.py + PH - 22 - cam.y;
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; if (onGround) ctx.fillRect(Math.round(S.px - cam.x - 1), Math.round(S.py + PH - cam.y), PW + 2, 1);
   ctx.save();
-  const px = Math.round(S.px - 3 - cam.x), py = Math.round(S.py - 2 - cam.y);
-  if (S.face < 0) { ctx.translate(px + 16, py); ctx.scale(-1, 1); ctx.drawImage(Art.playerFrames[fr], 0, 0); } else ctx.drawImage(Art.playerFrames[fr], px, py);
+  if (S.face < 0) { ctx.translate(Math.round(px - cam.x) + 16, 0); ctx.scale(-1, 1); blit(Art.playerFrames[fr], 0, py); } else blit(Art.playerFrames[fr], px - cam.x, py);
   ctx.restore();
-  // 파티클
+  // 새·파티클
+  if (hour > 7 && hour < 18) for (const b of birds) ctx.drawImage(Art.bird[Math.floor(b.ph) % 2], Math.round(b.x - cam.x), Math.round(b.y - cam.y + Math.sin(b.ph * 0.4) * 5));
   for (const p of parts) { ctx.fillStyle = p.col; ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillRect(Math.round(p.x - cam.x), Math.round(p.y - cam.y), p.s, p.s); }
   ctx.globalAlpha = 1;
-  // 물 (반투명 + 물결)
-  for (const [sx, sy, surf] of drawW) {
-    ctx.fillStyle = 'rgba(40,120,205,.58)'; ctx.fillRect(sx, sy, T, T);
-    if (surf) { ctx.fillStyle = 'rgba(190,230,255,.9)'; const w = Math.floor(Math.sin(t * 2 + sx * 0.3) * 2); ctx.fillRect(sx, sy, T, 2); ctx.fillRect(sx + 4 + w, sy + 2, 4, 1); }
+  // 물 (반투명 + 물결·거품)
+  for (const [sx, sy, surf, tx] of drawW) {
+    ctx.fillStyle = 'rgba(60,150,225,.42)'; ctx.fillRect(sx, sy, T, T);
+    if (surf) {
+      const w = Math.round(Math.sin(t * 2 + tx * 0.8) * 2);
+      ctx.fillStyle = 'rgba(210,238,255,.95)'; ctx.fillRect(sx, sy, T, 2); ctx.fillRect(sx + 3 + w, sy + 2, 5, 1); ctx.fillRect(sx + 10 - w, sy + 4, 3, 1);
+    } else if ((tx * 5 + Math.floor(t)) % 7 === 0) { ctx.fillStyle = 'rgba(210,238,255,.18)'; ctx.fillRect(sx + 5, sy + 6, 1, 4); }
   }
-  // 밤 어둠 + 불빛
+  // 밤 어둠 + 불빛 + 반딧불
   if (night > 0) {
     ctx.fillStyle = `rgba(8,12,40,${night * 0.5})`; ctx.fillRect(0, 0, VW, VH);
     for (const d of S.placed) if (d.id === 'fire' && d.s.level > 0) {
       const cx = d.x * T + 16 - cam.x, cy = d.y * T + 14 - cam.y;
-      for (const [r, a] of [[46, 0.07], [32, 0.09], [20, 0.12]]) { ctx.fillStyle = `rgba(255,170,70,${a * night})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
+      for (const [r, a] of [[52, 0.07], [38, 0.09], [24, 0.12]]) { ctx.fillStyle = `rgba(255,170,70,${a * night})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
+    }
+    for (const f of flies) {
+      const fx = f.x - cam.x + Math.sin(t * 0.8 + f.ph) * 14, fy = f.y - cam.y + Math.cos(t * 0.6 + f.ph * 2) * 8, a = night * (0.4 + 0.6 * Math.abs(Math.sin(t * 2 + f.ph)));
+      ctx.fillStyle = `rgba(220,255,120,${a * 0.25})`; ctx.fillRect(Math.round(fx) - 1, Math.round(fy) - 1, 4, 4); ctx.fillStyle = `rgba(240,255,170,${a})`; ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
     }
   }
+  // 가장자리 어둡게(비네트)
+  const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.45, VW / 2, VH / 2, Math.max(VW, VH) * 0.75);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.32)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
   // 상호작용 표시(픽셀 화살표)
   if (tg && $('modal').hidden) {
     const ax = Math.round(tg.x - cam.x), ay = Math.round(tg.y - cam.y) - 24 + Math.round(Math.sin(t * 6) * 2);
@@ -726,7 +760,7 @@ function draw(t) {
   if (mode && mode.startsWith('build:')) {
     const id = mode.slice(6), g = ghostCheck(id);
     const gx = g.tx * T - cam.x, gy = (g.ok ? g.ty : GY[Math.max(0, Math.min(WW - 1, g.tx))] - 2) * T - cam.y;
-    ctx.globalAlpha = 0.65; ctx.drawImage(Art.dev[id], gx, gy); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.65; blit(Art.dev[id], gx, gy); ctx.globalAlpha = 1;
     ctx.strokeStyle = g.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(gx + 0.5, gy + 0.5, 31, 31);
   }
 }
@@ -734,9 +768,14 @@ function draw(t) {
 // 시계: 1초 = 게임 2분 (x1)
 setInterval(() => { if (window.Raid && Raid.active) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(save, 5000);
-function fit() {   // 정수 배율로 크게(픽셀이 뭉개지지 않게)
-  const w = $('left').clientWidth, k = Math.max(1, Math.floor(w / VW));
-  cv.style.width = (w >= VW ? VW * k : w) + 'px';
+function fit() {   // 창을 꽉 채우되 정수 배율(k배)로 키워 픽셀이 뭉개지지 않게
+  const narrow = window.innerWidth < 900;
+  const availW = Math.max(300, $('left').clientWidth), availH = Math.max(240, narrow ? window.innerHeight * 0.58 : window.innerHeight - 96);
+  const k = Math.max(1, Math.min(Math.floor(availW / 460), Math.floor(availH / 260)));
+  VW = Math.floor(availW / k); VH = Math.floor(availH / k);
+  cv.width = VW; cv.height = VH; ctx.imageSmoothingEnabled = false;
+  cv.style.width = VW * k + 'px'; cv.style.height = VH * k + 'px';
+  makeStars();
 }
 window.addEventListener('resize', fit);
 document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed));
