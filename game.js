@@ -4,115 +4,13 @@
 'use strict';
 const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
-const T = 16, WW = Sim.WORLD.WW, WH = Sim.WORLD.WH, KEY = 'chemisle_side_v1';
-const PW = 10, PH = 18, REACH = 40;
-const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;   // 데이터와 계산은 sim.js
-// 아이템: [아이콘 키, 이름, 단위]
-const ITEM = {
-  stick: ['stick', '나뭇가지', '개'], sand: ['sand', '모래', '개'], sea: ['sea', '바닷물(200 g)', '통'],
-  ice: ['ice', '얼음(100 g)', '개'], bottle: ['bottle', '유리병', '개'], syringe: ['syringe', '주사기', '개'],
-  sugar: ['sugar', '설탕', 'g'], salt: ['salt', '소금', 'g'], water: ['water', '증류수', 'g'],
-  noodle: ['noodle', '면', '개'], ramen: ['ramen', '라면', '개'],
-  dirt: ['dirt', '흙', '개'], stone: ['stone', '돌', '개'],
-  pickaxe: ['pickaxe', '곡괭이', '개'], shaker: ['shaker', '소금 뿌리개', '개'], thermo: ['thermo', '온도계', '개'],
-};
-const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량(g) = 얼음 아이템 1개
-const SHAKE_G = 10;       // 가정(임의값) 소금 뿌리개로 한 번에 뿌리는 소금(g)
-const UNDER_T = 12;       // 가정(임의값) 지하 온도(℃): 깊이와 상관없이 일정하다고 가정
-// ---------- 상태 ----------
-const newState = Sim.newState, merge = Sim.merge;
-let S = load() || newState();
-function load() {
-  try {
-    const j = JSON.parse(localStorage.getItem(KEY) || 'null');
-    return j ? merge(j) : null;
-  } catch { return null; }
-}
-let lastRemote = 0, lastRaftSave = 0, remoteWarned = false;
-function save(force) {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* 저장 불가 */ }
-  if (!(window.Net && Net.user) || paused) return;
-  const now = Date.now();
-  if (!force && now - lastRemote < 4000) return;      // 서버 쓰기는 4초에 한 번만
-  lastRemote = now;
-  const snap = JSON.parse(JSON.stringify(S)); snap.log = snap.log.slice(-60);   // undefined/NaN 제거, 기록은 최근 것만
-  if (Net.saveRaft && (force || now - lastRaftSave > 20000)) {   // 광장에 정박한 뗏목 요약(남은 읽기만): 장치 종류·위치·가동 여부 정도만 올린다
-    lastRaftSave = now;
-    Net.saveRaft({ cells: S.raft.cells, dock: S.raft.dock, t: now, devs: S.placed.filter(d => d.u !== undefined).map(d => ({ id: d.id, u: d.u, run: !!d.s.run, broken: !!d.s.broken })) }).catch(() => {});
-  }
-  Net.saveSave(snap).catch(() => { if (!remoteWarned) { remoteWarned = true; say('서버 저장에 실패했습니다. 인터넷 연결을 확인하세요.'); } });
-}
-let paused = false;   // 접속 화면이 떠 있는 동안 시간이 흐르지 않게
-
-// ---------- 월드 (단면 타일맵) ----------
-const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7, RAFT = 8;
-const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1];
-const MAP = new Uint8Array(WW * WH), GY = [];
-const tileAt = (x, y) => (y < 0 ? AIR : (x < 0 || x >= WW || y >= WH) ? STONE : MAP[y * WW + x]);
-const solidAt = (x, y) => SOLID[tileAt(x, y)] === 1;
-const OBJS = [];
-(function gen() {
-  for (let x = 0; x < WW; x++) {
-    let g;
-    if (x <= 13) g = 30; else if (x <= 27) g = Math.round(30 - 6 * (x - 13) / 14); else if (x <= 34) g = 24 - Math.round(1.2 * Math.sin((x - 28) / 2.5)); else if (x <= 66) g = 24;
-    else if (x <= 70) g = 24 - (x - 66); else if (x <= 74) g = 20; else if (x <= 78) g = 20 + (x - 74); else if (x <= 82) g = 24;
-    else if (x <= 105) g = 24 - Math.round(1.5 * Math.sin((x - 83) / 3)); else if (x <= 112) g = Math.round(24 + 6 * (x - 105) / 7);
-    else if (x >= 118 && x <= 125) g = Math.round(24 + 6 * (125 - x) / 7);          // 광장섬 서쪽 해안(시작섬 동쪽 해안과 마주 봄: 바다 폭 5칸)
-    else if (x >= 126 && x <= 194) g = 24;
-    else if (x >= 195 && x <= 202) g = Math.round(24 + 6 * (x - 195) / 7);          // 광장섬 동쪽 해안
-    else if (x >= 213 && x <= 220) g = Math.round(24 + 6 * (220 - x) / 7);          // 고산 섬(고원 호수 섬) 서쪽 해안
-    else if (x >= 221 && x <= 278) g = 24 - Math.round(2 * Math.abs(Math.sin((x - 221) / 4)));   // 위로만 솟은 완만한 언덕(물웅덩이가 생기지 않게)
-    else if (x >= 279 && x <= 286) g = Math.round(24 + 6 * (x - 279) / 7);
-    else if (x >= 303 && x <= 310) g = Math.round(24 + 6 * (310 - x) / 7);          // 극지 섬 서쪽 해안
-    else if (x >= 311 && x <= 368) g = 24;
-    else if (x >= 369 && x <= 376) g = Math.round(24 + 6 * (x - 369) / 7);
-    else g = 30;                                                                      // 바다 밑바닥(섬 사이)
-    GY[x] = g;
-    const plaza = x >= 118 && x <= 202, alpine = x >= 213 && x <= 286, polar = x >= 303 && x <= 376;
-    const beach = x <= 27 || (x >= 106 && x <= 117) || (plaza && (x <= 126 || x >= 194)) || (alpine && (x <= 220 || x >= 279)),
-      snow = (x >= 83 && x <= 105) || polar, pond = (x >= 90 && x <= 94) || (x >= 330 && x <= 340);
-    for (let y = g; y < WH; y++) {
-      const d = y - g;
-      MAP[y * WW + x] = d === 0 ? (pond ? ICE : beach ? SAND : snow ? SNOWTOP : GRASS)
-        : d <= (alpine ? 1 : 4) ? (pond && d <= 1 ? ICE : beach ? SAND : DIRT) : STONE;   // 고산 섬은 흙이 얇고 바위가 많다
-    }
-    for (let y = 25; y < g; y++) MAP[y * WW + x] = WATER;
-  }
-  // 광장섬의 항구 연못(정박한 다른 사람의 뗏목이 떠 있는 곳): 윗줄은 비우고 물을 채운다
-  for (let x = 152; x <= 191; x++) { MAP[24 * WW + x] = AIR; for (let y = 25; y <= 27; y++) MAP[y * WW + x] = WATER; MAP[28 * WW + x] = SAND; }
-  for (const [cx, cy, r] of [[50, 37, 5], [70, 41, 6], [92, 38, 5], [30, 45, 6], [60, 48, 4]]) {
-    for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r * 2; x <= cx + r * 2; x++) {
-      if (((x - cx) / 2) ** 2 + (y - cy) ** 2 <= r * r) MAP[y * WW + x] = AIR;
-    }
-  }
-  const add = (type, x) => OBJS.push({ id: type[0] + type[1] + x, type, x, y: GY[x] });
-  [29, 32, 35, 68, 77, 80, 85, 98].forEach(x => add('tree', x));
-  [26, 27].forEach(x => add('cane', x));
-  [36, 37, 38].forEach(x => add('wheat', x));
-  [24, 25, 106].forEach(x => add('sandpile', x));
-  [86, 89, 95, 97, 100].forEach(x => add('icecrystal', x));
-  add('harbor', 102); add('fragment', 104);                                          // 시작섬: 항구 표지판, 해안의 뗏목 파편
-  [143, 146].forEach(x => add('tree', x)); [147, 148].forEach(x => add('wheat', x)); add('cane', 149);   // 광장섬
-  add('harbor', 129); add('box', 133); add('board', 137); add('altar', 140);
-  // 탐험섬: 고산 섬(저압: 암염과 소나무)과 극지 섬(영하: 얼음, 나무 없음)
-  add('harbor', 223); [226, 231, 236, 252, 262, 270].forEach(x => add('tree', x)); [241, 255, 267].forEach(x => add('rocksalt', x));
-  add('harbor', 313); [316, 319, 323, 327, 346, 350, 354, 358].forEach(x => add('icecrystal', x));        // 광장섬: 항구 표지판, 보급 상자, 유리병 편지 게시판, 솥 골렘 제단
-})();
-// 땅 파기/놓기로 바뀐 타일만 S.dug(타일 번호 y*WW+x → 새 종류)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
-const BASE = MAP.slice();
-function applyDug() {
-  MAP.set(BASE);
-  for (const k in S.dug) { const v = S.dug[k]; if (v != null && k >= 0 && k < MAP.length) MAP[k] = v; }
-  Sim.syncRaft(S);   // 뗏목 바닥 타일: 해안 쪽 끝에서 바다 쪽으로 cells칸 (저장하지 않고 S.raft에서 계산)
-  for (const x of Sim.raftXs(S)) MAP[Sim.RAFT.ROW * WW + x] = RAFT;
-}
+const S = Store.S;               // 상태는 store.js, 지형·땅 규칙은 world.js, 계산은 sim.js (2D와 3D가 같이 쓴다)
+const { T, WW, WH, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
+const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
+const save = Store.save;
+Store.onWarn = (m) => say(m);
+const applyDug = () => World.applyDug(S);
 applyDug();
-// 종류별 [얻는 아이템, 1회 양, 하루 횟수, 이름, 중심 y 오프셋(위로 몇 px)]
-const NODE = {
-  tree: ['stick', 2, 2, '나무', 16], cane: ['sugar', 50, 2, '사탕수수', 8], wheat: ['noodle', 1, 2, '밀', 8],
-  sandpile: ['sand', 2, 4, '모래 더미', 4], icecrystal: ['ice', 1, 3, '얼음 결정', 10],
-  rocksalt: ['salt', 30, 2, '암염', 8],   // NaCl 결정(이온 결정이라 녹는점이 높아 곡괭이로 캔다)   [#24]
-};
 
 // ---------- 유틸 ----------
 const $ = id => document.getElementById(id);
@@ -135,6 +33,7 @@ function flush() {
   for (const e of Sim.drain()) {
     if (e.t === 'say') say(e.text);
     else if (e.t === 'burst') burst(e.d);
+    else if (e.t === 'puff') puff(e.x, e.y, e.col, e.n);
     else if (e.t === 'puffWolf') puff(...wolfPos(e.m), '#d8f3ff', 10);
     else if (e.t === 'refresh') refresh();
     else if (e.t === 'moved') { applyDug(); loadPlaza(); }
@@ -143,104 +42,14 @@ function flush() {
 const advance = dm => { Sim.advance(S, dm); flush(); };
 const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cookerState = Sim.cookerState;
 
-// ---------- 땅 파기 · 블록 놓기 ----------
-// 타일별 [얻는 아이템, 파는 데 걸리는 시간(초, 마우스 꾹 누르기)]. 시간은 모두 가정(임의값): 흙·모래 짧게, 눈·얼음 중간, 돌은 곡괭이가 필요(2단계)하고 오래
-const DIG = {
-  [GRASS]: { item: 'dirt', t: 0.5 }, [DIRT]: { item: 'dirt', t: 0.5 }, [SAND]: { item: 'sand', t: 0.4 },
-  [SNOWTOP]: { item: 'ice', t: 0.8 }, [ICE]: { item: 'ice', t: 1.0 },
-  [STONE]: { item: 'stone', t: 2.0, tool: 'pickaxe' },
-};
-const BLOCK = { dirt: DIRT, stone: STONE, sand: SAND };   // 가방에서 꺼내 놓을 수 있는 블록
-const dig = { on: false, tx: -1, ty: -1, p: 0, need: 0 };
+// ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
-const inReach = (tx, ty) => Math.hypot(tx * T + T / 2 - (S.px + PW / 2), ty * T + T / 2 - (S.py + PH / 2)) <= REACH;
-// 장치·오브젝트가 서 있는 바로 아래 땅은 파지 못한다
-function holdsThing(tx, ty) {
-  if (S.placed.some(d => ty === d.y + 2 && (tx === d.x || tx === d.x + 1))) return true;
-  return OBJS.some(o => ty === o.y && (tx === o.x || (o.type === 'altar' && tx === o.x + 1)));
-}
-function digCheck(tx, ty) {
-  const id = tileAt(tx, ty);
-  if (!DIG[id]) return { ok: false, msg: id === WATER ? '물은 팔 수 없습니다.' : '' };
-  if (ty >= WH - 1) return { ok: false, msg: '맨 아래는 팔 수 없습니다.' };
-  if (!inReach(tx, ty)) return { ok: false, msg: '' };
-  if (holdsThing(tx, ty)) return { ok: false, msg: '장치나 자원 바로 아래 땅은 팔 수 없습니다.' };
-  const def = DIG[id];
-  if (def.tool && !(S.inv[def.tool] > 0)) return { ok: false, msg: '돌은 곡괭이가 있어야 팔 수 있어요.' };
-  return { ok: true, def };
-}
-function setTile(tx, ty, id) {
-  const k = ty * WW + tx;
-  MAP[k] = id; delete S.melt[k];
-  if (BASE[k] === id) delete S.dug[k]; else S.dug[k] = id;
-}
-function stepDig(dt) {
-  if (!dig.on) return;
-  if (!$('modal').hidden || mode) { dig.p = 0; return; }
-  const [tx, ty] = mouseTile();
-  if (tx !== dig.tx || ty !== dig.ty) { dig.tx = tx; dig.ty = ty; dig.p = 0; dig.msg = false; }
-  const c = digCheck(tx, ty);
-  if (!c.ok) { dig.p = 0; if (c.msg && !dig.msg) { dig.msg = true; say(c.msg); } return; }
-  dig.need = c.def.t; dig.p += dt;
-  if (dig.p < c.def.t) return;
-  const id = tileAt(tx, ty);
-  setTile(tx, ty, AIR); S.inv[c.def.item] = (S.inv[c.def.item] || 0) + 1; dig.p = 0;
-  puff(tx * T + 8, ty * T + 8, id === STONE ? '#8b919c' : id === SAND ? '#f6e7b0' : id === ICE || id === SNOWTOP ? '#d8f3ff' : '#8a5a35', 6);
-  say(`${ITEM[c.def.item][1]} +1`);
-}
-function placeBlock() {
-  const item = mode.slice(6), [tx, ty] = mouseTile();
-  if (!(S.inv[item] >= 1)) { mode = null; return say(`${ITEM[item][1]}이(가) 없습니다.`); }
-  if (tileAt(tx, ty) !== AIR || ty >= WH || tx < 0 || tx >= WW) return say('빈 공간에만 놓을 수 있습니다.');
-  if (!inReach(tx, ty)) return say('너무 멉니다.');
-  if (tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) return say('내가 서 있는 자리에는 놓을 수 없습니다.');
-  if (S.placed.some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || OBJS.some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) return say('장치나 자원 자리에는 놓을 수 없습니다.');
-  if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) return say('땅에 닿은 곳에만 놓을 수 있습니다.');
-  S.inv[item]--; setTile(tx, ty, BLOCK[item]);
-  if (S.inv[item] < 1) mode = null;
-}
-
-// ---------- 도구: 소금 뿌리개 · 온도계 (곡괭이는 돌을 팔 때 자동으로 쓰인다) ----------
-const TOOL = { shaker: 'salt', thermo: 'thermo' };   // 가방 슬롯을 누르면 켜지는 도구 모드
-const tileTemp = (tx, ty) => (tx >= 0 && tx < WW && ty > GY[tx] ? UNDER_T : airTemp());
-function useThermo() {
-  const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
-  const t = targets().find(o => o.kind === 'dev' && Math.hypot(o.x - wx, o.y - wy) < 26);
-  let name, val, note;
-  if (t) {
-    const d = t.ref; name = DEV[d.id].name;
-    if (d.id === 'fire') { const on = d.s.level > 0 && d.s.fuel > 0; val = on ? FIRE_T[d.s.level] : airTemp(); note = on ? `열원 (${FIRE_NAME[d.s.level]})` : '꺼져 있어 외기와 같음'; }
-    else if (d.id === 'still' || d.id === 'cooker') { val = heatOf(d); note = '옆 화덕이 주는 열원 온도'; }
-    else if (d.id === 'cooler') { const has = S.packs.length > 0; val = has ? Math.min(...S.packs.map(p => p.T)) : airTemp(); note = has ? '가장 찬 한제 팩' : '팩이 없어 외기와 같음'; }
-    else { val = airTemp(); note = '외기와 같음'; }
-  } else {
-    const [tx, ty] = mouseTile();
-    if (!inReach(tx, ty)) return say('너무 멉니다. 가까이 가서 재세요.');
-    const under = tx >= 0 && tx < WW && ty > GY[tx];
-    val = tileTemp(tx, ty); name = under ? `지하 (${tx}, ${ty})` : `외기 (${tx}, ${ty})`;
-    note = under ? `가정: 지하는 깊이와 상관없이 ${UNDER_T} ℃로 일정` : '시각에 따라 변하는 외기 온도';
-  }
-  say(`온도계: ${name} ${fmt(val, 1)} ℃ — ${note}`);
-  logEv('온도 측정', `${name} ${fmt(val, 1)}℃ (${note})`);
-}
-function useShaker() {
-  if (S.inv.salt < 1) return say('소금이 없습니다.');
-  const T = airTemp(), wx = cam.x + mouse.x, wy = cam.y + mouse.y;
-  const w = targets().find(o => o.kind === 'wolf' && Math.hypot(o.x - wx, o.y - wy) < 26);
-  const s = Math.min(SHAKE_G, S.inv.salt);
-  if (w) return saltOnWolf(w.ref, s);
-  const [tx, ty] = mouseTile(), id = tileAt(tx, ty);
-  if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 서리 늑대에게 뿌리세요.');
-  if (!inReach(tx, ty)) return say('너무 멉니다.');
-  const k = ty * WW + tx, had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T, s);
-  if (melt <= 0) return say('기온이 0 ℃ 이상이라 소금이 필요 없어요.');
-  const used = melt >= left ? Math.min(s, C.saltForIce(T, left)) : s, done = Math.min(melt, left);
-  S.inv.salt -= used; S.melt[k] = had + done;
-  logEv('소금 뿌림(얼음 타일)', `기온 ${fmt(T, 1)}℃ (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg), 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g)`);
-  puff(tx * T + 8, ty * T + 8, '#d8f3ff', 8);
-  if (had + done >= ICE_TILE_G - 1e-6) { setTile(tx, ty, WATER); say('얼음이 모두 녹아 물이 되었습니다.'); if (Sim.dockOf(S).island === 'polar') S.f.polarMelt = true; }
-  else say(`얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g). 소금 ${fmt(used, 1)} g 사용`);
-}
+const digCheck = (tx, ty) => World.digCheck(S, tx, ty);
+function stepDig(dt) { const [tx, ty] = mouseTile(); World.stepDig(S, dt, tx, ty, !$('modal').hidden || !!mode); flush(); }
+function placeBlock() { const [tx, ty] = mouseTile(); if (World.placeBlock(S, mode.slice(6), tx, ty)) mode = null; flush(); }
+function pickAt(kind) { const wx = cam.x + mouse.x, wy = cam.y + mouse.y; return World.targets(S).find(o => o.kind === kind && Math.hypot(o.x - wx, o.y - wy) < 26); }
+function useThermo() { const t = pickAt('dev'), [tx, ty] = mouseTile(); World.useThermo(S, t ? { dev: t.ref } : { tx, ty }); flush(); }
+function useShaker() { const w = pickAt('wolf'), [tx, ty] = mouseTile(); World.useShaker(S, w ? { wolf: w.ref } : { tx, ty }); flush(); }
 
 // ---------- 항해: 뗏목 파편 · 항구 표지판 · 유리병 편지 게시판 · 광장의 다른 뗏목 ----------
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -289,7 +98,7 @@ async function loadPlaza() {
   if (Sim.dockOf(S).island !== 'plaza' || !(window.Net && Net.user && Net.loadRafts)) return;
   try { plazaRafts = await Net.loadRafts(3); } catch { /* 오프라인 */ }
 }
-setInterval(() => { if (!paused) loadPlaza(); }, 60000);
+setInterval(() => { if (!Store.paused) loadPlaza(); }, 60000);
 function drawPlazaRafts(t) {
   ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
   plazaRafts.slice(0, 3).forEach((r, i) => {
@@ -310,27 +119,8 @@ function drawPlazaRafts(t) {
 function checkQuests() { Sim.checkQuests(S); flush(); }
 
 // ---------- 상호작용 대상 ----------
-const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : o.type === 'harbor' || o.type === 'board' ? 14 : 8)];
-function nearWater() {
-  const tx = Math.floor((S.px + PW / 2) / T), ty = Math.floor((S.py + PH / 2) / T);
-  for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 뗏목 위에서는 바로 아래 물까지
-  return false;
-}
-const wolfPos = m => [m.dx * T + (m.id % 2 ? 44 : -12), m.dy * T + 26];   // 장치 옆 땅 위
-function targets() {
-  const cx = S.px + PW / 2, cy = S.py + PH / 2, out = [];
-  const add = (kind, ref, x, y, label) => { const d = Math.hypot(x - cx, (y - cy) * 0.7); if (d <= REACH) out.push({ kind, ref, x, y, d, label }); };
-  for (const o of OBJS) {
-    if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
-    const [x, y] = objCenter(o), n = NODE[o.type];
-    const label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)' }[o.type];
-    add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
-  }
-  for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
-  for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `서리 늑대 ${fmt(m.M, 0)} g`); }
-  if (nearWater()) add('water', null, cx, cy + 4, '바닷물 뜨기');
-  return out.sort((a, b) => a.d - b.d);
-}
+const targets = () => World.targets(S);
+const wolfPos = World.wolfPos;
 function interact(t) {
   if (!t) return;
   if (t.kind === 'wolf') return uiWolf(t.ref);
@@ -352,22 +142,13 @@ function openBox() { Sim.act.box(S); flush(); refresh(); }
 let mode = null;   // 'build:<id>' | 'demolish'
 const mouse = { x: 0, y: 0 };
 const cam = { x: 0, y: 0 };
-// 장치는 뗏목 위에만 짓는다: 마우스 아래 칸 → 뗏목의 해안 쪽 끝에서 u칸 떨어진 자리(2칸 폭)
-function ghostCheck(id) {
-  const wx = cam.x + mouse.x, tx = Math.floor(wx / T - 1 + 0.5), def = DEV[id], u = Sim.raftU(S, tx);
-  if (u < 0 || u + 2 > S.raft.cells) return { ok: false, tx, msg: '뗏목 위에 지어야 합니다. (뗏목이 모자라면 건설 메뉴에서 넓히세요)' };
-  const dev = { x: tx, y: Sim.RAFT.DEV_Y };
-  if (S.placed.some(d => Math.abs(d.u - u) < 2)) return { ok: false, tx, msg: '다른 장치와 겹칩니다.' };
-  if (Math.abs(tx * T - S.px) > 8 * T) return { ok: false, tx, msg: '너무 멉니다. 가까이 가서 지으세요.' };
-  if (def.needFire && !fireNear(dev).length) return { ok: false, tx, msg: `${def.name}은(는) 화덕 바로 옆에 지어야 합니다. (열 전달)` };
-  return { ok: true, tx, ty: dev.y, u };
-}
+const ghostCheck = id => World.ghostCheck(S, id, Math.floor((cam.x + mouse.x) / T - 1 + 0.5));
 function placeAtMouse() {
   if (mode.startsWith('block:')) return placeBlock();
   if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
     const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
-    const d = S.placed.find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
+    const d = World.deviceAt(S, wx, wy);
     if (!d) return say('철거할 장치를 클릭하세요.');
     Sim.act.demolish(S, d); flush();
     mode = null; return refresh();
@@ -635,15 +416,15 @@ function openSave() {
 
 // ---------- 접속(게스트 입장 / 로그인) ----------
 const authErr = (t) => { $('a-err').textContent = t || ''; };
-function showAuth() { $('modal').hidden = true; authErr(''); $('auth').hidden = false; paused = true; clearKeys(); }
-function applyRemote(r) { S = merge(r); applyDug(); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
+function showAuth() { $('modal').hidden = true; authErr(''); $('auth').hidden = false; Store.paused = true; clearKeys(); }
+function applyRemote(r) { Store.merge(r); applyDug(); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
 // 신원이 확정된 뒤: 서버 세이브가 있으면 그것으로, 없으면 지금 진행 상황을 서버에 올린다
 async function enterWorld() {
   try {
     const r = await Net.loadSave();
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
-  $('auth').hidden = true; paused = false; lastRemote = 0; save(true); refresh();
+  $('auth').hidden = true; Store.paused = false; lastRemote = 0; save(true); refresh();
   Net.joinMap(MAPID, posPacket());
   say(`${Net.nick}님, 환영합니다!`);
 }
@@ -653,11 +434,11 @@ async function busy(fn) {
 }
 $('a-start').onclick = () => busy(async () => { await Net.register($('a-nick').value); await enterWorld(); });
 $('a-lgo').onclick = () => busy(async () => { await Net.login($('a-lnick').value, $('a-lpw').value); await enterWorld(); });
-$('a-off').onclick = () => { $('auth').hidden = true; paused = false; };
+$('a-off').onclick = () => { $('auth').hidden = true; Store.paused = false; };
 for (const id of ['a-nick', 'a-lnick', 'a-lpw']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $(id === 'a-nick' ? 'a-start' : 'a-lgo').click(); });
 async function boot() {
   if (!window.Net || !Net.init()) return;     // Firebase를 쓸 수 없으면 혼자 하기
-  paused = true;
+  Store.paused = true;
   const nick = await Net.restore();
   if (nick) await enterWorld(); else showAuth();
 }
@@ -696,10 +477,10 @@ window.G = {
     if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
     save(true); await Net.logout();
     try { localStorage.removeItem(KEY); } catch { /* 무시 */ }
-    S = newState(); applyDug(); closeModal(); showAuth();
+    Store.reset(); applyDug(); closeModal(); showAuth();
   },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
-  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); applyDug(); save(true); closeModal(); refresh(); } },
+  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { Store.reset(); applyDug(); save(true); closeModal(); refresh(); } },
 };
 
 // ---------- 목표 텍스트(DOM 오버레이) ----------
@@ -759,11 +540,7 @@ document.querySelectorAll('#pad button').forEach(b => {
 // ---------- 물리 ----------
 let onGround = false, seaHintAt = 0;
 function hintSea() { const n = performance.now(); if (n - seaHintAt > 5000) { seaHintAt = n; say('바다가 거칠어서 헤엄쳐 건널 수 없어요. 뗏목으로 항해하세요 (항구 표지판).'); } }
-const collides = (x, y) => {
-  const x0 = Math.floor(x / T), x1 = Math.floor((x + PW - 0.01) / T), y0 = Math.floor(y / T), y1 = Math.floor((y + PH - 0.01) / T);
-  for (let tx = x0; tx <= x1; tx++) for (let ty = y0; ty <= y1; ty++) if (solidAt(tx, ty)) return true;
-  return false;
-};
+const collides = World.collides;
 function physics(dt) {
   const modalOpen = !$('modal').hidden;
   const inW = tileAt(Math.floor((S.px + PW / 2) / T), Math.floor((S.py + PH / 2) / T)) === WATER;
@@ -810,7 +587,7 @@ const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 1
 let lastPos = '', lastPosAt = 0;
 const ghosts = {};   // uid -> { x, y, face, vx, air, nick, seen } (보간되는 화면 위치)
 function netStep(dt, now) {
-  if (!(window.Net && Net.user) || paused) return;
+  if (!(window.Net && Net.user) || Store.paused) return;
   if (now - lastPosAt >= 100) {           // 10 Hz, 변화가 없으면 생략(5초마다 생존 신호)
     const p = posPacket(), k = JSON.stringify(p);
     if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(p); }
@@ -845,7 +622,6 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 const blit = (img, x, y) => { const p = img.pad || 0; ctx.drawImage(img, Math.round(x - p), Math.round(y - p)); };
-const isOpen = (x, y) => { const t = tileAt(x, y); return t === AIR || t === WATER; };
 const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
 function draw(t) {
   const hour = S.min / 60, night = nightOf(hour);
@@ -1071,7 +847,7 @@ function drawHUD(t) {
 }
 
 // 시계: 1초 = 게임 2분 (x1)
-setInterval(() => { if (paused || (window.Raid && Raid.active)) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
+setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(() => save(), 5000);
 window.addEventListener('pagehide', () => save(true));
 function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
@@ -1085,11 +861,11 @@ function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(�
 window.addEventListener('resize', fit);
 refresh(); fit(); requestAnimationFrame(frame);
 // 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말
-paused = true;
+Store.paused = true;
 $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}일차 · 목표 ${S.qDone}/${QUESTS.length}` : '새 게임';
 function startGame() {
   if ($('title').hidden) return;
-  $('title').hidden = true; paused = false; loadPlaza();
+  $('title').hidden = true; Store.paused = false; loadPlaza();
   boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
 }
 $('t-start').onclick = startGame;
