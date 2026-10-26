@@ -79,6 +79,13 @@
 
 제출용 기본은 사용자가 정할 때까지 측면 2D `index.html`이고, `td/`가 점검표(목표 1~11, 성립 조건·가정 문구 표시, 콘솔 에러 0, 60 fps 목표, `sim-check` 불변)를 통과하면 사용자가 기본 진입점을 `td/`로 바꿀지 정한다.
 
+## 요청된 작업: 섬 테마 정리 (14단계) — 사용자가 "섬 테마는 지워도 된다"고 확인함 (2026-10-27)
+우주 테마(`fp/`·`td/`)가 기본 방향이므로 섬 테마의 옛 화면을 정리한다. **단, 제출용 기본 화면이 비는 순간이 없어야 하므로 두 단계로 나눈다.** 지우기 전에 반드시 태그를 남기고(브랜치 아님), 지운 목록을 사용자에게 알린다.
+- **14-a 지금 바로**: `3d/`(복셀 디오라마)와 `tools/smoke3d.js`를 지운다(`fp/`가 대체했고 아무것도 이것에 의존하지 않는다). 먼저 `git tag island-3d-diorama-final`. `GUIDE.md` 6절, `ARGON.md`·`CLAUDE.md`·`DESIGN.md` §4-13 및 `store.js`·`world.js`·`ui.js` 머리 주석의 `3d/` 언급과 2D·`fp/` 시작 화면의 "3D 시험판" 링크를 정리한다(링크는 `fp/`를 가리키게 이름을 바꾼다). `node tools/sim-check.js`·`smoke.js`·`smokefp.js`가 그대로 통과해야 한다.
+- **14-b `td/`가 기본이 된 뒤**: 13-e의 점검표를 사용자가 확인하고 **기본 진입점을 `td/`로 바꾼다고 알려 준 뒤에만** 측면 2D(`index.html`의 옛 화면, `game.js`, 그 화면만 쓰는 `style.css` 일부·스프라이트·`tools/smoke.js`)를 지운다. 먼저 `git tag island-2d-final`. **`fp/`·`td/`가 쓰는 공용 파일은 남긴다**(`sim.js`·`chem.js`·`ui.js`·`store.js`·`world.js`의 공용 부분·`sprites.js`·`notes.js`·`raid.js`·`net.js`·`shared/`). 새 `index.html`은 `td/`로 들어가는 시작 화면이고 `fp/` 링크를 단다. 이때 `tools/smoke.js`는 `td/` 기준(`smoketd.js`)으로 대체하고 `AGENTS.md`·`GUIDE.md`·`README.md`의 실행 안내를 고친다.
+- **14-c 문구 통합(선택)**: 섬 테마가 없어졌으면 `sim.js`·`ui.js`·`raid.js` 원문을 우주 문구로 직접 고치고 `theme.js` 치환표를 줄인다. 내부 id(`start`·`plaza`·`alpine`·`polar`, 장치 id, 세이브 키)는 유지한다. 말풍선·로그 문구가 바뀌어 `tools/sim-baseline.json`의 로그가 달라지면 **숫자 필드가 같음을 확인한 뒤** 기준을 갱신한다(이전에도 같은 방식으로 했다).
+- **14-d 문서 정리**: `DESIGN.md` 0절의 옛 섬 이야기·연속 바다 설명은 지우고 현재 개요(우주, 팀, 교류, 클라이언트 두 종류)로 바꾼다. `CLAUDE.md`의 끝난 단계 섹션(5~11단계)은 한두 줄로 줄인다. 평가용 근거 기록(`DESIGN.md` §4의 검증 사례·전후 수치)은 지우지 않는다.
+
 **공통**
 - 새 상수는 모두 "가정(임의값)"이라고 코드 주석에 적고 전후 수치를 `DESIGN.md`에 남긴다. 새 화학 식은 `chem.js`에만 두고 `notes.js`의 `LINKS`와 `DESIGN.md`를 갱신한다. 새 아이콘은 `sprites.js`에서 그린다.
 - 끝난 뒤 `GUIDE.md`에 새 조작과 "수업 개념 ↔ 게임 규칙"을 추가한다.
