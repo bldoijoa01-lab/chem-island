@@ -3,53 +3,46 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chemistry Quiz - 원소 퀴즈</title>
+<title>화학 섬 이야기</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<main class="card">
-  <h1>⚗️ 원소 퀴즈</h1>
-
-  <section id="screen-start">
-    <p class="sub">주기율표 원소를 얼마나 알고 있나요?</p>
-
-    <h2>모드</h2>
-    <div class="options" id="mode-options">
-      <button class="opt active" data-mode="sym2name">기호 → 이름</button>
-      <button class="opt" data-mode="name2sym">이름 → 기호</button>
-      <button class="opt" data-mode="num2name">원자번호 → 이름</button>
+<div id="app">
+  <div id="left">
+    <canvas id="cv" width="704" height="448"></canvas>
+    <div id="msg"></div>
+    <div id="hint">이동: 방향키/WASD 또는 타일 클릭 · 상호작용: E 또는 대상 클릭</div>
+  </div>
+  <aside id="side">
+    <div class="row between">
+      <b id="clock"></b>
+      <span class="speed">
+        <button data-sp="1" class="on">x1</button><button data-sp="3">x3</button><button data-sp="10">x10</button>
+      </span>
     </div>
+    <section><h3>목표</h3><div id="quest"></div></section>
+    <section><h3>가방</h3><div id="inv"></div></section>
+    <section class="btns">
+      <button id="b-build">🔨 건설</button>
+      <button id="b-craft">🧰 제작</button>
+      <button id="b-notes">📖 연구 노트</button>
+      <button id="b-log">📝 기록</button>
+      <button id="b-save">💾 저장/초기화</button>
+    </section>
+  </aside>
+</div>
 
-    <h2>난이도</h2>
-    <div class="options" id="level-options">
-      <button class="opt active" data-level="20">쉬움 (1~20번)</button>
-      <button class="opt" data-level="36">보통 (1~36번)</button>
-      <button class="opt" data-level="99">어려움 (+주요 원소)</button>
-    </div>
+<div id="modal" hidden>
+  <div id="mbox">
+    <button id="mclose" aria-label="닫기">✕</button>
+    <h2 id="mtitle"></h2>
+    <div id="mbody"></div>
+  </div>
+</div>
 
-    <button class="primary" id="btn-start">게임 시작</button>
-    <p class="best">최고 점수: <span id="best">0</span></p>
-  </section>
-
-  <section id="screen-game" hidden>
-    <div class="hud">
-      <span>문제 <b id="qnum">1</b>/10</span>
-      <span>점수 <b id="score">0</b></span>
-      <span>🔥 <b id="streak">0</b></span>
-    </div>
-    <div class="timer"><div id="timerbar"></div></div>
-    <div class="question" id="question"></div>
-    <div class="answers" id="answers"></div>
-  </section>
-
-  <section id="screen-end" hidden>
-    <h2>결과</h2>
-    <p class="final"><b id="final-score">0</b>점</p>
-    <p id="final-detail"></p>
-    <p id="newbest" class="newbest" hidden>🎉 최고 점수 갱신!</p>
-    <button class="primary" id="btn-again">다시 하기</button>
-  </section>
-</main>
+<script src="chem.js"></script>
+<script src="notes.js"></script>
+<script src="raid.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
