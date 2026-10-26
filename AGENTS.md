@@ -41,6 +41,10 @@ Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sim.
 - Do not commit secrets. `firebase-config.js` values are public by design; never add service-account keys or passwords.
 - No build tooling is expected. Avoid adding dependencies; if one is unavoidable, pin a CDN version.
 
+## Checks to run after a change
+- `node --check <file>` does **not** catch a trailing `//` comment that swallows the code after it on the same line (this happened twice). Always also run `node tools/smoke.js` (opens `index.html` in Playwright, start → move, fails on any console/page error) and `node tools/sim-check.js` (6+ headless scenarios against `tools/sim-baseline.json`; regenerate the baseline on purpose when a rule changes and record before/after in `DESIGN.md`). `node tools/sim-compare.js` prints the same devices per island.
+- Class scope: game chemistry may only use concepts in `ITEMS.md`; see `DESIGN.md` §4-12 for the classification (item / quantification / game setting / out of scope?).
+
 ## Where to look
 - Adding/changing a device → `DEV`, `ITEM`, `RECIPES`, `QUESTS` at the top of `game.js`, the sim function in the "장치 시뮬레이션" section, the panel in "장치 패널", the sprite in `sprites.js`.
 - Adding a chemistry concept → `chem.js` first, then `notes.js` `LINKS`/calculators, then `DESIGN.md`.
