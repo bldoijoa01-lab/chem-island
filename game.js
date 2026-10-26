@@ -34,11 +34,18 @@ const ITEM = {
   sugar: ['sugar', '설탕', 'g'], salt: ['salt', '소금', 'g'], water: ['water', '증류수', 'g'],
   noodle: ['noodle', '면', '개'], ramen: ['ramen', '라면', '개'],
   dirt: ['dirt', '흙', '개'], stone: ['stone', '돌', '개'],
+  pickaxe: ['pickaxe', '곡괭이', '개'], shaker: ['shaker', '소금 뿌리개', '개'], thermo: ['thermo', '온도계', '개'],
 };
 const RECIPES = [
   { id: 'bottle', out: 'bottle', n: 1, cost: { sand: 3, stick: 1 }, note: '모래를 가열해 유리로' },
   { id: 'syringe', out: 'syringe', n: 1, cost: { bottle: 1, stick: 2 }, note: '피스톤으로 기체의 양을 조절 [#8]' },
+  { id: 'pickaxe', out: 'pickaxe', n: 1, cost: { stick: 2, stone: 2 }, note: '돌을 팔 수 있다 (광장 보급 상자에서 처음 돌을 얻는다)' },
+  { id: 'shaker', out: 'shaker', n: 1, cost: { bottle: 1, stick: 1 }, note: '소금을 얼음·늑대에 뿌린다 — 어는점 내림 [#37 #39]' },
+  { id: 'thermo', out: 'thermo', n: 1, cost: { bottle: 1, sand: 2 }, note: '장치·땅·공기의 온도를 읽는다' },
 ];
+const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량(g) = 얼음 아이템 1개
+const SHAKE_G = 10;       // 가정(임의값) 소금 뿌리개로 한 번에 뿌리는 소금(g)
+const UNDER_T = 12;       // 가정(임의값) 지하 온도(℃): 깊이와 상관없이 일정하다고 가정
 const QUESTS = [
   { t: '바닷물 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕. 바닷가에서 E로 바닷물 뜨기' },
   { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 바닷물을 넣고 가열 시작' },
@@ -54,8 +61,8 @@ const QUESTS = [
 function newState() {
   return {
     day: 1, min: 360, px: 48 * T, py: 24 * T - PH, vx: 0, vy: 0, face: 1, speed: 1,
-    inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0 },
-    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {},
+    inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
+    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
     f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
     qDone: 0, log: [], memo: '',
   };
@@ -314,7 +321,7 @@ function digCheck(tx, ty) {
 }
 function setTile(tx, ty, id) {
   const k = ty * WW + tx;
-  MAP[k] = id;
+  MAP[k] = id; delete S.melt[k];
   if (BASE[k] === id) delete S.dug[k]; else S.dug[k] = id;
 }
 function stepDig(dt) {
@@ -341,6 +348,48 @@ function placeBlock() {
   if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) return say('땅에 닿은 곳에만 놓을 수 있습니다.');
   S.inv[item]--; setTile(tx, ty, BLOCK[item]);
   if (S.inv[item] < 1) mode = null;
+}
+
+// ---------- 도구: 소금 뿌리개 · 온도계 (곡괭이는 돌을 팔 때 자동으로 쓰인다) ----------
+const TOOL = { shaker: 'salt', thermo: 'thermo' };   // 가방 슬롯을 누르면 켜지는 도구 모드
+const tileTemp = (tx, ty) => (tx >= 0 && tx < WW && ty > GY[tx] ? UNDER_T : airTemp());
+function useThermo() {
+  const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
+  const t = targets().find(o => o.kind === 'dev' && Math.hypot(o.x - wx, o.y - wy) < 26);
+  let name, val, note;
+  if (t) {
+    const d = t.ref; name = DEV[d.id].name;
+    if (d.id === 'fire') { const on = d.s.level > 0 && d.s.fuel > 0; val = on ? FIRE_T[d.s.level] : airTemp(); note = on ? `열원 (${FIRE_NAME[d.s.level]})` : '꺼져 있어 외기와 같음'; }
+    else if (d.id === 'still' || d.id === 'cooker') { val = heatOf(d); note = '옆 화덕이 주는 열원 온도'; }
+    else if (d.id === 'cooler') { const has = S.packs.length > 0; val = has ? Math.min(...S.packs.map(p => p.T)) : airTemp(); note = has ? '가장 찬 한제 팩' : '팩이 없어 외기와 같음'; }
+    else { val = airTemp(); note = '외기와 같음'; }
+  } else {
+    const [tx, ty] = mouseTile();
+    if (!inReach(tx, ty)) return say('너무 멉니다. 가까이 가서 재세요.');
+    const under = tx >= 0 && tx < WW && ty > GY[tx];
+    val = tileTemp(tx, ty); name = under ? `지하 (${tx}, ${ty})` : `외기 (${tx}, ${ty})`;
+    note = under ? `가정: 지하는 깊이와 상관없이 ${UNDER_T} ℃로 일정` : '시각에 따라 변하는 외기 온도';
+  }
+  say(`온도계: ${name} ${fmt(val, 1)} ℃ — ${note}`);
+  logEv('온도 측정', `${name} ${fmt(val, 1)}℃ (${note})`);
+}
+function useShaker() {
+  if (S.inv.salt < 1) return say('소금이 없습니다.');
+  const T = airTemp(), wx = cam.x + mouse.x, wy = cam.y + mouse.y;
+  const w = targets().find(o => o.kind === 'wolf' && Math.hypot(o.x - wx, o.y - wy) < 26);
+  const s = Math.min(SHAKE_G, S.inv.salt);
+  if (w) return saltOnWolf(w.ref, s);
+  const [tx, ty] = mouseTile(), id = tileAt(tx, ty);
+  if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 서리 늑대에게 뿌리세요.');
+  if (!inReach(tx, ty)) return say('너무 멉니다.');
+  const k = ty * WW + tx, had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T, s);
+  if (melt <= 0) return say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : `공융점(${C.EUTECTIC} ℃) 이하라 소금이 듣지 않습니다. 기온이 오를 때까지 기다리세요.`);
+  const used = melt >= left ? Math.min(s, C.saltForIce(T, left)) : s, done = Math.min(melt, left);
+  S.inv.salt -= used; S.melt[k] = had + done;
+  logEv('소금 뿌림(얼음 타일)', `기온 ${fmt(T, 1)}℃ (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg), 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g)`);
+  puff(tx * T + 8, ty * T + 8, '#d8f3ff', 8);
+  if (had + done >= ICE_TILE_G - 1e-6) { setTile(tx, ty, WATER); say('얼음이 모두 녹아 물이 되었습니다.'); }
+  else say(`얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g). 소금 ${fmt(used, 1)} g 사용`);
 }
 
 // ---------- 퀘스트 ----------
@@ -395,7 +444,8 @@ function openBox() {
   const nAir = C.moles(1, 0.5, 25);
   for (const k of ['N2', 'N2', 'N2', 'O2', 'O2', 'O2', 'He']) S.caps.push({ k, n: nAir });
   S.inv.sugar += 100; S.inv.salt += 10;
-  say('광장 보급품: 질소·산소 캡슐 3개씩, 헬륨 캡슐 1개, 설탕 100 g, 소금 10 g');
+  const gift = !S.stoneGift; if (gift) { S.stoneGift = true; S.inv.stone += 3; }
+  say('광장 보급품: 질소·산소 캡슐 3개씩, 헬륨 캡슐 1개, 설탕 100 g, 소금 10 g' + (gift ? ', 돌 3개(곡괭이 재료, 처음 한 번)' : ''));
   refresh();
 }
 
@@ -418,6 +468,7 @@ function ghostCheck(id) {
 }
 function placeAtMouse() {
   if (mode.startsWith('block:')) return placeBlock();
+  if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
     const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
     const d = S.placed.find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
@@ -509,19 +560,23 @@ function uiWolf(m) {
   });
 }
 function wolfSalt() {
-  const m = wolfRef, T = airTemp();
+  const m = wolfRef;
   if (!m || !S.mobs.includes(m)) return;
   const s = Math.min(+$('w-s').value, S.inv.salt);
   if (s <= 0) return say('소금을 뿌릴 양을 정하세요.');
-  const melt = C.iceMeltBySalt(T, s);
-  if (melt <= 0) return say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : '공융점 이하라 소금으로 녹일 수 없습니다.');
+  if (saltOnWolf(m, s)) closeModal(); else uiWolf(m);
+}
+// 늑대에게 소금 s g을 뿌린다(모달·소금 뿌리개 공용). 늑대가 정화되면 true
+function saltOnWolf(m, s) {
+  const T = airTemp(), melt = C.iceMeltBySalt(T, s);
+  if (melt <= 0) { say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : '공융점 이하라 소금으로 녹일 수 없습니다.'); return false; }
   const used = melt >= m.M ? Math.min(s, C.saltForIce(T, m.M)) : s, done = Math.min(melt, m.M);
   S.inv.salt -= used; m.M -= done;
   logEv('소금 뿌림', `기온 ${fmt(T, 1)}℃, 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg)`);
   puff(...wolfPos(m), '#d8f3ff', 10);
-  if (m.M <= 1e-6) { removeWolf(m, 'salt', `소금 ${fmt(used, 1)} g, 기온 ${fmt(T, 1)}℃`); closeModal(); return; }
+  if (m.M <= 1e-6) { removeWolf(m, 'salt', `소금 ${fmt(used, 1)} g, 기온 ${fmt(T, 1)}℃`); return true; }
   say(`얼음 ${fmt(done, 0)} g가 녹았습니다. 남은 질량 ${fmt(m.M, 0)} g`);
-  uiWolf(m);
+  return false;
 }
 
 function uiFire(d) {
@@ -1070,7 +1125,7 @@ function draw(t) {
     ctx.fillStyle = '#000'; ctx.fillRect(ax - 4, ay - 1, 9, 3); ctx.fillRect(ax - 3, ay + 2, 7, 2); ctx.fillRect(ax - 1, ay + 4, 3, 2);
     ctx.fillStyle = '#ffd84a'; ctx.fillRect(ax - 3, ay, 7, 1); ctx.fillRect(ax - 2, ay + 2, 5, 1); ctx.fillRect(ax, ay + 4, 1, 1);
   }
-  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
+  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
@@ -1122,7 +1177,8 @@ function drawHUD(t) {
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);
     const s = String(it.n); drawText(s, x + 15 - textW(s), y + 10);
     if (BLOCK[it.k]) HUD.hits.push({ x, y, w: 16, h: 16, fn: () => { mode = mode === 'block:' + it.k ? null : 'block:' + it.k; say(mode ? `${it.name}을(를) 놓을 곳을 클릭하세요. (ESC 취소)` : '취소'); } });
-    if (hov) HUD.tip = `${it.name} ${it.n}` + (BLOCK[it.k] ? ' (클릭: 놓기)' : '');
+    if (TOOL[it.k]) HUD.hits.push({ x, y, w: 16, h: 16, fn: () => { const m = 'tool:' + TOOL[it.k]; mode = mode === m ? null : m; say(mode ? `${it.name}: 쓸 대상을 클릭하세요. (ESC 취소)` : '취소'); } });
+    if (hov) HUD.tip = `${it.name} ${it.n}` + (BLOCK[it.k] ? ' (클릭: 놓기)' : TOOL[it.k] ? ' (클릭: 사용)' : it.k === 'pickaxe' ? ' (돌을 팔 때 자동 사용)' : '');
   });
   HUD.bottom = 4 + rows * SL;
   // 시계(해/달 아이콘 + 일차 + 시각)

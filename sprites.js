@@ -172,6 +172,9 @@ window.Art = (() => {
   A.icon.pack = I(['..bbbb..', '.bCCCCb.', 'bCwCCCCb', 'bCCCwCCb', 'bCCCCCCb', 'bCwCCCCb', '.bCCCCb.', '..bbbb..'], { b: '#2f7bc0', C: '#9ad8f8', w: '#ffffff' });
   A.icon.dirt = I(['........', '.dddddd.', 'dDDdDDDd', 'dDdDDdDd', 'dDDDdDDd', 'dDdDDDdd', '.dddddd.', '........'], { d: '#6a4025', D: '#8a5a35' });
   A.icon.stone = I(['........', '..gggg..', '.gGGGGg.', 'gGGhGGGg', 'gGGGGgGg', 'gGgGGGGg', '.gggggg.', '........'], { g: '#6a707c', G: '#8b919c', h: '#bcc2cd' });
+  A.icon.pickaxe = I(['..hhhh..', '.hHHHHh.', 'hH.bB.Hh', 'h..bB..h', '...bB...', '...bB...', '...bB...', '...bB...'], { h: '#8f949e', H: '#d0d6e0', b: '#b9834a', B: '#7a4f25' });
+  A.icon.shaker = I(['..wwww..', '.wkkkkw.', '..wwww..', '.gGGGGg.', 'gGGwGGGg', 'gGGGGwGg', 'gGGGGGGg', '.gggggg.'], { w: '#e4ecf2', k: '#667587', g: '#6fb7a6', G: '#c4ece0' });
+  A.icon.thermo = I(['...ww...', '...wr...', '...wr...', '...wr...', '...wr...', '..wrrw..', '..wrrw..', '...ww...'], { w: '#e8ecf4', r: '#ff5a4a' });
   A.icon.hammer = I(['.hhhh...', 'hHHHHh..', 'hHHHHh.b', '.hhhhbB.', '....bB..', '...bB...', '..bB....', '..B.....'], { h: '#8f949e', H: '#d0d6e0', b: '#b9834a', B: '#7a4f25' });
   A.icon.gear = I(['...gg...', '.g.gg.g.', '..gGGg..', 'ggGggGgg', 'ggGggGgg', '..gGGg..', '.g.gg.g.', '...gg...'], { g: '#9aa3b0', G: '#dde3ec' });
   A.icon.book = I(['.bbbbbb.', 'bBBBBBBb', 'bBwwwwBb', 'bBwkkwBb', 'bBwwwwBb', 'bBwkkwBb', 'bBBBBBBb', '.bbbbbb.'], { b: '#2f5ea8', B: '#4a82d6', w: '#f4f6fa', k: '#8a94a8' });
