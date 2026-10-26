@@ -36,6 +36,7 @@
       }
     },
     "rafts": {
+      ".indexOn": ["t"],
       "$uid": {
         ".read": "auth != null",
         ".write": "auth != null && auth.uid === $uid",
@@ -54,6 +55,19 @@
             "$other": { ".validate": false }
           }
         },
+        "$other": { ".validate": false }
+      }
+    },
+    "bottles": {
+      ".read": "auth != null",
+      ".indexOn": ["t"],
+      "$id": {
+        ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['uid', 'nick', 'text', 't'])",
+        "uid": { ".validate": "newData.isString()" },
+        "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
+        "text": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 80" },
+        "t": { ".validate": "newData.isNumber()" },
         "$other": { ".validate": false }
       }
     },

@@ -4,7 +4,7 @@
 'use strict';
 const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
-const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
+const T = 16, WW = Sim.WORLD.WW, WH = Sim.WORLD.WH, KEY = 'chemisle_side_v1';
 const PW = 10, PH = 18, REACH = 40;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;   // 데이터와 계산은 sim.js
 // 아이템: [아이콘 키, 이름, 단위]
@@ -28,7 +28,7 @@ function load() {
     return j ? merge(j) : null;
   } catch { return null; }
 }
-let lastRemote = 0, remoteWarned = false;
+let lastRemote = 0, lastRaftSave = 0, remoteWarned = false;
 function save(force) {
   try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* 저장 불가 */ }
   if (!(window.Net && Net.user) || paused) return;
@@ -36,6 +36,10 @@ function save(force) {
   if (!force && now - lastRemote < 4000) return;      // 서버 쓰기는 4초에 한 번만
   lastRemote = now;
   const snap = JSON.parse(JSON.stringify(S)); snap.log = snap.log.slice(-60);   // undefined/NaN 제거, 기록은 최근 것만
+  if (Net.saveRaft && (force || now - lastRaftSave > 20000)) {   // 광장에 정박한 뗏목 요약(남은 읽기만): 장치 종류·위치·가동 여부 정도만 올린다
+    lastRaftSave = now;
+    Net.saveRaft({ cells: S.raft.cells, dock: S.raft.dock, t: now, devs: S.placed.filter(d => d.u !== undefined).map(d => ({ id: d.id, u: d.u, run: !!d.s.run, broken: !!d.s.broken })) }).catch(() => {});
+  }
   Net.saveSave(snap).catch(() => { if (!remoteWarned) { remoteWarned = true; say('서버 저장에 실패했습니다. 인터넷 연결을 확인하세요.'); } });
 }
 let paused = false;   // 접속 화면이 떠 있는 동안 시간이 흐르지 않게
@@ -52,9 +56,14 @@ const OBJS = [];
     let g;
     if (x <= 13) g = 30; else if (x <= 27) g = Math.round(30 - 6 * (x - 13) / 14); else if (x <= 34) g = 24 - Math.round(1.2 * Math.sin((x - 28) / 2.5)); else if (x <= 66) g = 24;
     else if (x <= 70) g = 24 - (x - 66); else if (x <= 74) g = 20; else if (x <= 78) g = 20 + (x - 74); else if (x <= 82) g = 24;
-    else if (x <= 105) g = 24 - Math.round(1.5 * Math.sin((x - 83) / 3)); else if (x <= 112) g = Math.round(24 + 6 * (x - 105) / 7); else g = 30;
+    else if (x <= 105) g = 24 - Math.round(1.5 * Math.sin((x - 83) / 3)); else if (x <= 112) g = Math.round(24 + 6 * (x - 105) / 7);
+    else if (x >= 118 && x <= 125) g = Math.round(24 + 6 * (125 - x) / 7);          // 광장섬 서쪽 해안(시작섬 동쪽 해안과 마주 봄: 바다 폭 5칸)
+    else if (x >= 126 && x <= 194) g = 24;
+    else if (x >= 195 && x <= 202) g = Math.round(24 + 6 * (x - 195) / 7);          // 광장섬 동쪽 해안
+    else g = 30;                                                                      // 바다 밑바닥(섬 사이)
     GY[x] = g;
-    const beach = x <= 27 || x >= 106, snow = x >= 83 && x <= 105, pond = x >= 90 && x <= 94;
+    const plaza = x >= 118 && x <= 202;
+    const beach = x <= 27 || (x >= 106 && x <= 117) || (plaza && (x <= 126 || x >= 194)), snow = x >= 83 && x <= 105, pond = x >= 90 && x <= 94;
     for (let y = g; y < WH; y++) {
       const d = y - g;
       MAP[y * WW + x] = d === 0 ? (pond ? ICE : beach ? SAND : snow ? SNOWTOP : GRASS)
@@ -62,18 +71,22 @@ const OBJS = [];
     }
     for (let y = 25; y < g; y++) MAP[y * WW + x] = WATER;
   }
+  // 광장섬의 항구 연못(정박한 다른 사람의 뗏목이 떠 있는 곳): 윗줄은 비우고 물을 채운다
+  for (let x = 152; x <= 191; x++) { MAP[24 * WW + x] = AIR; for (let y = 25; y <= 27; y++) MAP[y * WW + x] = WATER; MAP[28 * WW + x] = SAND; }
   for (const [cx, cy, r] of [[50, 37, 5], [70, 41, 6], [92, 38, 5], [30, 45, 6], [60, 48, 4]]) {
     for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r * 2; x <= cx + r * 2; x++) {
       if (((x - cx) / 2) ** 2 + (y - cy) ** 2 <= r * r) MAP[y * WW + x] = AIR;
     }
   }
   const add = (type, x) => OBJS.push({ id: type[0] + type[1] + x, type, x, y: GY[x] });
-  [29, 32, 35, 68, 77, 80, 85, 101].forEach(x => add('tree', x));
+  [29, 32, 35, 68, 77, 80, 85, 98].forEach(x => add('tree', x));
   [26, 27].forEach(x => add('cane', x));
   [36, 37, 38].forEach(x => add('wheat', x));
   [24, 25, 106].forEach(x => add('sandpile', x));
-  [86, 89, 96, 99, 103].forEach(x => add('icecrystal', x));
-  add('box', 44); add('altar', 72);
+  [86, 89, 95, 97, 100].forEach(x => add('icecrystal', x));
+  add('harbor', 102); add('fragment', 104);                                          // 시작섬: 항구 표지판, 해안의 뗏목 파편
+  [143, 146].forEach(x => add('tree', x)); [147, 148].forEach(x => add('wheat', x)); add('cane', 149);   // 광장섬
+  add('harbor', 129); add('box', 133); add('board', 137); add('altar', 140);        // 광장섬: 항구 표지판, 보급 상자, 유리병 편지 게시판, 솥 골렘 제단
 })();
 // 땅 파기/놓기로 바뀐 타일만 S.dug(타일 번호 y*WW+x → 새 종류)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
 const BASE = MAP.slice();
@@ -112,6 +125,7 @@ function flush() {
     else if (e.t === 'burst') burst(e.d);
     else if (e.t === 'puffWolf') puff(...wolfPos(e.m), '#d8f3ff', 10);
     else if (e.t === 'refresh') refresh();
+    else if (e.t === 'moved') { applyDug(); loadPlaza(); }
   }
 }
 const advance = dm => { Sim.advance(S, dm); flush(); };
@@ -216,11 +230,73 @@ function useShaker() {
   else say(`얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g). 소금 ${fmt(used, 1)} g 사용`);
 }
 
+// ---------- 항해: 뗏목 파편 · 항구 표지판 · 유리병 편지 게시판 · 광장의 다른 뗏목 ----------
+const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function uiFragment() {
+  const R = Sim.RAFT;
+  openModal('뗏목 파편', `<div class="box"><p>해안에 걸린 뗏목 파편입니다. 고치면 뗏목이 출항할 수 있게 되어 건너편 광장섬으로 갈 수 있어요.</p>
+    <div class="kv"><span>필요한 재료</span><b>${costText(R.REPAIR_COST)}</b></div>
+    <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
+    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 서리 늑대가 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·칸 수는 가정(임의값))</div>`);
+}
+function uiSail() {
+  const here = Sim.dockOf(S).island, R = Sim.RAFT;
+  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '동쪽 건너편', name: '광장섬', open: true }];
+  const rows = list.map(h => {
+    const on = S.f.raft && h.open && Sim.DOCKS[h.dock] && h.dock !== S.raft.dock;
+    return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? '' : '<span class="no">아직 갈 수 없음</span>'}</div>
+      <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">출항</button></div>`;
+  }).join('');
+  openModal(`항구 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">뗏목 파편을 먼저 고쳐야 출항할 수 있어요. (시작섬 동쪽 해안)</div>')
+    + rows + `<div class="mut">항해에는 ${R.SAIL_MIN}분이 걸리고(가정), 내 뗏목과 그 위의 장치가 함께 옮겨 갑니다.</div>`);
+}
+const NPC_BOTTLES = [
+  { nick: '선배1', text: '증류기는 화덕 옆에! 약불(105 ℃)로는 끝까지 못 끓여요.' },
+  { nick: '선배2', text: '한제는 얼음 100 g당 소금 16 g 이상이면 -10 ℃ 아래.' },
+  { nick: '선배3', text: '골렘 3단계는 O₂ 캡슐이 4개 필요해요. 하루치로는 모자라요.' },
+];
+let bottleAt = 0;
+function uiBoard() {
+  const online = window.Net && Net.user && Net.loadBottles;
+  openModal('유리병 편지 게시판', `<div class="box"><div id="b-list" class="mut">불러오는 중...</div></div>
+    ${online ? `<div class="row" style="margin-top:8px"><input id="b-text" maxlength="80" placeholder="유리병에 넣을 한마디 (80자, 개인정보는 쓰지 마세요)" style="flex:1 1 200px;min-width:0"><button class="primary" onclick="G.bottle()">띄우기</button></div>`
+      : '<div class="warnbox">온라인으로 접속하면 다른 사람이 띄운 편지를 읽고 내 편지도 띄울 수 있어요. (지금은 선배들의 편지만 보입니다)</div>'}`);
+  loadBottles();
+}
+async function loadBottles() {
+  let list = NPC_BOTTLES.slice();
+  if (window.Net && Net.user && Net.loadBottles) { try { list = (await Net.loadBottles(12)).concat(list); } catch { /* 오프라인 */ } }
+  const el = $('b-list'); if (el) el.innerHTML = list.map(b => `<div><b>${esc(b.nick)}</b> ${esc(pix(b.text))}</div>`).join('') || '아직 편지가 없습니다.';
+}
+// 광장섬: 정박한 다른 사람의 뗏목(읽기 전용). 서버의 /rafts에서 최근 것을 읽어 온다
+let plazaRafts = [];
+async function loadPlaza() {
+  plazaRafts = [];
+  if (Sim.dockOf(S).island !== 'plaza' || !(window.Net && Net.user && Net.loadRafts)) return;
+  try { plazaRafts = await Net.loadRafts(3); } catch { /* 오프라인 */ }
+}
+setInterval(() => { if (!paused) loadPlaza(); }, 60000);
+function drawPlazaRafts(t) {
+  ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+  plazaRafts.slice(0, 3).forEach((r, i) => {
+    const x0 = 153 + i * 13, cells = Math.max(2, Math.min(10, r.cells | 0));
+    for (let c = 0; c < cells; c++) ctx.drawImage(Art.tiles.raft[c % 3], (x0 + c) * T - cam.x, Sim.RAFT.ROW * T - cam.y);
+    for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cells) {
+      const sx = (x0 + d.u) * T - cam.x, sy = Sim.RAFT.DEV_Y * T - cam.y;
+      blit(Art.dev[d.id], sx, sy);
+      if (d.broken) { ctx.fillStyle = '#ff5a4a'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
+    }
+    const nx = Math.round((x0 + cells / 2) * T - cam.x), ny = Sim.RAFT.DEV_Y * T - cam.y - 6;
+    ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.strokeText(pix(r.nick || ''), nx, ny); ctx.fillStyle = '#9fe8ff'; ctx.fillText(pix(r.nick || ''), nx, ny);
+  });
+  ctx.textAlign = 'left';
+}
+
 // ---------- 퀘스트 ----------
 function checkQuests() { Sim.checkQuests(S); flush(); }
 
 // ---------- 상호작용 대상 ----------
-const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : 8)];
+const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : o.type === 'harbor' || o.type === 'board' ? 14 : 8)];
 function nearWater() {
   const tx = Math.floor((S.px + PW / 2) / T), ty = Math.floor((S.py + PH / 2) / T);
   for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 뗏목 위에서는 바로 아래 물까지
@@ -231,8 +307,10 @@ function targets() {
   const cx = S.px + PW / 2, cy = S.py + PH / 2, out = [];
   const add = (kind, ref, x, y, label) => { const d = Math.hypot(x - cx, (y - cy) * 0.7); if (d <= REACH) out.push({ kind, ref, x, y, d, label }); };
   for (const o of OBJS) {
+    if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
     const [x, y] = objCenter(o), n = NODE[o.type];
-    add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : o.type === 'box' ? '광장 보급 상자' : '솥 골렘 제단');
+    const label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)' }[o.type];
+    add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
   }
   for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
   for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `서리 늑대 ${fmt(m.M, 0)} g`); }
@@ -245,6 +323,9 @@ function interact(t) {
   if (t.kind === 'dev') return openDevice(t.ref);
   if (t.kind === 'water') { Sim.act.scoop(S); flush(); return refresh(); }
   if (t.kind === 'box') return openBox();
+  if (t.kind === 'fragment') return uiFragment();
+  if (t.kind === 'harbor') return uiSail();
+  if (t.kind === 'board') return uiBoard();
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
   const n = NODE[t.kind], ok = Sim.act.gather(S, t.ref, n, ITEM[n[0]][1]);
   flush();
@@ -519,9 +600,9 @@ function openHelp() {
       <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기</div>
       <div>오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장/계정 · x1/x3/x10은 시간 속도</div></div>
     <div class="box"><h4>처음 해 볼 것</h4>
-      <div>1. 왼쪽 바닷가에서 바닷물 3통을 뜨고(E), 건설에서 화덕을 지으세요.</div>
+      <div>1. 시작섬 동쪽 해안의 뗏목 위에서 바닷물 3통을 뜨고(E), 건설에서 화덕을 뗏목 위에 지으세요.</div>
       <div>2. 나무·모래 더미에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
-      <div>3. 왼쪽 위 목표를 순서대로 달성하면 압력 밥솥, 냉각 상자, 기체 포집기가 열리고 보스 솥 골렘에 도전합니다.</div></div>
+      <div>3. 해안의 뗏목 파편을 고쳐 출항하면 건너편 광장섬에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 광장섬의 솥 골렘에 도전합니다.</div></div>
     <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 밤에는 기온이 영하로 내려가 서리 늑대가 장치를 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
   null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
 }
@@ -572,6 +653,16 @@ const api = {
 };
 window.G = {
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
+  repairRaft() { Sim.act.repairRaft(S); flush(); closeModal(); refresh(); },
+  sail(dock) { if (Sim.act.sail(S, dock)) { closeModal(); save(true); } flush(); refresh(); },
+  async bottle() {
+    const el = $('b-text'), text = (el.value || '').trim();
+    if (!text) return say('편지 내용을 적어 주세요.');
+    if (Date.now() - bottleAt < 10000) return say('유리병은 10초에 한 번만 띄울 수 있어요.');
+    bottleAt = Date.now();
+    try { await Net.postBottle(pix(text).slice(0, 80)); el.value = ''; say('유리병을 띄웠습니다.'); logEv('유리병', `편지를 띄움: ${pix(text).slice(0, 40)}`); loadBottles(); }
+    catch { say('편지를 띄우지 못했습니다. 인터넷 연결을 확인하세요.'); }
+  },
   expandRaft() { if (Sim.act.expandRaft(S)) applyDug(); flush(); openBuild(); refresh(); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
   craft(id) { const r = Sim.act.craft(S, id); if (!r) return; flush(); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
@@ -650,7 +741,8 @@ document.querySelectorAll('#pad button').forEach(b => {
 });
 
 // ---------- 물리 ----------
-let onGround = false;
+let onGround = false, seaHintAt = 0;
+function hintSea() { const n = performance.now(); if (n - seaHintAt > 5000) { seaHintAt = n; say('바다가 거칠어서 헤엄쳐 건널 수 없어요. 뗏목으로 항해하세요 (항구 표지판).'); } }
 const collides = (x, y) => {
   const x0 = Math.floor(x / T), x1 = Math.floor((x + PW - 0.01) / T), y0 = Math.floor(y / T), y1 = Math.floor((y + PH - 0.01) / T);
   for (let tx = x0; tx <= x1; tx++) for (let ty = y0; ty <= y1; ty++) if (solidAt(tx, ty)) return true;
@@ -670,7 +762,8 @@ function physics(dt) {
   const nx = S.px + S.vx * dt;
   if (!collides(nx, S.py)) S.px = nx;
   else if (onGround && ax && !collides(nx, S.py - T)) { S.px = nx; S.py -= T; }   // 한 칸 턱은 자동으로 오름
-  S.px = Math.max(0, Math.min(WW * T - PW, S.px));
+  { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 섬 사이는 뗏목으로만 건넌다
+    if (S.px < lo || S.px > hi) { S.px = Math.max(lo, Math.min(hi, S.px)); hintSea(); } }
   const ny = S.py + S.vy * dt;
   if (!collides(S.px, ny)) S.py = ny;
   else { if (S.vy > 0) S.py = Math.floor((ny + PH) / T) * T - PH; else S.py = (Math.floor(ny / T) + 1) * T; S.vy = 0; }
@@ -793,11 +886,14 @@ function draw(t) {
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit(o.x >= 83 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
+    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit(o.x >= 83 && o.x <= 112 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
     else if (o.type === 'cane') blit(Art.obj.cane, sx, sy - 32);
     else if (o.type === 'wheat') blit(Art.obj.wheat, sx, sy - 20);
     else if (o.type === 'sandpile') blit(Art.obj.sandpile, sx, sy - 8);
     else if (o.type === 'icecrystal') blit(Art.obj.icecrystal, sx, sy - 24);
+    else if (o.type === 'harbor') blit(Art.obj.harbor, sx, sy - 32);
+    else if (o.type === 'board') blit(Art.obj.board, sx, sy - 28);
+    else if (o.type === 'fragment') { if (!S.f.raft) blit(Art.obj.fragment, sx - 4, sy - 12); }
     else if (o.type === 'box') { ctx.fillRect(sx, sy - 1, 16, 2); blit(Art.obj.box, sx, sy - 16); }
     else if (o.type === 'altar') { ctx.fillRect(sx, sy - 1, 32, 2); blit(Art.dev.altar, sx, sy - 32); if (!S.f.boss) { ctx.fillStyle = `rgba(255,200,120,${0.25 + 0.2 * Math.sin(t * 3)})`; ctx.fillRect(sx + 9, sy - 21, 6, 6); ctx.fillRect(sx + 19, sy - 21, 6, 6); } }
     ctx.globalAlpha = 1;
@@ -845,6 +941,7 @@ function draw(t) {
       ctx.fillStyle = 'rgba(210,238,255,.95)'; ctx.fillRect(sx, sy, T, 2); ctx.fillRect(sx + 3 + w, sy + 2, 5, 1); ctx.fillRect(sx + 10 - w, sy + 4, 3, 1);
     } else if ((tx * 5 + Math.floor(t)) % 7 === 0) { ctx.fillStyle = 'rgba(210,238,255,.18)'; ctx.fillRect(sx + 5, sy + 6, 1, 4); }
   }
+  if (Sim.dockOf(S).island === 'plaza') drawPlazaRafts(t);   // 물 위에 떠 있으니 물 색칠 뒤에 그린다
   // 밤 어둠 + 불빛 + 반딧불
   if (night > 0) {
     ctx.fillStyle = `rgba(8,12,40,${night * 0.5})`; ctx.fillRect(0, 0, VW, VH);
@@ -975,7 +1072,7 @@ paused = true;
 $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}일차 · 목표 ${S.qDone}/${QUESTS.length}` : '새 게임';
 function startGame() {
   if ($('title').hidden) return;
-  $('title').hidden = true; paused = false;
+  $('title').hidden = true; paused = false; loadPlaza();
   boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
 }
 $('t-start').onclick = startGame;

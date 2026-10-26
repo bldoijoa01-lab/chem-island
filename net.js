@@ -96,5 +96,18 @@ window.Net = (() => {
     pref = null; pOff = []; N.peers = {};
   };
   N.saveSave = (obj) => db.ref('saves/' + N.user.uid).set(obj);
+  // ---- 광장: 정박한 뗏목(남은 읽기만)과 유리병 편지 ----
+  N.saveRaft = (sum) => db.ref('rafts/' + N.user.uid).set(Object.assign({ nick: N.nick }, sum));
+  N.loadRafts = async (n) => {
+    const out = [], snap = await db.ref('rafts').orderByChild('t').limitToLast((n || 3) + 1).once('value');
+    snap.forEach((c) => { if (c.key !== N.user.uid) out.push(c.val()); });
+    return out.reverse().slice(0, n || 3);
+  };
+  N.postBottle = (text) => db.ref('bottles').push({ uid: N.user.uid, nick: N.nick, text: String(text).slice(0, 80), t: firebase.database.ServerValue.TIMESTAMP });
+  N.loadBottles = async (n) => {
+    const out = [], snap = await db.ref('bottles').orderByChild('t').limitToLast(n || 12).once('value');
+    snap.forEach((c) => { const v = c.val(); if (v && v.text) out.push({ nick: v.nick, text: v.text }); });
+    return out.reverse();
+  };
   return N;
 })();
