@@ -641,6 +641,20 @@ function openLog() {
     <div class="row" style="margin:6px 0"><button onclick="G.copyLog()">기록 복사</button></div>
     <div class="log">${rows}</div>`, null, () => { const m = $('memo'); if (m) S.memo = m.value; });
 }
+// 처음 접속한 사람에게 한 번 보이는 도움말 (자세한 내용은 GUIDE.md)
+const HELP_KEY = 'chemisle_help_v1';
+function openHelp() {
+  openModal('도움말', `
+    <div class="box"><h4>조작</h4>
+      <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기</div>
+      <div>오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장/계정 · x1/x3/x10은 시간 속도</div></div>
+    <div class="box"><h4>처음 해 볼 것</h4>
+      <div>1. 왼쪽 바닷가에서 바닷물 3통을 뜨고(E), 건설에서 화덕을 지으세요.</div>
+      <div>2. 나무·모래 더미에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
+      <div>3. 왼쪽 위 목표를 순서대로 달성하면 압력 밥솥, 냉각 상자, 기체 포집기가 열리고 보스 솥 골렘에 도전합니다.</div></div>
+    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 밤에는 기온이 영하로 내려가 서리 늑대가 장치를 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
+  null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
+}
 function openSave() {
   const on = window.Net && Net.user;
   const acct = on
@@ -649,7 +663,7 @@ function openSave() {
          <div class="row"><input id="up-pw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password"><button class="primary" onclick="G.upgrade()">내 캐릭터 지키기</button></div>` : '')
       + `<div class="row"><button onclick="G.logout()">로그아웃</button></div>`
     : `<p>혼자 하기 모드: 진행 상황은 이 브라우저에만 저장됩니다.</p>` + (window.Net && Net.ok ? `<div class="row"><button class="primary" onclick="G.showAuth()">온라인으로 접속</button></div>` : '');
-  openModal('저장/계정', acct + `<hr><div class="row"><button onclick="G.save()">지금 저장</button><button class="danger" onclick="G.reset()">처음부터 다시 시작</button></div>`);
+  openModal('저장/계정', acct + `<hr><div class="row"><button onclick="G.help()">도움말</button><button onclick="G.save()">지금 저장</button><button class="danger" onclick="G.reset()">처음부터 다시 시작</button></div>`);
 }
 
 // ---------- 접속(게스트 입장 / 로그인) ----------
@@ -694,7 +708,7 @@ window.G = {
   save() { save(true); say('저장했습니다.'); },
   wolfSalt, closeModal: () => closeModal(),
   advance,   // 시험 플레이/자동 점검용
-  showAuth, openSave,
+  showAuth, openSave, help: openHelp,
   async upgrade() {
     const pw = $('up-pw').value;
     if (pw.length < 6) { say('비밀번호는 6자 이상이어야 합니다.'); return; }
@@ -1062,5 +1076,5 @@ function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(�
 }
 window.addEventListener('resize', fit);
 refresh(); fit(); requestAnimationFrame(frame);
-boot();
+boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
 })();
