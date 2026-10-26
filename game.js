@@ -9,6 +9,16 @@ const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
 const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
 const FIRE_NAME = ['꺼짐', '약불', '중불', '강불', '최강'];
+// 서리 늑대(얼음 몸): 질량 M(g)이 곧 체력. 아래 값은 모두 가정(임의값) — 플레이 테스트로 조정하고 DESIGN.md에 이력을 남긴다
+const WOLF = {
+  MIN_M: 100, MAX_M: 300,   // 가정(임의값) 출현 질량 범위(g)
+  SPAWN_P: 0.02,            // 가정(임의값) 영하의 밤 동안 1분마다 출현할 확률
+  MAX: 3,                   // 가정(임의값) 동시에 있을 수 있는 늑대 수(장치 수도 넘지 않음)
+  ATTACK_MIN: 60,           // 가정(임의값) 한 장치에 붙어 있다가 파손시키는 데 걸리는 시간(분)
+  K_FIRE: 7,                // 가정(임의값) 켜진 화덕이 늑대에게 전하는 열: K_FIRE·(열원 온도) J/분
+  K_AIR: 40,                // 가정(임의값) 0 ℃ 이상의 공기가 늑대에게 전하는 열: K_AIR·(기온) J/분
+};
+const NIGHT_FROM = 20, NIGHT_TO = 5;   // 몬스터가 나오는 밤(시)
 const SEA_BUCKET = { water: 193, nacl: 7 };    // 바닷물 1통 = 200 g (NaCl 3.5 %)
 const DEV = {
   fire:      { name: '화덕',        cost: { stick: 6, sand: 4 },              unlock: 0, needFire: false },
@@ -36,6 +46,7 @@ const QUESTS = [
   { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 오른쪽 설원에서. 소금을 섞으면 어는점이 내려가요' },
   { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
   { t: '언덕 위 제단의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '소금·증류수·한제 팩·캡슐을 챙기세요' },
+  { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 늑대가 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
 ];
 
 // ---------- 상태 ----------
@@ -43,8 +54,8 @@ function newState() {
   return {
     day: 1, min: 360, px: 48 * T, py: 24 * T - PH, vx: 0, vy: 0, face: 1, speed: 1,
     inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0 },
-    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0,
-    f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false },
+    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0,
+    f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
     qDone: 0, log: [], memo: '',
   };
 }
@@ -116,7 +127,7 @@ const EMO = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;   // 그
 const pix = s => String(s).replace(EMO, '').replace(/^\s+/, '');
 const ic = k => `<i class="ic" style="background-image:url(${Art.iconURL[k]})"></i>`;
 const clockText = () => `${S.day}일차 ${String(Math.floor(S.min / 60)).padStart(2, '0')}:${String(Math.floor(S.min % 60)).padStart(2, '0')}`;
-const airTemp = () => 22 + 6 * Math.sin(2 * Math.PI * (S.min - 540) / 1440);   // ℃, 오후 3시가 가장 따뜻함
+const airTemp = () => C.airTemp(S.min);   // ℃, 오후 3시 최고(28) · 새벽 3시 최저(−15): chem.js
 let msgTimer;
 function say(t) { $('msg').textContent = pix(t); clearTimeout(msgTimer); msgTimer = setTimeout(() => $('msg').textContent = '', 6000); }
 function logEv(type, text) { S.log.push({ day: S.day, t: clockText(), type, text: pix(text) }); if (S.log.length > 300) S.log.shift(); }
@@ -130,6 +141,8 @@ function advance(dm) {
   for (let i = 0; i < dm; i++) {
     S.min += 1;
     stepDevices();
+    stepMobs();
+    if (S.min === 19 * 60 && S.dusk !== S.day && S.placed.length) { S.dusk = S.day; say('해가 지고 있습니다. 밤에는 기온이 영하로 내려가 서리 늑대가 나타나요.'); }
     if (S.min >= 1440) { S.min -= 1440; S.day += 1; newDay(); }
   }
 }
@@ -147,6 +160,7 @@ const fireNear = d => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
 function stepDevices() {
   for (const d of S.placed) {
     const s = d.s;
+    if (s.broken && d.id !== 'cooker') { if (d.id === 'fire') s.level = 0; continue; }   // 파손: 수리 전에는 작동하지 않음
     if (d.id === 'fire') {
       if (s.level > 0) {
         s.fuel -= FIRE_BURN[s.level] / 60;
@@ -158,15 +172,62 @@ function stepDevices() {
 }
 function heatOf(d) {
   let t = 25;
-  for (const f of fireNear(d)) if (f.s.level > 0 && f.s.fuel > 0) t = Math.max(t, FIRE_T[f.s.level]);
+  for (const f of fireNear(d)) if (!f.s.broken && f.s.level > 0 && f.s.fuel > 0) t = Math.max(t, FIRE_T[f.s.level]);
   return t;
+}
+
+// ---------- 서리 늑대 ----------
+const devAt = m => S.placed.find(d => d.x === m.dx && d.y === m.dy);
+const isNightHour = h => h >= NIGHT_FROM || h < NIGHT_TO;
+function wolfHeat(d) {   // 이 장치 자리의 늑대가 받는 열(J/분): 켜진 화덕(자기 자신 또는 이웃). Q = K·T(열원)
+  const fires = d.id === 'fire' ? [d] : fireNear(d);
+  let q = 0;
+  for (const f of fires) if (!f.s.broken && f.s.level > 0 && f.s.fuel > 0) q += WOLF.K_FIRE * FIRE_T[f.s.level];
+  return q;
+}
+function spawnWolf(T) {
+  const d = S.placed[Math.floor(Math.random() * S.placed.length)];
+  const M = Math.round(WOLF.MIN_M + Math.random() * (WOLF.MAX_M - WOLF.MIN_M));
+  S.mobs.push({ id: ++S.mobId, k: 'wolf', M, M0: M, dx: d.x, dy: d.y, att: 0 });
+  say('서리 늑대가 나타났습니다!');
+  logEv('서리 늑대 출현', `기온 ${fmt(T, 1)}℃, 질량 ${M} g, 위치: ${DEV[d.id].name}(${d.x})`);
+}
+function removeWolf(m, how, extra) {
+  S.mobs.splice(S.mobs.indexOf(m), 1);
+  if (how === 'ambient') { logEv('서리 늑대 융해', `기온 ${fmt(airTemp(), 1)}℃ 공기의 열로 모두 녹음`); return; }
+  if (how === 'gone') { logEv('서리 늑대 이탈', '장치가 철거되어 늑대가 흩어짐'); return; }
+  S.f.wolf++; say('서리 늑대를 정화했습니다!');
+  logEv('서리 늑대 정화', `${how === 'salt' ? '소금으로' : '화덕 열로'} ${fmt(m.M0, 0)} g 모두 녹임${extra ? ' · ' + extra : ''}`);
+  refresh();
+}
+function stepMobs() {
+  const T = airTemp(), h = S.min / 60;
+  if (T < 0 && isNightHour(h) && S.placed.length && S.mobs.length < Math.min(WOLF.MAX, S.placed.length) && Math.random() < WOLF.SPAWN_P) spawnWolf(T);
+  for (const m of S.mobs.slice()) {
+    let d = devAt(m);
+    if (!d || (d.s.broken && S.placed.some(x => !x.s.broken))) {   // 철거됐거나 이미 부서진 장치 → 다른 장치로
+      d = S.placed.find(x => !x.s.broken && !S.mobs.some(o => o !== m && o.dx === x.x && o.dy === x.y)) || S.placed.find(x => !x.s.broken);
+      if (!d) { if (!devAt(m)) { removeWolf(m, 'gone'); } continue; }
+      m.dx = d.x; m.dy = d.y; m.att = 0;
+    }
+    // 열: 공기(0 ℃ 이상일 때) + 켜진 화덕.  녹는 얼음 = Q / 융해열 [#21]
+    const qAir = T > 0 ? WOLF.K_AIR * T : 0, qFire = wolfHeat(d);
+    m.M -= C.iceMeltByHeat(qAir + qFire);
+    if (m.M <= 0) { removeWolf(m, qFire > 0 ? 'fire' : 'ambient'); continue; }
+    // 공격: 붙어 있는 동안 시간이 쌓여 장치를 파손
+    if (!d.s.broken && ++m.att >= WOLF.ATTACK_MIN) {
+      m.att = 0; d.s.broken = true; d.s.run = false;
+      say(`서리 늑대가 ${DEV[d.id].name}을(를) 부쉈습니다! 수리가 필요해요.`);
+      logEv('장치 파손', `${DEV[d.id].name}: 서리 늑대(남은 ${fmt(m.M, 0)} g)가 ${WOLF.ATTACK_MIN}분 붙어 파손`);
+    }
+  }
 }
 
 // 증류기: 증발 속도 ∝ (용액 증기압 − 외부 압력)   [#19 #30 #34]
 function stepStill(d) {
   const s = d.s;
   s.T = heatOf(d);
-  if (!s.run || s.w <= 0) return;
+  if (s.broken || !s.run || s.w <= 0) return;
   const np = 2 * s.ns;                       // NaCl → Na⁺ + Cl⁻ (i = 2 가정)
   const xw = C.xw(s.w, np);
   s.xw = xw; s.tb = C.tb(1, xw);
@@ -236,6 +297,7 @@ function nearWater() {
   for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 1; y++) if (tileAt(x, y) === WATER) return true;
   return false;
 }
+const wolfPos = m => [m.dx * T + (m.id % 2 ? 44 : -12), m.dy * T + 26];   // 장치 옆 땅 위
 function targets() {
   const cx = S.px + PW / 2, cy = S.py + PH / 2, out = [];
   const add = (kind, ref, x, y, label) => { const d = Math.hypot(x - cx, (y - cy) * 0.7); if (d <= REACH) out.push({ kind, ref, x, y, d, label }); };
@@ -243,12 +305,14 @@ function targets() {
     const [x, y] = objCenter(o), n = NODE[o.type];
     add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : o.type === 'box' ? '광장 보급 상자' : '솥 골렘 제단');
   }
-  for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name);
+  for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
+  for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `서리 늑대 ${fmt(m.M, 0)} g`); }
   if (nearWater()) add('water', null, cx, cy + 4, '바닷물 뜨기');
   return out.sort((a, b) => a.d - b.d);
 }
 function interact(t) {
   if (!t) return;
+  if (t.kind === 'wolf') return uiWolf(t.ref);
   if (t.kind === 'dev') return openDevice(t.ref);
   if (t.kind === 'water') { S.inv.sea++; S.f.sea = true; advance(5); say('바닷물 1통(200 g)을 떴습니다.'); return refresh(); }
   if (t.kind === 'box') return openBox();
@@ -332,11 +396,67 @@ const setw = (id, pct, cls) => { const e = $(id); if (e) { e.style.width = Math.
 
 // ---------- 장치 패널 ----------
 function openDevice(d) {
+  if (d.s.broken && d.id !== 'cooker') return uiBroken(d);   // 압력 밥솥은 자체 화면에서 수리
   ({ fire: uiFire, still: uiStill, cooker: uiCooker, cooler: uiCooler, collector: uiCollector }[d.id])(d);
 }
 let curDev = null;
 window.act = (name, arg) => { ACT[name](curDev, arg); if (modalTick) modalTick(); refresh(); };
 const ACT = {};
+
+function uiBroken(d) {
+  curDev = d;
+  openModal(DEV[d.id].name, `<div class="box"><h4>파손됨</h4><p>서리 늑대가 부숴서 작동하지 않습니다. 나뭇가지 2개로 수리할 수 있어요.</p>
+    <div class="row"><button class="primary" onclick="act('repair');G.closeModal()">수리 (나뭇가지 2)</button></div></div>`);
+}
+// 서리 늑대 화면: 소금 → 얼음이 녹는 양을 어는점 내림 식으로 계산 [#37 #39 #21]
+let wolfRef = null;
+function uiWolf(m) {
+  wolfRef = m;
+  const T = airTemp();
+  openModal('서리 늑대', `
+    <div class="grid2"><div class="box"><h4>늑대</h4>
+      <div class="kv"><span>얼음 질량</span><b id="w-m"></b></div>
+      <div class="kv"><span>현재 기온</span><b id="w-T"></b></div>
+      <div class="kv"><span>평형 몰랄농도 m = |T|/(i·Kf)</span><b id="w-eq"></b></div>
+      <div class="kv"><span>모두 녹이는 데 필요한 소금</span><b id="w-need"></b></div>
+      <div class="bar"><i id="w-bar"></i></div></div>
+    <div class="box"><h4>소금 뿌리기</h4>
+      <div class="row"><label>소금 <b id="w-sv"></b> g (보유 <span id="w-have"></span> g)</label></div>
+      <input type="range" id="w-s" min="0" max="${Math.max(1, Math.floor(S.inv.salt))}" step="1" value="0">
+      <div class="kv"><span>예상 녹는 얼음</span><b id="w-melt"></b></div>
+      <div class="kv"><span>실제 쓰는 소금</span><b id="w-use"></b></div>
+      <div class="row" style="margin-top:8px"><button class="primary" onclick="G.wolfSalt()">뿌리기</button></div>
+      <div id="w-note" class="mut"></div></div></div>
+    <div class="warnbox">얼음에 소금이 닿으면 어는점이 내려가 (ΔTf = i·Kf·m, i=2, Kf=1.86) 기온에서 평형이 되는 농도까지 얼음이 녹습니다. 가정: 이상 용액, 녹는 데 필요한 열은 주위에서 충분히 공급됨(열수지 무시). 공융점 ${C.EUTECTIC} ℃ 이하이거나 0 ℃ 이상에서는 얼음-소금물 평형이 성립하지 않아 소금으로 녹일 수 없습니다. 켜진 화덕 근처의 늑대는 열로도 녹습니다(Q = m·융해열 334 J/g).</div>`,
+  () => {
+    if (!S.mobs.includes(m)) { closeModal(); return; }
+    const T = airTemp(), sl = $('w-s'), s = Math.min(+sl.value, S.inv.salt);
+    const melt = Math.min(C.iceMeltBySalt(T, s), m.M), need = C.saltForIce(T, m.M);
+    const use = melt >= m.M ? Math.min(s, need) : s;
+    set('w-m', fmt(m.M, 0) + ' g'); set('w-T', fmt(T, 1) + ' ℃');
+    set('w-eq', T < 0 && T > C.EUTECTIC ? fmt(-T / (2 * C.KF), 2) + ' mol/kg' : '—');
+    set('w-need', isFinite(need) ? fmt(need, 1) + ' g' : '불가');
+    set('w-sv', fmt(s, 0)); set('w-have', fmt(S.inv.salt, 0));
+    set('w-melt', fmt(melt, 0) + ' g'); set('w-use', fmt(use, 1) + ' g');
+    setw('w-bar', m.M / m.M0 * 100, 'good');
+    set('w-note', T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요. 곧 녹습니다.' : T <= C.EUTECTIC ? '공융점 이하라 소금이 듣지 않습니다. 화덕으로 녹이세요.' : '');
+  });
+}
+function wolfSalt() {
+  const m = wolfRef, T = airTemp();
+  if (!m || !S.mobs.includes(m)) return;
+  const s = Math.min(+$('w-s').value, S.inv.salt);
+  if (s <= 0) return say('소금을 뿌릴 양을 정하세요.');
+  const melt = C.iceMeltBySalt(T, s);
+  if (melt <= 0) return say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : '공융점 이하라 소금으로 녹일 수 없습니다.');
+  const used = melt >= m.M ? Math.min(s, C.saltForIce(T, m.M)) : s, done = Math.min(melt, m.M);
+  S.inv.salt -= used; m.M -= done;
+  logEv('소금 뿌림', `기온 ${fmt(T, 1)}℃, 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg)`);
+  puff(...wolfPos(m), '#d8f3ff', 10);
+  if (m.M <= 1e-6) { removeWolf(m, 'salt', `소금 ${fmt(used, 1)} g, 기온 ${fmt(T, 1)}℃`); closeModal(); return; }
+  say(`얼음 ${fmt(done, 0)} g가 녹았습니다. 남은 질량 ${fmt(m.M, 0)} g`);
+  uiWolf(m);
+}
 
 function uiFire(d) {
   curDev = d;
@@ -572,6 +692,8 @@ window.G = {
   craft(id) { const r = RECIPES.find(x => x.id === id); if (!has(r.cost)) return; pay(r.cost); S.inv[r.out] += r.n; advance(10); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
+  wolfSalt, closeModal: () => closeModal(),
+  advance,   // 시험 플레이/자동 점검용
   showAuth, openSave,
   async upgrade() {
     const pw = $('up-pw').value;
@@ -792,9 +914,19 @@ function draw(t) {
     if (d.id === 'fire') Art.flame(ctx, sx, sy, d.s.level, t);
     if (d.id === 'collector') { ctx.fillStyle = '#ffffff'; for (let i = 0; i < 3; i++) ctx.fillRect(sx + 8 + i * 4, sy + 26 - ((t * 10 + i * 7) % 16), 2, 2); }
     if ((d.id === 'still' || d.id === 'cooker') && d.s.run && Math.random() < 0.25) puff(d.x * T + (d.id === 'still' ? 11 : 16), d.y * T + 2, 'rgba(235,245,255,.85)', 1);
-    if (d.id === 'cooker' && d.s.broken) { ctx.fillStyle = '#ff5a4a'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
+    if (d.s.broken) { ctx.fillStyle = '#ff5a4a'; ctx.fillRect(sx + 12, sy + 12, 8, 2); ctx.fillRect(sx + 15, sy + 9, 2, 8); }
     if (d.id === 'cooker' && d.s.done) { ctx.fillStyle = '#ffe066'; ctx.fillRect(sx + 14, sy - 6 - Math.round(Math.sin(t * 6) * 2), 4, 4); }
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(d.x * T + 16, d.y * T + 10, '#ffb347', 1);
+  }
+  // 서리 늑대
+  for (const m of S.mobs) {
+    const [wx, wy] = wolfPos(m), face = (m.id % 2 ? -1 : 1), sx = Math.round(wx - 11 - cam.x), sy = Math.round(wy - 12 - cam.y), fr = Math.floor(t * 3 + m.id) % 2;
+    ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx + 2, sy + 12, 18, 2);
+    ctx.globalAlpha = 0.45 + 0.55 * Math.max(0, m.M / m.M0);
+    ctx.save();
+    if (face < 0) { ctx.translate(sx + 22, 0); ctx.scale(-1, 1); blit(Art.wolf[fr], 0, sy); } else blit(Art.wolf[fr], sx, sy);
+    ctx.restore(); ctx.globalAlpha = 1;
+    if (Math.random() < 0.05) puff(wx, wy - 4, '#d8f3ff', 1);
   }
   // 플레이어
   const moving = Math.abs(S.vx) > 1, fr = !onGround ? 3 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;
