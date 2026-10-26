@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import { N, SEA, SEABED, RX0, RZ0, ISLANDS, OFFSET, Island } from './gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
+import { installTheme, themed, GAME_TITLE } from './theme.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
 const { ITEM, NODE, DIG, TOOL, STONE, ICE, ICE_TILE_G, SHAKE_G } = World;
@@ -208,19 +209,19 @@ function placePlazaLabels() {
 // ---------- 하늘·바다·낮밤 ----------
 // 바다: 카메라를 따라다니는 격자(SEA_STEP 간격). 정점을 세계 좌표의 사인파 합으로 출렁이게 하고 법선도 기울인다. 보이기만 한다(헤엄·충돌은 평평한 SEA 기준)
 const SEA_STEP = 3, SEA_N = 150, WAVE = 0.28;   // 가정(임의값) 격자 간격 3 m × 150칸(±225 m), 파도 높이 약 ±0.3 m
-const seaUniforms = { uT: { value: 0 } };
+const seaUniforms = { uT: { value: 0 }, uAmp: { value: 1 } };
 const seaGeo = new THREE.PlaneGeometry(SEA_STEP * SEA_N, SEA_STEP * SEA_N, SEA_N, SEA_N); seaGeo.rotateX(-Math.PI / 2);
 const seaMat = new THREE.MeshLambertMaterial({ color: 0x2f86c8, transparent: true, opacity: 0.8, depthWrite: false });
 seaMat.onBeforeCompile = (sh) => {
-  sh.uniforms.uT = seaUniforms.uT;
+  sh.uniforms.uT = seaUniforms.uT; sh.uniforms.uAmp = seaUniforms.uAmp;
   const wave = 'float wv(vec2 p){ return 0.5*sin(p.x*0.55+uT*1.2)+0.35*sin(p.y*0.8-uT*0.9)+0.25*sin((p.x+p.y)*1.3+uT*1.9); }';
-  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uT;\n' + wave)
+  sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float uT;\nuniform float uAmp;\n' + wave)
     .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
       vec4 wp0 = modelMatrix * vec4(position, 1.0); float e = 0.5;
       float dx = (wv(wp0.xz + vec2(e, 0.0)) - wv(wp0.xz - vec2(e, 0.0))) / (2.0 * e), dz = (wv(wp0.xz + vec2(0.0, e)) - wv(wp0.xz - vec2(0.0, e))) / (2.0 * e);
-      objectNormal = normalize(vec3(-dx * ${WAVE.toFixed(2)}, 1.0, -dz * ${WAVE.toFixed(2)}));`)
+      objectNormal = normalize(vec3(-dx * ${WAVE.toFixed(2)} * uAmp, 1.0, -dz * ${WAVE.toFixed(2)} * uAmp));`)
     .replace('#include <begin_vertex>', `#include <begin_vertex>
-      transformed.y += wv((modelMatrix * vec4(position, 1.0)).xz) * ${WAVE.toFixed(2)};`);
+      transformed.y += wv((modelMatrix * vec4(position, 1.0)).xz) * ${WAVE.toFixed(2)} * uAmp;`);
 };
 const sea = new THREE.Mesh(seaGeo, seaMat); sea.frustumCulled = false; scene.add(sea);
 // 하늘 돔: 꼭대기 색에서 수평선 색으로(Art.sky의 시각별 색을 그대로 쓴다). 안개 색은 수평선 색
@@ -235,11 +236,22 @@ const stars = (() => { const n = 260, pos = new Float32Array(n * 3);
   const s = new THREE.Points(g, new THREE.PointsMaterial({ color: 0xffffff, size: 2, sizeAttenuation: false, transparent: true, opacity: 0, fog: false })); s.frustumCulled = false; scene.add(s); return s; })();
 const mkDisc = (cv) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ map: tex(cv), transparent: true, alphaTest: 0.4, fog: false, depthWrite: false })); scene.add(m); return m; };
 const sunM = mkDisc(Art.sun), moonM = mkDisc(Art.moon);
+// 행성별 하늘·바다 표현(우주 테마, 보이기만): atm = 대기 두께(0이면 진공: 검은 하늘과 별, 안개 없음), 바다 색·불투명도·파도 크기 배율. 모두 가정(임의값)
+const PLANET = {
+  start: { atm: 1, sea: 0x2f86c8, seaOp: 0.8, wave: 1, tint: 0 },         // 불시착 행성: 바다가 있는 지구형
+  plaza: { atm: 0, sea: 0x070b1c, seaOp: 0.96, wave: 0, tint: 0 },        // 허브 정거장: 진공, 발밑 너머는 어두운 공간
+  alpine: { atm: 0.6, sea: 0x6b5a9c, seaOp: 0.88, wave: 0.5, tint: 0x7a5fb0 },   // 저기압 고원 행성: 옅은 보랏빛 대기
+  polar: { atm: 0.45, sea: 0xa8dcec, seaOp: 0.97, wave: 0.15, tint: 0x9fd0e8 },  // 얼음 위성: 얼어붙은 바다
+};
+const SPACE_TOP = new THREE.Color(0x02040c), SPACE_BOT = new THREE.Color(0x05070f);
 const sunDirV = new THREE.Vector3();
 function sky(dt) {
-  const hour = S.min / 60, night = nightOf(hour), [top, hor] = Art.sky(hour, 2);
-  skyU.top.value.set(top); skyU.hor.value.set(hor); dome.position.copy(camera.position);
-  scene.fog = new THREE.Fog(new THREE.Color(hor), 60, VIEW);
+  const hour = S.min / 60, night = nightOf(hour), [top0, hor0] = Art.sky(hour, 2), cfg = PLANET[islName] || PLANET.start;
+  const topC = new THREE.Color(top0), horC = new THREE.Color(hor0);
+  if (cfg.tint) { topC.lerp(new THREE.Color(cfg.tint), 0.35); horC.lerp(new THREE.Color(cfg.tint), 0.35); }
+  const top = SPACE_TOP.clone().lerp(topC, cfg.atm), hor = SPACE_BOT.clone().lerp(horC, cfg.atm);   // 대기가 얇을수록 우주색
+  skyU.top.value.copy(top); skyU.hor.value.copy(hor); dome.position.copy(camera.position);
+  scene.fog = new THREE.Fog(hor.clone(), 60, cfg.atm > 0 ? VIEW : 900);
   // 해와 달: 낮 12시간 / 밤 12시간에 반원을 그린다. 방향광은 떠 있는 쪽(해가 지면 달)에서 비춘다
   const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12, up = sunT >= 0 && sunT <= 1 ? Math.sin(sunT * Math.PI) : 0;
   const disc = (mm, t) => { mm.visible = t >= 0 && t <= 1; const a = t * Math.PI; mm.position.set(camera.position.x - Math.cos(a) * 420, camera.position.y + Math.sin(a) * 380 - 20, camera.position.z - 160); mm.lookAt(camera.position); return mm.position; };
@@ -248,12 +260,12 @@ function sky(dt) {
   sunDirV.copy(lightFrom).sub(camera.position).normalize(); sunL.position.copy(camera.position).addScaledVector(sunDirV, 100); sunL.target.position.copy(camera.position);
   sunL.color.set(up > 0.02 ? (up < 0.25 ? 0xffc08a : 0xffffff) : 0x9fb4ff);
   sunL.intensity = up > 0.02 ? 0.35 + 0.55 * Math.sqrt(up) : 0.22;
-  hemi.intensity = 0.72 - night * 0.42; hemi.color.set(hor).lerp(new THREE.Color(0xffffff), 0.45);
-  stars.material.opacity = night; stars.position.copy(camera.position);
+  hemi.intensity = (0.72 - night * 0.42) * (0.45 + 0.55 * cfg.atm); hemi.color.copy(hor).lerp(new THREE.Color(0xffffff), 0.45);
+  stars.material.opacity = Math.max(night, 1 - cfg.atm * 0.9); stars.position.copy(camera.position);   // 대기가 얇을수록 낮에도 별이 보인다
   // 바다는 카메라를 따라다니되 격자 간격 단위로만 움직여 파도가 미끄러지지 않게 한다. 평균 수면은 SEA보다 0.35 m 낮게 두어 파도 마루(+0.31)가 뗏목 바닥(SEA)을 덮지 않게 한다
   sea.position.set(Math.round(camera.position.x / SEA_STEP) * SEA_STEP, SEA - 0.35, Math.round(camera.position.z / SEA_STEP) * SEA_STEP);
   seaUniforms.uT.value = tNow;
-  seaMat.color.set(0x2f86c8).multiplyScalar(0.45 + 0.55 * (1 - night * 0.7));
+  seaMat.color.set(cfg.sea).multiplyScalar(0.45 + 0.55 * (1 - night * 0.7)); seaMat.opacity = cfg.seaOp; seaUniforms.uAmp.value = cfg.wave;
   $('uw').style.opacity = camera.position.y < SEA - 0.1 ? 1 : 0;   // 물속 색조
 }
 
@@ -299,7 +311,7 @@ function stepPlayer(dt, ax, az, jump) {
   p.vy = Math.max(p.vy - (p.inW ? GRAV_W : GRAV) * dt, -(p.inW ? FALL_W : FALL_MAX));
   if (!tryMove(p.x + p.vx * dt, p.z)) { /* x 막힘 */ }
   if (!tryMove(p.x, p.z + p.vz * dt)) { /* z 막힘 */ }
-  { const lo = -12, hi = N + 24; if (p.x < lo || p.x > hi || p.z < -12 || p.z > N + 12) { p.x = Math.max(lo, Math.min(hi, p.x)); p.z = Math.max(-12, Math.min(N + 12, p.z)); const t = performance.now(); if (t - seaHintAt > 5000) { seaHintAt = t; say('바다가 거칠어서 더 멀리 헤엄칠 수 없어요. 뗏목으로 항해하세요 (항구 표지판).'); } } }
+  { const lo = -12, hi = N + 24; if (p.x < lo || p.x > hi || p.z < -12 || p.z > N + 12) { p.x = Math.max(lo, Math.min(hi, p.x)); p.z = Math.max(-12, Math.min(N + 12, p.z)); const t = performance.now(); if (t - seaHintAt > 5000) { seaHintAt = t; say('더 멀리 갈 수 없어요. 탐사정으로 궤도 이동하세요 (궤도 이동 단말).'); } } }
   const g = groundAt(p.x, p.z), ny = p.y + p.vy * dt;
   if (ny <= g && p.vy <= 0) { p.y = g; p.vy = 0; p.onGround = true; }
   else { p.y = Math.max(ny, g); if (ny < g) p.vy = 0; p.onGround = p.y <= g + 1e-4 && p.vy <= 0; }
@@ -515,9 +527,10 @@ function resetFromState() {
   loadIsland(islandName()); if (blocked(p.x, p.y, p.z)) { const f = findFree(); if (f) { p.x = f[0]; p.z = f[1]; p.y = SEA; } }
   loadPlaza(); joinPresence();
 }
+let warpK = 0, warping = false;   // 궤도 이동(워프) 연출: 별 줄무늬 오버레이와 시야각 확장(보이기만)
 function onMoved() {
-  const f = $('fade'); f.style.opacity = 1;
-  setTimeout(() => { arrive(); setTimeout(() => { f.style.opacity = 0; }, 150); }, TEST ? 50 : 500);
+  const f = $('fade'), w = $('warp'); warping = true; w.classList.add('on'); f.style.opacity = 0.85;
+  setTimeout(() => { arrive(); f.style.opacity = 1; setTimeout(() => { f.style.opacity = 0; w.classList.remove('on'); warping = false; }, TEST ? 80 : 450); }, TEST ? 50 : 900);
 }
 function arrive() {
   loadIsland(islandName()); const { cx, cz } = raftDims();
@@ -558,6 +571,7 @@ function frame(now) {
   stepGather(dt); stepParts(dt); netStep(dt, now);
   const onRaft = raftCell(Math.floor(p.x), Math.floor(p.z)) && p.y <= SEA + 0.02;
   bobNow = raftBob(tNow); if (raftMesh) raftMesh.position.y = bobNow;
+  warpK += ((warping ? 1 : 0) - warpK) * Math.min(1, dt * 5); const fovNow = FOV + warpK * 45; if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
   camera.position.set(p.x, p.y + EYE + (onRaft ? bobNow : 0), p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');   // 뗏목 위에서는 카메라도 같이 출렁인다
   syncRaft(); updateObjects(tNow); syncDevices(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
   renderer.render(scene, camera);
@@ -569,12 +583,39 @@ ensureFp(); loadIsland(islandName());
 refresh(); requestAnimationFrame(frame);
 Store.paused = true;
 $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}일차 · 목표 ${S.qDone}/${QUESTS.length}` : '새 게임';
+// 우주 테마 도움말·이야기(문구는 theme.js가 이름을 맞춘다). 규칙·수치 설명은 공용 ui.js와 같다
+function fpHelp() {
+  UI.openModal('도움말', `
+    <div class="box"><h4>조작</h4>
+      <div>화면 클릭 = 마우스 시점 · WASD 이동 · Space 점프 · <b>E</b> 또는 좌클릭 = 열기·채집 · 우클릭 = 도구 사용/건설 · Q 취소</div>
+      <div>바위·얼음 덩어리는 좌클릭을 꾹 눌러 캡니다(바위는 곡괭이 필요). 오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장</div></div>
+    <div class="box"><h4>처음 해 볼 것</h4>
+      <div>1. 해안에 불시착한 탐사정 위에서 바다를 보고 E로 바닷물을 뜨고, 건설에서 화덕을 탐사정 바닥에 지으세요.</div>
+      <div>2. 나무·모래 더미에서 재료를 모아 증류기를 화덕 옆에 짓고 바닷물을 증류하세요.</div>
+      <div>3. 해안의 탐사정 잔해를 고치면 궤도 이동 단말에서 허브 정거장으로 갈 수 있어요. 목표를 달성하면 다른 행성도 열립니다.</div></div>
+    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 행성마다 대기 압력과 기온이 달라 같은 장치도 다르게 동작합니다. 밤에는 영하로 내려가 얼음 생물이 장치를 부수러 오니 소금을 준비하세요.</div>`,
+    null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
+}
+window.G.help = fpHelp;
+const STORY_KEY = 'chemisle_fp_story_v1';
+function maybeStory() {
+  let seen = false; try { seen = !!localStorage.getItem(STORY_KEY); } catch { /* 무시 */ }
+  if (seen || S.day > 1 || S.qDone > 0 || !$('auth').hidden) return false;
+  UI.openModal('불시착', `
+    <div class="box"><h4>연구선 신호 두절</h4>
+      <div>항성 사이를 도약하던 연구선이 사고로 부서졌다. 살아남은 것은 탐사정 한 척과 실험 장비 몇 개뿐이다.</div>
+      <div>탐사정은 푸른 바다가 있는 낯선 행성의 해안에 불시착했다. 잔해를 고치면 궤도 이동으로 다른 행성과 허브 정거장에 갈 수 있다.</div>
+      <div>이곳 대기와 바닷물로 살아남아야 한다. 먼저 바닷물을 증류해 마실 물과 소금을 얻자.</div></div>`,
+    null, () => { try { localStorage.setItem(STORY_KEY, '1'); } catch { /* 저장 불가 */ } });
+  return true;
+}
 function startGame() {
   if ($('title').hidden) return;
   $('title').hidden = true; Store.paused = false; loadPlaza();
   if (!TEST) cv.requestPointerLock();
-  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if ($('auth').hidden && !TEST && maybeStory()) return; if (!seen && $('auth').hidden) fpHelp(); });
 }
 $('t-start').onclick = startGame;
-$('t-help').onclick = () => openHelp();
+$('t-help').onclick = () => fpHelp();
+installTheme(document.body);   // 우주 테마: 화면의 이름·문구를 치환표(theme.js)로 덮어쓴다
 window.__fp = { targets: collectTargets, scene, camera, S, p, groundAt, terrainHit, aimedTarget, getMode: () => mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig, ghostCell, stepPlayer, setSel(k) { sel = k; } };   // 시험(tools/smokefp.js)용 통로

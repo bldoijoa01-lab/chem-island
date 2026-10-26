@@ -121,17 +121,18 @@ export function makeDevice(id) {
   return g;
 }
 
-// ---------- 서리 늑대 ----------
+// ---------- 얼음 생물(서리 늑대의 우주 테마 모양. 질량·소금 규칙은 그대로) ----------
 export function makeWolf() {
   const g = new THREE.Group(), body = new THREE.Group(), legs = [];
-  const fur = (c) => mat(c, { transparent: true, opacity: 1 });
-  const m1 = fur(0xcfe8f5), m2 = fur(0xe6f4fb), m3 = fur(0xa9d3e8);
-  add(body, sph(0.5, 10, 8), m1, 0, 0.75, 0, 1.5, 0.8, 0.8);          // 몸통
-  add(body, sph(0.3, 8, 6), m2, 0.75, 0.95, 0);                         // 머리
-  add(body, cone(0.16, 0.4, 5), m3, 1.1, 0.9, 0).rotation.z = -Math.PI / 2;   // 코
-  add(body, cone(0.08, 0.2, 4), m3, 0.72, 1.25, 0.14); add(body, cone(0.08, 0.2, 4), m3, 0.72, 1.25, -0.14);   // 귀
-  add(body, cone(0.12, 0.6, 5), m1, -0.85, 0.85, 0).rotation.z = Math.PI / 2.3;                                    // 꼬리
-  for (const [x, z] of [[0.45, 0.2], [0.45, -0.2], [-0.45, 0.2], [-0.45, -0.2]]) { const l = add(body, cyl(0.07, 0.06, 0.55, 5), m3, x, 0.28, z); legs.push(l); }
+  const fur = (c, e = 0) => mat(c, { transparent: true, opacity: 1, emissive: e });
+  const m1 = fur(0x9fe0f5, 0x0a3a50), m2 = fur(0xd8f6ff, 0x1a5a70), m3 = fur(0x6fc4e6, 0x08304a);
+  add(body, ico(0.7, 0), m1, 0, 0.8, 0, 1.35, 0.8, 0.95);                       // 결정 몸통(각진 다면체)
+  for (const [x, z, h] of [[-0.3, 0, 0.7], [0.1, 0.25, 0.55], [0.1, -0.25, 0.55], [0.5, 0, 0.45]]) add(body, cone(0.14, h, 4), m2, x, 1.2 + h / 2 - 0.2, z);   // 등의 고드름
+  add(body, ico(0.32, 0), m2, 0.95, 0.95, 0);                                    // 머리
+  for (const z of [-0.14, 0.14]) add(body, sph(0.07, 6, 5), new THREE.MeshBasicMaterial({ color: 0xaaf0ff }), 1.18, 1.02, z);   // 빛나는 눈
+  add(body, cone(0.2, 0.5, 4), m3, 1.35, 0.9, 0).rotation.z = -Math.PI / 2;      // 주둥이
+  add(body, cone(0.14, 0.7, 4), m3, -1.0, 0.9, 0).rotation.z = Math.PI / 2.4;    // 꼬리 결정
+  for (const [x, z] of [[0.55, 0.3], [0.55, -0.3], [-0.55, 0.3], [-0.55, -0.3]]) { const l = add(body, cone(0.12, 0.6, 5), m3, x, 0.32, z); l.rotation.x = Math.PI; legs.push(l); }   // 뾰족한 다리
   g.add(body); g.userData = { legs, mats: [m1, m2, m3] };
   g.scale.setScalar(1.3);
   return g;
@@ -145,17 +146,27 @@ export function makePlayerModel(hue) {
   return g;
 }
 
-// ---------- 뗏목: 나무판 + 통나무 부표 ----------
+// ---------- 탐사정(뗏목의 우주 테마 모양): 금속판 갑판 + 테두리 보 + 엔진 ----------
+// 갑판 윗면이 SEA(수면과 같은 높이)에 맞는다. 충돌·칸 격자는 그대로이고 모양만 다르다
 export function makeRaft(cx, cz, SEA, RX0, RZ0) {
   const g = new THREE.Group(), dm = new THREE.Object3D();
-  const planks = new THREE.InstancedMesh(box(0.96, 0.22, 0.96), mat(0xffffff), cx * cz);
+  const plates = new THREE.InstancedMesh(box(0.96, 0.2, 0.96), mat(0xffffff), cx * cz);
   const col = new THREE.Color(); let i = 0;
-  for (let z = 0; z < cz; z++) for (let x = 0; x < cx; x++) { dm.position.set(RX0 + x + 0.5, SEA - 0.11, RZ0 + z + 0.5); dm.updateMatrix(); planks.setMatrixAt(i, dm.matrix); planks.setColorAt(i, col.set(0x9a6b3c).offsetHSL(0, 0, ((x * 7 + z * 13) % 5 - 2) * 0.012)); i++; }
-  planks.frustumCulled = false; g.add(planks);
-  // 통나무 부표: 둘레를 따라(아래쪽, 물에 반쯤 잠김)
-  const L = (len, x, z, rotY) => { const l = add(g, cyl(0.3, 0.3, len, 8), mat(0x6a4a2a), x, SEA - 0.32, z); l.rotation.z = Math.PI / 2; l.rotation.y = rotY; };
-  L(cx, RX0 + cx / 2, RZ0 - 0.1, 0); L(cx, RX0 + cx / 2, RZ0 + cz + 0.1, 0);
-  const l2 = (z) => { const l = add(g, cyl(0.3, 0.3, cz, 8), mat(0x6a4a2a), z, SEA - 0.32, RZ0 + cz / 2); l.rotation.x = Math.PI / 2; };
-  l2(RX0 - 0.1); l2(RX0 + cx + 0.1);
+  for (let z = 0; z < cz; z++) for (let x = 0; x < cx; x++) { dm.position.set(RX0 + x + 0.5, SEA - 0.1, RZ0 + z + 0.5); dm.updateMatrix(); plates.setMatrixAt(i, dm.matrix); plates.setColorAt(i, col.set((x + z) % 2 ? 0x6b7686 : 0x7a8596).offsetHSL(0, 0, ((x * 7 + z * 13) % 5 - 2) * 0.01)); i++; }
+  plates.frustumCulled = false; g.add(plates);
+  // 선체 아래(물에 잠기는 부분)와 테두리 보
+  add(g, box(cx, 0.35, cz), mat(0x3d4654), RX0 + cx / 2, SEA - 0.37, RZ0 + cz / 2);
+  const beam = (w, d, x, z) => add(g, box(w, 0.3, d), mat(0x2f3744), x, SEA + 0.04, z);
+  beam(cx + 0.3, 0.16, RX0 + cx / 2, RZ0 - 0.08); beam(cx + 0.3, 0.16, RX0 + cx / 2, RZ0 + cz + 0.08);
+  beam(0.16, cz, RX0 - 0.08, RZ0 + cz / 2); beam(0.16, cz, RX0 + cx + 0.08, RZ0 + cz / 2);
+  // 엔진: 바다 쪽(+x) 끝에 노즐 두 개와 푸른 불빛(보이기만)
+  const nz = Math.max(2, Math.floor(cz / 3));
+  for (let k = 0; k < nz; k++) {
+    const z = RZ0 + cz * (k + 1) / (nz + 1), x = RX0 + cx + 0.55;
+    const n = add(g, cyl(0.42, 0.3, 0.9, 10), mat(0x4a5465), x, SEA - 0.05, z); n.rotation.z = Math.PI / 2;
+    const f = add(g, cone(0.26, 0.8, 8), new THREE.MeshBasicMaterial({ color: 0x66b8ff, transparent: true, opacity: 0.8 }), x + 0.8, SEA - 0.05, z); f.rotation.z = -Math.PI / 2;
+  }
+  // 귀퉁이 안테나(알아보기 쉬운 표시)
+  add(g, cyl(0.04, 0.05, 1.2, 5), mat(0x9aa4b0), RX0 + 0.25, SEA + 0.6, RZ0 + 0.25); add(g, sph(0.1, 6, 5), new THREE.MeshBasicMaterial({ color: 0xff6a5a }), RX0 + 0.25, SEA + 1.25, RZ0 + 0.25);
   return g;
 }

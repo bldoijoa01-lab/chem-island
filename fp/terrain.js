@@ -10,11 +10,15 @@ function jitter(x, z) { const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.545
 // 섬 종류·높이·경사로 색을 정한다: 물가는 모래, 위로 풀, 가파르면 바위, 높거나 극지면 눈
 export function colorAt(isl, x, z, h, slope) {
   const b = BIOMES[isl.name];
+  if (isl.name === 'plaza' && h >= SEA + 0.5) {   // 허브 정거장: 금속 바닥(4 m 판 무늬와 이음선)
+    const gx = x / 4, gz = z / 4, edge = Math.min(Math.abs(gx - Math.round(gx)), Math.abs(gz - Math.round(gz))) < 0.07 ? 0.8 : 1, chk = (Math.floor(gx) + Math.floor(gz)) % 2 ? 1 : 0.93, j = jitter(x, z) * 0.05;
+    return [clamp01((0.52 + j) * edge * chk), clamp01((0.58 + j) * edge * chk), clamp01((0.67 + j) * edge * chk)];
+  }
   let c;
   if (h < SEA - 0.2) c = mix(WET, SAND, clamp01((h - (SEA - 3)) / 3));                // 물속: 어두운 모래(깊을수록 어둡게)
   else if (h < SEA + 1.1) c = SAND;                                                    // 해변
   else if (isl.name === 'polar') c = mix(SNOW, [0.8, 0.9, 0.96], clamp01(slope * 1.5)); // 극지: 눈
-  else if (isl.name === 'alpine') c = mix(DIRT, GRASS, clamp01(0.7 - slope));           // 고산: 흙 얇고 바위 많다
+  else if (isl.name === 'alpine') c = mix([0.34, 0.27, 0.42], [0.5, 0.42, 0.62], clamp01(0.7 - slope));   // 저기압 고원 행성: 보랏빛 지표(흙 얇고 바위 많다)
   else c = GRASS;
   if (isl.name !== 'polar') {
     if (b.snow && h > b.snow) c = mix(c, SNOW, clamp01((h - b.snow) / 2));

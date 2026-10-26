@@ -104,6 +104,17 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     await page.waitForTimeout(300);
     for (let i = 0; i < 40 && polar && !(await ev(() => __fp.S.f.polarMelt)); i++) { await ev(() => { __fp.S.min = 180; }); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(60); }
     ok('극지 섬 얼음 녹이기(목표 11 조건)', !!polar && await ev(() => __fp.S.f.polarMelt), JSON.stringify(polar) + ' 소금 ' + await ev(() => __fp.S.inv.salt));
+    // 우주 테마(8단계): 항구 표지판 → "궤도 이동 단말", 창과 말풍선의 섬 테마 말이 치환된다. 내부 id와 계산은 그대로
+    await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'harbor'); f.p.x = o.x + 2.5; f.p.z = o.z; f.p.y = f.island().height(o.x + 2.5, o.z); f.p.vy = 0; });
+    await page.waitForTimeout(600);
+    await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'harbor'); aim(o.x, o.y + 1.5, o.z); }); await page.waitForTimeout(300);
+    const harborLabel = await ev(() => (__fp.aimedTarget() || {}).label); const shownLabel = await ev(() => document.getElementById('target').textContent + '|' + document.getElementById('aimlabel').textContent);
+    await page.keyboard.press('e'); await page.waitForTimeout(400);
+    const harborText = await ev(() => document.getElementById('modal').hidden ? '' : document.getElementById('mbody').textContent + document.getElementById('mtitle').textContent);
+    ok('테마: 궤도 이동 단말 창', /궤도|이륙/.test(harborText) && !/출항|뗏목|시작섬|광장섬|항구/.test(harborText), harborText.slice(0, 160));
+    ok('테마: 조준 이름표', /궤도 이동 단말/.test(shownLabel), shownLabel);
+    ok('테마: 내부 id 유지', await ev(() => ['start', 'plaza', 'alpine', 'polar'].includes(__fp.islName()) && Sim.ISLANDS.start.name === '시작섬' && Sim.QUESTS.length === 11));
+    await ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
     // 점프만으로 네 섬을 건널 수 있다(자동 오르기 없음): 부두에서 서쪽 안쪽 끝까지 갔다가 돌아온다
     for (const dock of ['start', 'plaza', 'alpine', 'polar']) {
       await ev(d => { const S = __fp.S; S.f.raft = true; S.qDone = 11; if (S.raft.dock !== d) G.sail(d); }, dock); await page.waitForTimeout(1500);
