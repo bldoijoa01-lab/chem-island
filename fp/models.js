@@ -65,6 +65,18 @@ export function makeObject(type, opts = {}) {
     case 'fragment': // 뗏목 파편: 널빤지 몇 장
       for (const [x, z, r] of [[0, 0, 0.2], [0.35, 0.2, -0.3], [-0.3, 0.3, 0.7]]) { const p = add(g, box(1.1, 0.12, 0.3), mat(0x8a6038), x, 0.1 + Math.abs(x) * 0.1, z); p.rotation.y = r; p.rotation.z = x * 0.3; }
       add(g, cyl(0.18, 0.18, 1.0, 8), mat(0x6a4a2a), 0.1, 0.22, -0.4).rotation.z = Math.PI / 2; break;
+    case 'trade': case 'reports': case 'boards': case 'signs': case 'project': {   // 허브 단말: 받침 + 비스듬한 화면 + 종류별 윗장식(11단계)
+      const col = { trade: 0xff9a3c, reports: 0x6fd26f, boards: 0xf0c83a, signs: 0x5ea8ff, project: 0x4fe0e0 }[type];
+      add(g, cyl(0.55, 0.7, 0.4, 10), mat(0x5b6573), 0, 0.2, 0); add(g, cyl(0.18, 0.22, 0.9, 8), mat(0x7a8592), 0, 0.85, 0);
+      const scr = add(g, box(1.5, 0.95, 0.12), mat(0x1c2433), 0, 1.65, 0); scr.rotation.x = -0.25;
+      const face = add(g, box(1.3, 0.75, 0.04), new THREE.MeshBasicMaterial({ color: col }), 0, 1.65, 0.08); face.rotation.x = -0.25;
+      if (type === 'trade') { add(g, box(0.3, 0.3, 0.3), mat(0xb07b45), -0.45, 2.35, 0); add(g, box(0.3, 0.3, 0.3), mat(0x8a5a35), 0.45, 2.35, 0); }
+      else if (type === 'reports') add(g, box(0.5, 0.04, 0.4), mat(0xf2f6fa), 0, 2.25, 0);
+      else if (type === 'boards') { add(g, box(0.4, 0.3, 0.3), mat(0xf0c83a), -0.4, 2.3, 0); add(g, box(0.4, 0.5, 0.3), mat(0xf0c83a), 0, 2.4, 0); add(g, box(0.4, 0.2, 0.3), mat(0xf0c83a), 0.4, 2.25, 0); }
+      else if (type === 'signs') { add(g, cyl(0.04, 0.04, 1.0, 5), mat(0x9aa4b0), 0.7, 2.2, 0); add(g, box(0.6, 0.35, 0.03), mat(0x5ea8ff), 0.98, 2.5, 0); }
+      else g.userData.glow = add(g, sph(0.28, 10, 8), new THREE.MeshBasicMaterial({ color: col, transparent: true }), 0, 2.4, 0);
+      break;
+    }
     default: add(g, sph(0.4), mat(0xff00ff), 0, 0.4, 0);
   }
   return g;

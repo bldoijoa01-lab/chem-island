@@ -87,7 +87,7 @@ export class Island {
     // 시설을 먼저 놓아(자리를 확보) 자원이 겹치지 않게 한다
     fixed('harbor', 41, RZ0 + 2);
     if (this.name === 'start') fixed('fragment', 42, RZ0 + 5);
-    if (this.name === 'plaza') { fixed('box', 33, 24); fixed('board', 33, 40); fixed('altar', 24, 32); }
+    if (this.name === 'plaza') { fixed('box', 33, 24); fixed('board', 33, 40); fixed('altar', 24, 32); for (const [type, x, z] of [['trade', 30, 22], ['reports', 30, 28], ['boards', 30, 34], ['signs', 36, 28], ['project', 36, 34]]) fixed(type, x, z); }   // 팀 간 교류 시설(11단계, 가정 좌표)
     for (const [type, n] of Object.entries(b.objs)) for (let i = 0; i < n; i++) { const p = pick(type === 'tree' ? 4 : 2.5); if (p) add(type, p[0], p[1]); }
   }
 }

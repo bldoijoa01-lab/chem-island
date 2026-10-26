@@ -7,6 +7,7 @@ import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 import { installTheme, themed, GAME_TITLE } from './theme.js';
 import { Party } from './party.js';
+import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from './hub.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
 const { ITEM, NODE, DIG, TOOL, STONE, ICE, ICE_TILE_G, SHAKE_G } = World;
@@ -97,7 +98,7 @@ function setFar() {
 }
 
 // ---------- 자원·시설·장치·늑대 모형 ----------
-const OBJ_R = { tree: 1.5, altar: 1.6, harbor: 1.0, board: 1.0, box: 1.0, fragment: 1.0, rock: 1.3, iceblock: 1.2 };   // 조준 반지름(m)
+const OBJ_R = { trade: 1.2, reports: 1.2, boards: 1.2, signs: 1.2, project: 1.2, tree: 1.5, altar: 1.6, harbor: 1.0, board: 1.0, box: 1.0, fragment: 1.0, rock: 1.3, iceblock: 1.2 };   // 조준 반지름(m)
 const objMeshes = new Map(), devMeshes = new Map(), wolfMeshes = new Map();
 // 뗏목·장치·뗏목 위의 늑대는 파도에 출렁이는 것처럼 보이게 같은 값만큼 오르내린다(보이기만: 위치·충돌·계산에는 쓰지 않는다).
 // 뗏목 위에 서 있으면 카메라도 같은 값만큼 움직여 어지럽지 않게 한다. 가정(임의값): 진폭 약 0.07 m
@@ -216,14 +217,14 @@ let plazaGroup = new THREE.Group(), plazaSig = '';
 scene.add(plazaGroup);
 const rcz = cells => Math.min(8, 4 + Math.floor((cells - 4) / 2));
 function syncPlaza() {
-  const rafts = islName === 'plaza' ? UI.plazaRafts().slice(0, 3) : [], sig = islName + JSON.stringify(rafts.map(r => [r.nick, r.cells, (r.devs || []).length]));
+  const rafts = islName === 'plaza' ? hubShips().concat(UI.plazaRafts()).slice(0, 3) : [], sig = islName + JSON.stringify(rafts.map(r => [r.nick, r.cells, (r.devs || []).length]));
   if (sig === plazaSig) return; plazaSig = sig;
   scene.remove(plazaGroup); plazaGroup = new THREE.Group();
   rafts.forEach((r, i) => {
     const cx = Math.max(2, Math.min(12, r.cells | 0)), cz = rcz(cx), z0 = RZ0 - 10 * (i + 1);
     plazaGroup.add(makeRaft(cx, cz, SEA, RX0, z0));
     for (const d of (r.devs || [])) if (d && ['fire', 'still', 'cooker', 'cooler', 'collector'].includes(d.id) && d.u >= 0 && d.u + 2 <= cx) { const g = makeDevice(d.id); g.position.set(RX0 + d.u + 1, SEA, z0 + (d.z | 0) + 1); g.userData.parts.bad.visible = !!d.broken; plazaGroup.add(g); }
-    const label = document.createElement('div'); label.className = 'nick3'; label.textContent = r.nick || ''; label.dataset.plaza = '1'; document.body.appendChild(label);
+    const label = document.createElement('div'); label.className = 'nick3'; label.textContent = r.nick || ''; if (r.color) label.style.color = r.color; label.dataset.plaza = '1'; document.body.appendChild(label);
     plazaGroup.userData.labels = (plazaGroup.userData.labels || []).concat([[label, RX0 + cx / 2, SEA + 3, z0 + cz / 2]]);
   });
   scene.add(plazaGroup);
@@ -362,7 +363,7 @@ function collectTargets() {
   const out = [], add = (kind, ref, wx, wy, wz, label, r) => out.push({ kind, ref, wx, wy, wz, label, r, x: wx, y: wy });
   for (const o of isl.objs) {
     if ((o.type === 'fragment' && S.f.raft) || melted(o)) continue;
-    const n = NODE[o.type], label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)' }[o.type];
+    const n = NODE[o.type], label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)', trade: '교역소', reports: '연구 보고서 게시판', boards: '리더보드', signs: '팀 간판', project: '공동 프로젝트 (대기 처리 코어)' }[o.type];
     add(o.type, o, o.x, o.y + (o.type === 'rock' || o.type === 'iceblock' ? 0.7 : n ? Math.min(2.2, n[4] / 4) : 1), o.z, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label, OBJ_R[o.type] || 1.1);
   }
   for (const d of S.placed) {
@@ -560,6 +561,7 @@ function useAction() {   // 우클릭: 건설·철거 모드 > 선택한 도구
 }
 async function doInteract() {
   const t = aimedTarget(); if (!t) return;
+  if (['trade', 'reports', 'boards', 'signs', 'project'].includes(t.kind)) return HubUI.open(t.kind);   // 팀 간 교류 시설(11단계): 각 창이 필요할 때 팀 쓰기 권한을 얻는다
   if (Party.needsLease(t.kind) && !(await Party.ensureActive())) return say('동료가 조작 중이에요. 잠시 뒤에 다시 시도하세요.');   // 장치·늑대·바닷물·제단·항구는 팀 필드를 바꾼다
   lastTarget = t; if (t.kind === 'dev') Sim.setDev(t.ref); interact(t);   // 지표 부지 장치의 패널은 그 행성의 환경으로 그린다
 }
@@ -649,7 +651,8 @@ function updateAim() {
 // ---------- 시간·저장·시작·항해 ----------
 let tNow = 0, last = performance.now();
 setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; if (Party.canAdvance()) { advance(Party.speed()); pipeStep(); } UI.tick(); refresh(); }, 500);   // 팀이면 시계 담당만 시간을 흘린다
-setInterval(() => Party.tick(), 1000);
+setInterval(() => { Party.tick(); hubTick(); }, 1000);
+setInterval(() => { if (islName === 'plaza') loadPubs(); }, 60000);   // 허브에 도킹한 다른 팀의 탐사정 목록
 function savePos() { S.fp.x = p.x; S.fp.y = p.y; S.fp.z = p.z; S.fp.yaw = yaw; S.fp.pitch = pitch; }
 setInterval(() => { savePos(); save(); }, 5000);
 addEventListener('pagehide', () => { savePos(); save(true); });
@@ -658,7 +661,7 @@ let fpRef = S.fp;
 function resetFromState() {
   p.x = S.fp.x; p.y = S.fp.y; p.z = S.fp.z; p.vx = p.vy = p.vz = 0; yaw = S.fp.yaw; pitch = S.fp.pitch;
   loadIsland(islandName()); if (blocked(p.x, p.y, p.z)) { const f = findFree(); if (f) { p.x = f[0]; p.z = f[1]; p.y = SEA; } }
-  loadPlaza(); joinPresence();
+  loadPlaza(); joinPresence(); if (islName === 'plaza') loadPubs();
 }
 let warpK = 0, warping = false;   // 궤도 이동(워프) 연출: 별 줄무늬 오버레이와 시야각 확장(보이기만)
 function onMoved() {
@@ -703,7 +706,7 @@ UI.init({
   },
   startBuild(id) { mode = 'build:' + id; sel = null; linkKind = null; linkFrom = null; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 바라보고 우클릭하세요. (Q 취소)`); },
   startDemolish() { mode = 'demolish'; sel = null; $('modal').hidden = true; say('철거할 장치를 바라보고 우클릭하세요. (Q 취소)'); },
-  joinMap() { joinPresence(); Party.start(); },
+  joinMap() { joinPresence(); Party.start(); startWatch(); },
 });
 
 // ---------- 프레임 ----------

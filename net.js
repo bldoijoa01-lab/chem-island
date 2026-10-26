@@ -189,5 +189,29 @@ window.Net = (() => {
   N.partyLog = (pid, entry) => db.ref('parties/' + pid + '/log').push(Object.assign({ uid: N.user.uid, nick: N.nick, t: firebase.database.ServerValue.TIMESTAMP }, entry));
   N.partyBeat = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid + '/t').set(firebase.database.ServerValue.TIMESTAMP);
   N.partyMeta = (pid, meta) => db.ref('parties/' + pid).update(meta);
+  // ---- 팀 간 교류(11단계: fp/ 전용): 간판·교역소·공동 프로젝트·보고서·리더보드 (DESIGN.md §4-19) ----
+  const TSV = () => firebase.database.ServerValue.TIMESTAMP;   // 호출될 때만 평가(firebase가 없는 시험 환경에서 로드 오류 방지)
+  N.pubSet = (pid, obj) => db.ref('partyPub/' + pid).update(Object.assign({ t: TSV() }, obj));
+  N.pubLoad = async (n) => { const out = [], s = await db.ref('partyPub').orderByChild('t').limitToLast(n || 8).once('value'); s.forEach(c => { out.push(Object.assign({ pid: c.key }, c.val())); }); return out.reverse(); };
+  N.tradePost = (t) => db.ref('trades').push(Object.assign({ t: TSV(), status: 'open' }, t));
+  N.tradesLoad = async (n) => { const out = [], s = await db.ref('trades').orderByChild('t').limitToLast(n || 30).once('value'); s.forEach(c => { out.push(Object.assign({ tid: c.key }, c.val())); }); return out.reverse(); };
+  // open → taken: 먼저 가져간 팀이 이긴다. 성공하면 true
+  N.tradeTake = async (tid, pid, name, paid) => (await db.ref('trades/' + tid).transaction((cur) => { if (!cur || cur.status !== 'open' || cur.fromPid === pid) return; return Object.assign({}, cur, { status: 'taken', takerPid: pid, takerName: name, paid }); }, undefined, false)).committed;
+  N.tradeCancel = async (tid) => (await db.ref('trades/' + tid).transaction((cur) => { if (!cur || cur.status !== 'open') return; return Object.assign({}, cur, { status: 'cancelled' }); }, undefined, false)).committed;
+  N.tradeClaim = async (tid) => (await db.ref('trades/' + tid).transaction((cur) => { if (!cur || cur.status !== 'taken') return; return Object.assign({}, cur, { status: 'done' }); }, undefined, false)).committed;
+  N.projectWatch = (cb) => { const ref = db.ref('world/project'), fn = (s) => cb(s.val() || null); ref.on('value', fn); return () => ref.off('value', fn); };
+  // 요구량을 넘지 않게(규칙도 검사) 증가분만 더한다. 더해진 양을 돌려준다
+  N.projectAdd = async (pid, name, color, item, n, need) => {
+    let before = 0;
+    const r = await db.ref('world/project/have/' + item).transaction((cur) => { before = cur || 0; const v = before + n; return v > need ? need : v; }, undefined, false);
+    return { before, after: r.snapshot.val() };
+  };
+  N.projectTeam = (pid, obj) => db.ref('world/project/byTeam/' + pid).update(obj);
+  N.projectDone = () => db.ref('world/project/done').set(true);
+  N.reportPost = (r) => db.ref('reports').push(Object.assign({ t: TSV(), uid: N.user.uid, nick: N.nick }, r));
+  N.reportsLoad = async (n) => { const out = [], s = await db.ref('reports').orderByChild('t').limitToLast(n || 20).once('value'); s.forEach(c => { out.push(Object.assign({ rid: c.key }, c.val())); }); return out.reverse(); };
+  N.reportVote = (rid, pid, v) => db.ref('reports/' + rid + '/votes/' + pid).set(v);
+  N.boardSet = (board, pid, obj) => db.ref('boards/' + board + '/' + pid).set(Object.assign({ t: TSV() }, obj));
+  N.boardLoad = async (board, n) => { const out = [], s = await db.ref('boards/' + board).orderByChild('score').limitToLast(n || 10).once('value'); s.forEach(c => { out.push(Object.assign({ pid: c.key }, c.val())); }); return out.reverse(); };
   return N;
 })();

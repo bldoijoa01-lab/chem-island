@@ -6,39 +6,7 @@ let chromium;
 try { ({ chromium } = require('playwright')); } catch (e) { console.error('playwright를 찾을 수 없습니다.'); process.exit(2); }
 const PORT = 9300 + Math.floor(Math.random() * 400), ROOT = path.resolve(__dirname, '..');
 
-// ---- 가짜 서버: Firebase와 같은 규칙을 코드로 흉내 낸다 ----
-const clean = (v) => { if (Array.isArray(v)) { const a = v.map(clean).filter(x => x !== undefined); return a.length ? a : undefined; } if (v && typeof v === 'object') { const o = {}; for (const k in v) { const c = clean(v[k]); if (c !== undefined) o[k] = c; } return Object.keys(o).length ? o : undefined; } return v === null ? undefined : v; };   // 빈 배열·빈 객체·null을 지운다(Firebase처럼)
-const server = { parties: {}, codes: {}, pages: new Map(), n: 0 };
-function snapOf(pid) { const p = server.parties[pid]; return p ? JSON.parse(JSON.stringify({ meta: { name: p.name, color: p.color, code: p.code, owner: p.owner }, members: p.members, state: p.state || null, lease: p.lease || null })) : null; }
-async function emit(pid) { for (const [page, w] of server.pages) if (w.has(pid)) { const s = snapOf(pid); await page.evaluate(([pid, s]) => window.__fakeEmit(pid, s), [pid, s]).catch(() => {}); } }
-async function emitLog(pid) { for (const [page, w] of server.pages) if (w.has(pid)) { const l = (server.parties[pid] && server.parties[pid].log || []).slice(-20); await page.evaluate(([pid, l]) => window.__fakeEmitLog(pid, l), [pid, l]).catch(() => {}); } }
-async function handle(page, uid, nick, method, a) {
-  const P = (pid) => server.parties[pid];
-  switch (method) {
-    case 'create': { const [name, color] = a; const pid = 'p' + (++server.n); const code = 'AB' + String(server.n).padStart(4, '2'); server.parties[pid] = { name, color, code, owner: uid, members: { [uid]: { nick, t: Date.now(), code } }, log: [] }; server.codes[code] = pid; return { pid, code }; }
-    case 'join': { const pid = server.codes[String(a[0]).toUpperCase()]; if (!pid) throw new Error('없는 초대 코드입니다.'); const p = P(pid); if (!p.members[uid] && Object.keys(p.members).length >= 4) throw new Error('인원이 가득 찼습니다'); p.members[uid] = { nick, t: Date.now(), code: p.code }; await emit(pid); return pid; }
-    case 'leave': { const p = P(a[0]); if (p) delete p.members[uid]; for (const [pg, w] of server.pages) if (pg === page) w.delete(a[0]); await emit(a[0]); return null; }
-    case 'watch': { server.pages.get(page).add(a[0]); setTimeout(() => emit(a[0]), 20); return null; }
-    case 'unwatch': { server.pages.get(page).delete(a[0]); return null; }
-    case 'watchlog': { setTimeout(() => emitLog(a[0]), 20); return null; }
-    case 'lease': { const [pid, active, ms] = a, p = P(pid), L = p.lease, now = Date.now(); if (L && L.uid !== uid && L.active && L.exp > now) return false; p.lease = { uid, nick, active: !!active, exp: now + ms }; await emit(pid); return true; }
-    case 'publish': { const [pid, base, st] = a, p = P(pid); if (!p.members[uid]) return { ok: false }; const cur = p.state ? p.state.ver : 0; if (cur !== base) return { ok: false, ver: cur }; p.state = Object.assign(clean(st), { ver: base + 1, by: uid }); await emit(pid); return { ok: true, ver: base + 1 }; }
-    case 'log': { const [pid, e] = a; P(pid).log.push(Object.assign({ uid, nick, t: Date.now() }, e)); await emitLog(pid); return null; }
-    case 'beat': { const p = P(a[0]); if (p && p.members[uid]) p.members[uid].t = Date.now(); return null; }
-  }
-}
-const initScript = ({ uid, nick }) => {
-  const watchers = {}, logw = {};
-  const rpc = (m, a) => window.__rpc(m, a);
-  const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap() {}, sendPos() {}, leaveMap() {}, loadRafts: async () => [], loadBottles: async () => [],
-    partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
-    partyWatch: (pid, cb) => { watchers[pid] = cb; rpc('watch', [pid]); return () => { delete watchers[pid]; rpc('unwatch', [pid]); }; },
-    partyWatchLog: (pid, cb) => { logw[pid] = cb; rpc('watchlog', [pid]); return () => {}; },
-    partyLease: (pid, active, ms) => rpc('lease', [pid, active, ms]), partyPublish: (pid, base, st) => rpc('publish', [pid, base, st]), partyLog: (pid, e) => rpc('log', [pid, e]), partyBeat: (pid) => rpc('beat', [pid]) };
-  window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
-  window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);
-  Object.defineProperty(window, 'Net', { get: () => fake, set: () => {} });
-};
+const { server, handle, initScript } = require('./fakenet');
 (async () => {
   const srv = spawn('python3', ['-m', 'http.server', String(PORT), '--bind', '127.0.0.1'], { cwd: ROOT, stdio: 'ignore' });
   await new Promise(r => setTimeout(r, 800));

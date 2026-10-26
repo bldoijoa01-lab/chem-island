@@ -5,7 +5,7 @@ const S = Store.S;
 const TEAM_KEYS = ['placed', 'raft', 'f', 'qDone', 'mobs', 'mobId', 'dusk', 'day', 'min', 'links'];   // 팀 필드(나머지 inv·caps·packs·nodes·melt·boxDay·log·fp는 개인)
 const LEASE_ACTIVE_MS = 6000, LEASE_PASSIVE_MS = 15000, PUBLISH_MS = 1000, BEAT_MS = 10000, ONLINE_MS = 30000;   // 가정(임의값)
 export const TEAM_MAX = 4, LOG_SHOW = 20;
-export const KINDS = { build: '건설', demolish: '철거', device: '장치 조작', deposit: '창고에 넣음', withdraw: '창고에서 꺼냄' };
+export const KINDS = { build: '건설', demolish: '철거', device: '장치 조작', deposit: '창고에 넣음', withdraw: '창고에서 꺼냄', trade: '교역', project: '프로젝트 기여', report: '보고서' };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const me = () => (window.Net && Net.user ? Net.user.uid : null);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -18,7 +18,7 @@ function ensureTeam() {
   if (!S.team.contrib) S.team.contrib = {};
   return S.team;
 }
-const contribOf = (uid, nick) => { const c = ensureTeam().contrib; if (!c[uid]) c[uid] = { nick: nick || '', build: 0, demolish: 0, device: 0, deposit: 0, withdraw: 0, goals: [] }; if (nick) c[uid].nick = nick; if (!c[uid].goals) c[uid].goals = []; return c[uid]; };
+const contribOf = (uid, nick) => { const c = ensureTeam().contrib; if (!c[uid]) c[uid] = { nick: nick || '', build: 0, demolish: 0, device: 0, deposit: 0, withdraw: 0, trade: 0, project: 0, report: 0, goals: [] }; if (nick) c[uid].nick = nick; if (!c[uid].goals) c[uid].goals = []; return c[uid]; };
 const teamOf = () => { ensureTeam(); const o = {}; for (const k of TEAM_KEYS) o[k] = S[k]; o.team = S.team; return JSON.parse(JSON.stringify(o)); };
 
 // 서버의 팀 상태를 내 S의 팀 필드에 덮어쓴다(Firebase는 빈 배열을 지우므로 Sim.merge로 기본 형태를 복구한다)
@@ -108,6 +108,7 @@ export const Party = {
     }
     return false;
   },
+  sayHub(text) { P.say(text); },
   async guard(fn) { if (!(await Party.ensureActive())) { P.say('동료가 조작 중이에요. 잠시 뒤에 다시 시도하세요.'); return false; } fn(); return true; },
 
   // 행동 기록: 개인 기여 횟수와 팀 기록. 팀 상태에 들어가 모두가 같은 값을 본다
@@ -157,13 +158,13 @@ export const Party = {
     const m = P.meta || {}, now = Date.now(), id = me();
     const rows = Object.entries(P.members).map(([uid, mem]) => {
       const c = ensureTeam().contrib[uid] || { build: 0, demolish: 0, device: 0, deposit: 0, withdraw: 0, goals: [] }, on = now - mem.t < ONLINE_MS, hold = P.lease && P.lease.uid === uid && P.lease.exp > now;
-      return `<tr><td>${on ? '●' : '○'} ${esc(mem.nick)}${uid === id ? ' (나)' : ''}${hold ? ' <small class="mut">시계</small>' : ''}</td><td>${c.build || 0}</td><td>${c.demolish || 0}</td><td>${c.device || 0}</td><td>${c.deposit || 0} / ${c.withdraw || 0}</td><td>${(c.goals || []).sort((a, b) => a - b).join(', ') || '-'}</td></tr>`;
+      return `<tr><td>${on ? '●' : '○'} ${esc(mem.nick)}${uid === id ? ' (나)' : ''}${hold ? ' <small class="mut">시계</small>' : ''}</td><td>${c.build || 0}</td><td>${c.demolish || 0}</td><td>${c.device || 0}</td><td>${c.deposit || 0} / ${c.withdraw || 0}</td><td>${c.trade || 0} / ${c.project || 0} / ${c.report || 0}</td><td>${(c.goals || []).sort((a, b) => a - b).join(', ') || '-'}</td></tr>`;
     }).join('');
     const logs = (P.log || []).slice().reverse().map(l => `<div class="mut">${new Date(l.t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} <b>${esc(l.nick)}</b> ${esc(l.text)}</div>`).join('') || '<div class="mut">아직 기록이 없습니다.</div>';
     return `<div class="box"><h4><span style="color:${esc(m.color || '#fff')}">■</span> ${esc(m.name || '')}</h4>
       <div>초대 코드: <b style="letter-spacing:2px">${esc(m.code || '')}</b> <small class="mut">(팀원 ${Object.keys(P.members).length}/${TEAM_MAX}명, 접속 ${Party.online()}명)</small></div>
       <div class="mut">탐사정·장치·목표 진행도·공용 창고는 팀이 같이 씁니다. 인벤토리와 자원 노드는 개인입니다.${Party.online() > 1 ? ' 접속한 팀원이 2명 이상이라 시간 속도는 x1로 고정됩니다.' : ''}</div></div>
-      <div class="box"><h4>개인 기여</h4><table><tr><th>팀원</th><th>건설</th><th>철거</th><th>장치 조작</th><th>창고 넣기/꺼내기</th><th>기여한 목표</th></tr>${rows}</table>
+      <div class="box"><h4>개인 기여</h4><table><tr><th>팀원</th><th>건설</th><th>철거</th><th>장치 조작</th><th>창고 넣기/꺼내기</th><th>교류(교역/프로젝트/보고서)</th><th>기여한 목표</th></tr>${rows}</table>
         <small class="mut">목표 기여는 달성하는 순간 마지막으로 행동한 팀원에게 기록됩니다. 서버가 게임 계산을 검증하지 못하므로 약속에 기댄 표시입니다.</small></div>
       <div class="row"><button class="primary" onclick="TeamUI.warehouse()">공용 창고</button><button class="danger" onclick="TeamUI.leave()">팀 나가기</button></div>
       <div class="box"><h4>팀 기록</h4>${logs}</div>`;
