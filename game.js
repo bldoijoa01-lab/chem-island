@@ -734,9 +734,11 @@ function draw(t) {
 // 시계: 1초 = 게임 2분 (x1)
 setInterval(() => { if (window.Raid && Raid.active) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(save, 5000);
-function fit() {   // 정수 배율로 크게(픽셀이 뭉개지지 않게)
-  const w = $('left').clientWidth, k = Math.max(1, Math.floor(w / VW));
-  cv.style.width = (w >= VW ? VW * k : w) + 'px';
+function fit() {   // 창 크기에 맞춰 최대한 크게(정수 배율에 가까우면 정수로 맞춰 픽셀이 뭉개지지 않게)
+  const w = $('left').clientWidth, narrow = window.innerWidth <= 900;
+  const h = window.innerHeight - (narrow ? 200 : 110);
+  const s = Math.max(0.5, Math.min(w / VW, h / VH)), k = Math.floor(s);
+  cv.style.width = Math.floor(VW * (k >= 1 && s - k < 0.35 ? k : s)) + 'px';
 }
 window.addEventListener('resize', fit);
 document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed));
