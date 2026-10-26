@@ -83,3 +83,9 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 | 날짜 | 모델 | 요청 | 결과 요약 | 사람이 확인했나 | 반영했나(커밋 또는 안 한 이유) |
 |---|---|---|---|---|---|
 | 2026-10-26 | Flash | A·B 화학 교차 검증, 1단계(sim.js 분리) diff 리뷰 | `DESIGN.md` 조건 보완(4.02/2.60 atm, 600/579 g, 0 ℃ 온도차, 저장 키), 찬 밥솥 내부 압력 0.037 atm·조리 진행, 경계 시나리오 3종 제안. 개발 세션이 `chem.js`·`sim.js`를 다시 돌려 B표 수치와 시나리오 기대값이 일치함을 확인. 교과서 범위 밖 설명(선형 근사·포화·공융·열수지·비이상성)은 반영하지 않기로 함 | 수치는 확인됨, 화학 설명은 교과서 대조 예정 | 반영 완료: 찬 밥솥·`merge` 복구·시나리오 G~J·`tools/smoke.js` = `ec4914f`, 문서 조건(DESIGN) 보완 = `ec4914f`. (수업 범위 밖 설명은 반영하지 않음) |
+
+### [2026-10-26] 5-a단계: 공용 UI 분리 (store.js · world.js · ui.js)
+- 맡길 일: 동작을 바꾸지 않아야 하는 분리(`game.js` → `store.js`/`world.js`/`ui.js`)의 diff 리뷰
+- 같이 붙일 파일: `store.js`, `world.js`, `ui.js`, `game.js`, 분리 전 커밋 `4a54346^`의 `game.js`, `tools/ui-check.js`
+- 질문: 위의 "C. 변경 전후 diff 리뷰"를 쓰되, 분리 전 `game.js`와 현재 `store.js`+`world.js`+`ui.js`+`game.js`를 비교해서 (1) 분리 때 빠진 상태 필드나 계산, (2) `UI.init(host)` 훅(`puff`, `burst`, `startBuild` 등)이 호출되지 않는 경로, (3) `Store.set`이 객체 내용을 바꿔치기할 때 `game.js`가 옛 참조를 잡고 있을 곳을 알려 줘.
+- 사람이 확인할 방법: `node tools/sim-check.js`(전부 통과), `node tools/ui-check.js`(20/20), 2D를 직접 플레이해 모달·건설·땅 파기가 전과 같은지 확인
