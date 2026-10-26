@@ -1,6 +1,6 @@
 // 매끈한 지형 메시: 높이장 height(x, z)를 step 간격 격자로 샘플해 정점 색(높이·경사·섬 종류)과 법선을 준다.
 // 활성 섬은 STEP_NEAR, 멀리 보이는 섬은 STEP_FAR(성긴 격자)로 같은 height()를 그린다. 질감 이미지는 쓰지 않는다.
-import { N, SEA, BIOMES } from './gen.js';
+import { N, SEA, BIOMES } from '../shared/gen.js';
 export const STEP_NEAR = 1;   // 가정(임의값) 활성 섬의 정점 간격(m)
 export const STEP_FAR = 4;    // 가정(임의값) 먼 섬의 정점 간격(m)
 const SAND = [0.88, 0.78, 0.47], GRASS = [0.36, 0.62, 0.23], ROCK = [0.5, 0.52, 0.56], SNOW = [0.95, 0.97, 0.99], DIRT = [0.45, 0.33, 0.2], WET = [0.55, 0.5, 0.35];

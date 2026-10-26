@@ -2,12 +2,12 @@
 // 화학 계산은 chem.js와 sim.js를 그대로 쓰고(여기서 식을 만들지 않는다), 이 파일은 "어디에 있는가"(위치·충돌·그리기)만 다룬다.
 // 상태는 Store.S(= Sim 상태) + S.fp(위치·시점·녹은 얼음 노드). 2D 전용 S.px·S.py는 쓰지 않는다. 저장 키는 chemisle_fp_v2(2D·옛 복셀 버전과 따로).
 import * as THREE from 'three';
-import { N, SEA, SEABED, RX0, RZ0, PAD, ISLANDS, OFFSET, Island } from './gen.js';
+import { N, SEA, SEABED, RX0, RZ0, PAD, ISLANDS, OFFSET, Island } from '../shared/gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
-import { installTheme, themed, GAME_TITLE } from './theme.js';
-import { Party } from './party.js';
-import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from './hub.js';
+import { installTheme, themed, GAME_TITLE } from '../shared/theme.js';
+import { Party } from '../shared/party.js';
+import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from '../shared/hub.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
 const { ITEM, NODE, DIG, TOOL, STONE, ICE, ICE_TILE_G, SHAKE_G } = World;
