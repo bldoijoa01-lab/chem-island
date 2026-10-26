@@ -33,6 +33,15 @@ window.Art = (() => {
     p((r() * 10) | 0, 8 + ((r() * 6) | 0), 4, 1, '#5c3a20');                                                                         // 뿌리
   };
   A.tiles.dirt = variants(i => { const c = mk(16, 16), p = painter(c), r = rng(11 * i); dirtBase(i, p, r); return c; });
+  // 뗏목 바닥: 나무판자(16x16)
+  A.tiles.raft = variants(i => {
+    const c = mk(16, 16), p = painter(c), r = rng(41 * i);
+    p(0, 0, 16, 16, '#9a6a3a'); p(0, 0, 16, 2, '#c58c4d'); p(0, 15, 16, 1, '#5a3a1c');
+    for (let y = 5; y < 16; y += 5) p(0, y, 16, 1, '#6b4423');                                   // 판자 틈
+    for (let k = 0; k < 4; k++) { const x = (r() * 12) | 0, y = ((r() * 3) | 0) * 5 + 2; p(x, y, 3, 1, '#b57d44'); p(x + 5, y + 2, 2, 1, '#855628'); }   // 결
+    p(1, 3, 1, 1, '#3b2412'); p(14, 8, 1, 1, '#3b2412'); p(1, 13, 1, 1, '#3b2412');           // 못
+    return c;
+  });
   A.tiles.stone = variants(i => {
     const c = mk(16, 16), p = painter(c), r = rng(23 * i);
     p(0, 0, 16, 16, '#8b919c'); clumps(p, r, ['#777d89', '#6a707c', '#9ca2ae', '#a9afba'], 26, 2, 5);

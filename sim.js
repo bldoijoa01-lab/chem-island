@@ -42,6 +42,22 @@
     { t: '언덕 위 제단의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '소금·증류수·한제 팩·캡슐을 챙기세요' },
     { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 늑대가 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
   ];
+  // 뗏목(개인 자산): 장치는 항상 뗏목 위에 짓는다. 위치는 뗏목의 해안 쪽 끝에서 떨어진 칸 수 u로 저장한다(뗏목이 옮겨 가도 유지).
+  // 아래 값은 모두 가정(임의값): 시작 칸 수, 최대 칸 수, 확장 단위·재료. DESIGN.md §4-6에 근거와 조정 이력을 적는다.
+  const RAFT = {
+    BASE_CELLS: 4,                        // 가정(임의값) 처음 뗏목 칸 수(화덕 1 + 장치 1)
+    MAX_CELLS: 12,                        // 가정(임의값) 뗏목 최대 칸 수
+    EXPAND: 2, EXPAND_COST: { stick: 10, sand: 4 },   // 가정(임의값) 한 번에 넓히는 칸 수와 재료
+    ROW: 25,                              // 뗏목 바닥이 놓이는 타일 줄(바다 표면)
+    DEV_Y: 23,                            // 장치(2x2)의 위쪽 타일 줄 = ROW − 2
+    DOCKS: { start: 23 },                 // 섬별 뗏목의 해안 쪽 끝 타일 x (시작섬은 해안 오른쪽 끝)
+  };
+  const raftAnchor = (S) => RAFT.DOCKS[S.raft.dock];
+  const raftXs = (S) => { const a = raftAnchor(S), xs = []; for (let i = 0; i < S.raft.cells; i++) xs.push(a - i); return xs; };
+  const devX = (S, u) => raftAnchor(S) - u - 1;           // 장치(2칸 폭)의 왼쪽 타일 x
+  const raftU = (S, tx) => raftAnchor(S) - tx - 1;        // 위의 역
+  // 뗏목이 옮겨 가거나 넓어진 뒤 장치의 세계 좌표를 u에서 다시 계산한다
+  function syncRaft(S) { for (const d of S.placed) if (d.u !== undefined) { d.x = devX(S, d.u); d.y = RAFT.DEV_Y; } }
   const VALVE = [1.0, 1.5, 2.0, 2.5, Infinity];
   const VALVE_NAME = ['1.0 atm (열림)', '1.5 atm', '2.0 atm', '2.5 atm', '잠금(막힘)'];
 
@@ -60,14 +76,34 @@
   // ---------- 상태 ----------
   function newState() {
     return {
-      day: 1, min: 360, px: 48 * 16, py: 24 * 16 - 18, vx: 0, vy: 0, face: 1, speed: 1,
+      day: 1, min: 360, px: 26 * 16, py: 24 * 16 - 18, vx: 0, vy: 0, face: 1, speed: 1,
       inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
       caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
       f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
       qDone: 0, log: [], memo: '',
+      raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
   }
-  function merge(j) { const d = newState(); return Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f) }); }
+  function merge(j) {
+    const d = newState(), S = Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f), raft: Object.assign(d.raft, j.raft) });
+    migrateRaft(S); return S;
+  }
+  // 예전 세이브(장치가 땅 위, u 없음) → 뗏목 위로 옮긴다: 왼쪽에서부터 순서와 붙어 있던 관계를 지키며 해안 쪽부터 놓는다.
+  // 옛 세이브는 칸 수 제한을 넘을 수 있으므로 필요한 만큼 뗏목을 넓혀 준다(제한은 새로 넓힐 때만 적용).
+  function migrateRaft(S) {
+    const old = S.placed.filter(d => d.u === undefined);
+    if (!old.length) return;
+    old.sort((a, b) => b.x - a.x);                       // 해안(오른쪽)에 가까운 것부터
+    let u = 0, prev = old[0];
+    // 붙어 있던 것(간격 3칸 이하)은 그대로 붙여 두고, 떨어져 있던 것은 떨어진 채로 둔다(화덕 열이 새로 닿지 않게)
+    for (const d of old) {
+      if (d !== prev) { const gap = prev.x - d.x; u += gap <= 3 ? Math.max(2, gap) : 4; }
+      d.u = u; prev = d;
+    }
+    S.raft.cells = Math.max(S.raft.cells, u + 2);
+    S.mobs = []; syncRaft(S);                            // 늑대는 장치 위치에 붙어 있었으므로 새로 나타나게 한다
+    S.log.push({ day: S.day, t: clockText(S), type: '뗏목', text: `예전 세이브: 장치 ${old.length}개를 뗏목(${S.raft.cells}칸) 위로 옮겼습니다.` });
+  }
   const airTemp = (S) => C.airTemp(S.min);   // ℃, 오후 3시 최고(28) · 새벽 3시 최저(−15): chem.js
 
   // ---------- 시간 ----------
@@ -309,18 +345,18 @@
       pay(S, r.cost); S.inv[r.out] += r.n; advance(S, 10); return r;
     },
     // 장치 건설: 위치 검사는 화면(지형)이 하고, 재료·상태 생성은 여기서 한다
-    build(S, id, tx, ty) {
-      const def = DEV[id];
+    build(S, id, u) {
+      const def = DEV[id], tx = devX(S, u), ty = RAFT.DEV_Y;
       if (!has(S, def.cost)) return say('재료가 부족합니다.'), false;
       pay(S, def.cost);
       const s = { fire: { level: 0, fuel: 0 },
         still: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 },
         cooker: { run: false, prog: 0, valve: 2, saltG: 0, water: 300, T: 25 },
         cooler: {}, collector: {} }[id];
-      S.placed.push({ id, x: tx, y: ty, s });
+      S.placed.push({ id, x: tx, y: ty, u, s });
       if (id === 'fire') S.f.fire = true;
       say(`${def.name}을(를) 지었습니다.`);
-      logEv(S, '건설', `${def.name} (${tx})`);
+      logEv(S, '건설', `${def.name} (뗏목 ${u}번 칸)`);
       return true;
     },
     demolish(S, d) {
@@ -329,11 +365,21 @@
       say(`${DEV[d.id].name}을(를) 철거하고 재료를 돌려받았습니다.`);
     },
     saltOnWolf,
+    // 뗏목 넓히기: 칸 수 제한과 재료는 가정(임의값). 오른쪽(해안) 끝은 고정이고 바다 쪽으로 늘어난다
+    expandRaft(S) {
+      if (S.raft.cells >= RAFT.MAX_CELLS) return say(`뗏목은 최대 ${RAFT.MAX_CELLS}칸까지입니다.`), false;
+      if (!has(S, RAFT.EXPAND_COST)) return say('재료가 부족합니다.'), false;
+      pay(S, RAFT.EXPAND_COST);
+      S.raft.cells = Math.min(RAFT.MAX_CELLS, S.raft.cells + RAFT.EXPAND);
+      syncRaft(S);
+      say(`뗏목을 ${S.raft.cells}칸으로 넓혔습니다.`); logEv(S, '뗏목', `${S.raft.cells}칸으로 확장 (재료 ${Object.entries(RAFT.EXPAND_COST).map(([k, v]) => k + ' ' + v).join(', ')})`);
+      return true;
+    },
   };
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    RAFT, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, setRng(fn) { rngFn = fn || null; },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Sim;

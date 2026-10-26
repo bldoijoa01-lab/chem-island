@@ -35,6 +35,28 @@
         }
       }
     },
+    "rafts": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['cells', 'dock', 'nick'])",
+        "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
+        "cells": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 24" },
+        "dock": { ".validate": "newData.isString() && newData.val().length <= 16" },
+        "t": { ".validate": "newData.isNumber()" },
+        "devs": {
+          "$i": {
+            ".validate": "newData.hasChildren(['id', 'u'])",
+            "id": { ".validate": "newData.isString() && newData.val().length <= 12" },
+            "u": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
+            "run": { ".validate": "newData.isBoolean()" },
+            "broken": { ".validate": "newData.isBoolean()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    },
     "saves": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",

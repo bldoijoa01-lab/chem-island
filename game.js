@@ -41,8 +41,8 @@ function save(force) {
 let paused = false;   // 접속 화면이 떠 있는 동안 시간이 흐르지 않게
 
 // ---------- 월드 (단면 타일맵) ----------
-const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7;
-const SOLID = [0, 1, 1, 1, 1, 1, 1, 0];
+const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7, RAFT = 8;
+const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1];
 const MAP = new Uint8Array(WW * WH), GY = [];
 const tileAt = (x, y) => (y < 0 ? AIR : (x < 0 || x >= WW || y >= WH) ? STONE : MAP[y * WW + x]);
 const solidAt = (x, y) => SOLID[tileAt(x, y)] === 1;
@@ -80,6 +80,8 @@ const BASE = MAP.slice();
 function applyDug() {
   MAP.set(BASE);
   for (const k in S.dug) { const v = S.dug[k]; if (v != null && k >= 0 && k < MAP.length) MAP[k] = v; }
+  Sim.syncRaft(S);   // 뗏목 바닥 타일: 해안 쪽 끝에서 바다 쪽으로 cells칸 (저장하지 않고 S.raft에서 계산)
+  for (const x of Sim.raftXs(S)) MAP[Sim.RAFT.ROW * WW + x] = RAFT;
 }
 applyDug();
 // 종류별 [얻는 아이템, 1회 양, 하루 횟수, 이름, 중심 y 오프셋(위로 몇 px)]
@@ -221,7 +223,7 @@ function checkQuests() { Sim.checkQuests(S); flush(); }
 const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : 8)];
 function nearWater() {
   const tx = Math.floor((S.px + PW / 2) / T), ty = Math.floor((S.py + PH / 2) / T);
-  for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 1; y++) if (tileAt(x, y) === WATER) return true;
+  for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 뗏목 위에서는 바로 아래 물까지
   return false;
 }
 const wolfPos = m => [m.dx * T + (m.id % 2 ? 44 : -12), m.dy * T + 26];   // 장치 옆 땅 위
@@ -254,18 +256,15 @@ function openBox() { Sim.act.box(S); flush(); refresh(); }
 let mode = null;   // 'build:<id>' | 'demolish'
 const mouse = { x: 0, y: 0 };
 const cam = { x: 0, y: 0 };
+// 장치는 뗏목 위에만 짓는다: 마우스 아래 칸 → 뗏목의 해안 쪽 끝에서 u칸 떨어진 자리(2칸 폭)
 function ghostCheck(id) {
-  const wx = cam.x + mouse.x, tx = Math.floor(wx / T - 1 + 0.5), def = DEV[id];
-  if (tx < 1 || tx + 2 >= WW) return { ok: false, tx, msg: '여기에는 지을 수 없습니다.' };
-  const g = GY[tx];
-  const top = [tileAt(tx, g), tileAt(tx + 1, g)];
-  if (g !== GY[tx + 1] || g > 25 || !top.every(t => t === GRASS || t === SAND || t === SNOWTOP)) return { ok: false, tx, msg: '평평한 땅에 지어야 합니다.' };
-  const dev = { x: tx, y: g - 2 };
-  if (S.placed.some(d => Math.abs(d.x - tx) < 2)) return { ok: false, tx, msg: '다른 장치와 겹칩니다.' };
-  if (OBJS.some(o => o.type === 'tree' ? (o.x >= tx - 1 && o.x <= tx + 2) : (o.x >= tx - (o.type === 'altar' ? 1 : 0) && o.x <= tx + 1))) return { ok: false, tx, msg: '자원 오브젝트와 겹칩니다.' };
+  const wx = cam.x + mouse.x, tx = Math.floor(wx / T - 1 + 0.5), def = DEV[id], u = Sim.raftU(S, tx);
+  if (u < 0 || u + 2 > S.raft.cells) return { ok: false, tx, msg: '뗏목 위에 지어야 합니다. (뗏목이 모자라면 건설 메뉴에서 넓히세요)' };
+  const dev = { x: tx, y: Sim.RAFT.DEV_Y };
+  if (S.placed.some(d => Math.abs(d.u - u) < 2)) return { ok: false, tx, msg: '다른 장치와 겹칩니다.' };
   if (Math.abs(tx * T - S.px) > 8 * T) return { ok: false, tx, msg: '너무 멉니다. 가까이 가서 지으세요.' };
   if (def.needFire && !fireNear(dev).length) return { ok: false, tx, msg: `${def.name}은(는) 화덕 바로 옆에 지어야 합니다. (열 전달)` };
-  return { ok: true, tx, ty: g - 2 };
+  return { ok: true, tx, ty: dev.y, u };
 }
 function placeAtMouse() {
   if (mode.startsWith('block:')) return placeBlock();
@@ -279,7 +278,7 @@ function placeAtMouse() {
   }
   const id = mode.slice(6), g = ghostCheck(id);
   if (!g.ok) return say(g.msg);
-  if (Sim.act.build(S, id, g.tx, g.ty)) mode = null;
+  if (Sim.act.build(S, id, g.u)) mode = null;
   flush(); refresh();
 }
 
@@ -494,7 +493,11 @@ function openBuild() {
       <div class="mut">${costText(d.cost)}${d.needFire ? ' · 화덕 옆에 설치' : ''}</div></div>
       <button ${ok && has(d.cost) ? '' : 'disabled'} onclick="G.startBuild('${id}')">짓기</button></div>`;
   }).join('');
-  openModal('건설', rows + `<div class="mut">평평한 땅(풀·모래·눈)에 2x2 칸으로 짓습니다. 지을 곳에 마우스를 두고 클릭하세요.</div>
+  const R = Sim.RAFT, full = S.raft.cells >= R.MAX_CELLS;
+  openModal('건설', rows + `<div class="mut">장치는 내 뗏목 위에 2x2 칸으로 짓습니다. 지을 곳에 마우스를 두고 클릭하세요.</div>
+    <div class="box row between"><div><b>뗏목 넓히기</b> <span class="mut">(${S.raft.cells}/${R.MAX_CELLS}칸, 한 번에 +${R.EXPAND}칸)</span>
+      <div class="mut">${costText(R.EXPAND_COST)} · 해안 쪽은 그대로, 바다 쪽으로 늘어납니다</div></div>
+      <button ${!full && has(R.EXPAND_COST) ? '' : 'disabled'} onclick="G.expandRaft()">${full ? '최대' : '넓히기'}</button></div>
     <div class="row" style="margin-top:6px"><button class="danger" onclick="G.startDemolish()">철거 모드 (재료 환급)</button></div>`);
 }
 function openCraft() {
@@ -569,6 +572,7 @@ const api = {
 };
 window.G = {
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
+  expandRaft() { if (Sim.act.expandRaft(S)) applyDug(); flush(); openBuild(); refresh(); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
   craft(id) { const r = Sim.act.craft(S, id); if (!r) return; flush(); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
@@ -769,7 +773,7 @@ function draw(t) {
       ctx.fillStyle = ty - 25 < 2 ? '#3f9be0' : ty - 25 < 4 ? '#2c7cc0' : '#1f66a4'; ctx.fillRect(sx, sy, T, T);
       drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
     }
-    const tset = id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : Art.tiles.ice;
+    const tset = id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : Art.tiles.ice;
     ctx.drawImage(tset[v], sx, sy);
     if (ty > 26) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (ty - 26) * 0.03)})`; ctx.fillRect(sx, sy, T, T); }
     if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(sx, sy, T, 1); }
@@ -877,7 +881,7 @@ function draw(t) {
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
     const id = mode.slice(6), g = ghostCheck(id);
-    const gx = g.tx * T - cam.x, gy = (g.ok ? g.ty : GY[Math.max(0, Math.min(WW - 1, g.tx))] - 2) * T - cam.y;
+    const gx = g.tx * T - cam.x, gy = Sim.RAFT.DEV_Y * T - cam.y;
     ctx.globalAlpha = 0.65; blit(Art.dev[id], gx, gy); ctx.globalAlpha = 1;
     ctx.strokeStyle = g.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(gx + 0.5, gy + 0.5, 31, 31);
   }
