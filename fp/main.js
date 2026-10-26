@@ -2,7 +2,7 @@
 // 화학 계산은 chem.js와 sim.js를 그대로 쓰고(여기서 식을 만들지 않는다), 이 파일은 "어디에 있는가"(위치·충돌·그리기)만 다룬다.
 // 상태는 Store.S(= Sim 상태) + S.fp(위치·시점·녹은 얼음 노드). 2D 전용 S.px·S.py는 쓰지 않는다. 저장 키는 chemisle_fp_v2(2D·옛 복셀 버전과 따로).
 import * as THREE from 'three';
-import { N, SEA, SEABED, RX0, RZ0, ISLANDS, OFFSET, Island } from './gen.js';
+import { N, SEA, SEABED, RX0, RZ0, PAD, ISLANDS, OFFSET, Island } from './gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 import { installTheme, themed, GAME_TITLE } from './theme.js';
@@ -42,7 +42,19 @@ function ensureFp() {
   if (!S.fp.melted) S.fp.melted = {};
   delete S.fp.mods;   // 예전 복셀 버전의 파낸 칸 기록은 쓰지 않는다
   Sim.geo.adjacent = (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 3;   // 격자 바닥: 2x2 장치 사이가 한 칸 이내(장치의 x, y = 격자 칸 x, z)
+  // 10단계 고리: 지표 부지 장치는 그 행성의 환경을, 열선으로 연결된 화덕은 열원이 된다(계산식은 그대로, 기본값은 sim.js가 가진 2D 동작)
+  Sim.geo.island = (S_, d) => d && d.plot ? d.plot : Sim.dockOf(S_).island;
+  Sim.geo.heatSources = (S_, d) => {
+    const out = S_.placed.filter(f => f !== d && f.id === 'fire' && Sim.geo.adjacent(f, d));
+    for (const l of (S_.links || [])) if (l.kind === 'heat' && l.b === d.uid) { const f = S_.placed.find(x => x.uid === l.a); if (f && f.id === 'fire' && !out.includes(f)) out.push(f); }
+    return out;
+  };
+  if (!Array.isArray(S.links)) S.links = [];
+  ensureUids();
 }
+// 장치 uid(연결선이 가리킨다): 건설 때 팀 번호표(S.team.seq)로 부여한다. 예전 세이브의 장치에도 채운다
+function nextUid() { if (!S.team) S.team = {}; S.team.seq = (S.team.seq || 0) + 1; return 'd' + S.team.seq; }
+function ensureUids() { for (const d of S.placed) if (!d.uid) d.uid = nextUid(); }
 ensureFp();
 const p = { x: S.fp.x, y: S.fp.y, z: S.fp.z, vx: 0, vy: 0, vz: 0, onGround: false, inW: false };
 let yaw = S.fp.yaw, pitch = S.fp.pitch;
@@ -108,8 +120,13 @@ function updateObjects(t) {
     if (g.userData.glow) { g.userData.glow.visible = !S.f.boss; g.userData.glow.material.opacity = 0.55 + 0.35 * Math.sin(t * 3); }   // 골렘이 남아 있으면 제단이 깜빡인다(2D와 같음)
   }
 }
-const devWorld = (d) => [RX0 + d.x + 1, SEA, RZ0 + d.y + 1];   // 장치(2×2)의 가운데 바닥
-const wolfWorld = (m) => { const d = S.placed.find(x => x.x === m.dx && x.y === m.dy); const [x, y, z] = d ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
+// 지표 부지 장치(d.plot = 행성 id)는 전역 좌표 x = 100 + 20 × 행성 번호 + 칸으로 저장해 탐사정 장치·다른 행성 장치와 겹치지 않는다(DESIGN §4-18)
+const PLOT_OFF = (plot) => 100 + ISLANDS.indexOf(plot) * 20;
+const visible = (d) => !d.plot || d.plot === islName;   // 지표 부지 장치는 그 행성에 있을 때만 보이고 조작할 수 있다(시간은 계속 흐른다)
+function devWorld(d) { if (d.plot) return [PAD.x0 + (d.x - PLOT_OFF(d.plot)) + 1, isl.padH, PAD.z0 + d.y + 1]; return [RX0 + d.x + 1, SEA, RZ0 + d.y + 1]; }   // 장치(2×2)의 가운데 바닥
+const devBob = (d) => d.plot ? 0 : bobNow;   // 탐사정 위 장치만 출렁인다
+const wolfDev = (m) => S.placed.find(x => x.x === m.dx && x.y === m.dy);
+const wolfWorld = (m) => { const d = wolfDev(m); const [x, y, z] = d && visible(d) ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
 const topMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
 function devModel(id) { const root = makeDevice(id); return { root, parts: root.userData.parts }; }
 function animDevice(g, d, t) {   // 장치 상태를 모양에 반영(보이기만)
@@ -121,24 +138,24 @@ function animDevice(g, d, t) {   // 장치 상태를 모양에 반영(보이기�
   if (P.done) P.done.visible = !!s.done, P.done.position.y = 2.1 + Math.sin(t * 6) * 0.08;
 }
 function syncDevices(t) {
-  const live = new Set(S.placed);
+  const vis = S.placed.filter(visible), live = new Set(vis);
   for (const [d, g] of devMeshes) if (!live.has(d)) { scene.remove(g.root); devMeshes.delete(d); }
-  for (const d of S.placed) {
+  for (const d of vis) {
     let g = devMeshes.get(d);
     if (!g) { g = devModel(d.id); scene.add(g.root); devMeshes.set(d, g); }
-    const [x, y, z] = devWorld(d); g.root.position.set(x, y + bobNow, z);
+    const [x, y, z] = devWorld(d); g.root.position.set(x, y + devBob(d), z);
     animDevice(g, d, t);
     if ((d.id === 'still' || d.id === 'cooker') && d.s.run && Math.random() < 0.25) puff(x, y + 1.9, z, '#ebf5ff', 1);
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(x, y + 1, z, '#ffb347', 1);
   }
 }
 function syncWolves(t) {
-  const live = new Set(S.mobs);
+  const live = new Set(S.mobs.filter(mb => { const d = wolfDev(mb); return !d || visible(d); }));
   for (const [mb, g] of wolfMeshes) if (!live.has(mb)) { scene.remove(g); wolfMeshes.delete(mb); }
-  for (const mb of S.mobs) {
+  for (const mb of live) {
     let g = wolfMeshes.get(mb); if (!g) { g = makeWolf(); scene.add(g); wolfMeshes.set(mb, g); }
     const [x, y, z] = wolfWorld(mb), a = 0.45 + 0.55 * Math.max(0, mb.M / mb.M0);
-    g.position.set(x, y + bobNow, z); g.rotation.y = Math.atan2(p.x - x, p.z - z) - Math.PI / 2;   // 모델은 +x를 향한다 → 플레이어 쪽으로
+    g.position.set(x, y + (wolfDev(mb) && wolfDev(mb).plot ? 0 : bobNow), z); g.rotation.y = Math.atan2(p.x - x, p.z - z) - Math.PI / 2;   // 모델은 +x를 향한다 → 플레이어 쪽으로
     g.userData.mats.forEach(mm => { mm.opacity = a; });
     g.userData.legs.forEach((l, i) => { l.rotation.z = Math.sin(t * 6 + i * 1.6) * 0.18; });
   }
@@ -150,9 +167,18 @@ function syncRaft() {
   raftMesh = makeRaft(cx, cz, SEA, RX0, RZ0); scene.add(raftMesh);
 }
 
+// 행성 지표 기지 부지: 평평한 지반 8 × 8 m에 회색 바닥판과 1 m 격자선을 얹는다(보이기만)
+let padMesh = null;
+function setPad() {
+  if (padMesh) scene.remove(padMesh);
+  padMesh = new THREE.Group();
+  const slab = new THREE.Mesh(new THREE.PlaneGeometry(PAD.cx, PAD.cz), new THREE.MeshLambertMaterial({ color: 0x8d949e })); slab.rotation.x = -Math.PI / 2; slab.position.set(PAD.x0 + PAD.cx / 2, isl.padH + 0.03, PAD.z0 + PAD.cz / 2);
+  const grid = new THREE.GridHelper(PAD.cx, PAD.cx, 0x5b6573, 0x5b6573); grid.position.set(PAD.x0 + PAD.cx / 2, isl.padH + 0.05, PAD.z0 + PAD.cz / 2);
+  padMesh.add(slab, grid); scene.add(padMesh);
+}
 function loadIsland(name) {
   islName = name; isl = new Island(name);
-  setTerrain(); setFar(); buildObjects(); raftSig = ''; syncRaft();
+  setTerrain(); setPad(); setFar(); buildObjects(); raftSig = ''; syncRaft();
 }
 
 // ---------- 광장: 다른 플레이어(presence)와 정박한 남의 뗏목(읽기 전용) ----------
@@ -288,7 +314,7 @@ const fxPos = () => lastTarget ? [lastTarget.wx, lastTarget.wy, lastTarget.wz] :
 // 몸(반지름 HALF)이 자원·시설·장치에 막히는가. 자원은 원기둥(COLL), 장치는 2×2 상자. 높이를 넘으면 위로 지나간다
 function blocked(x, y, z) {
   for (const o of isl.objs) { const r = COLL[o.type]; if (r && !(o.type === 'fragment') && !(melted(o)) && Math.hypot(x - o.x, z - o.z) < r + HALF && y < o.y + COLL_H) return true; }
-  for (const d of S.placed) { const [wx, , wz] = devWorld(d); if (Math.abs(x - wx) < 1 + HALF && Math.abs(z - wz) < 1 + HALF && y < SEA + 1.8) return true; }
+  for (const d of S.placed) { if (!visible(d)) continue; const [wx, wy, wz] = devWorld(d); if (Math.abs(x - wx) < 1 + HALF && Math.abs(z - wz) < 1 + HALF && y < wy + 1.8) return true; }
   return false;
 }
 let seaHintAt = 0;
@@ -325,6 +351,13 @@ function lookRay() { camera.getWorldDirection(dirV); eyeV.copy(camera.position);
 function terrainHit(o, d, maxD) { for (let t = 0; t <= maxD; t += 0.25) { if (o.y + d.y * t < groundAt(o.x + d.x * t, o.z + d.z * t)) return t; } return null; }
 
 // ---------- 상호작용 대상(공용 ui.js의 interact가 받는 모양 { kind, ref, label }) ----------
+// 설정 오류 안내: 열이 필요한데 열원이 없거나(옆 화덕도 열선도 없음), 밥솥 탱크에 증류수가 들어와 있는 것을 이름표에 보여 준다
+function deviceNote(d) {
+  let s = '';
+  if (DEV[d.id].needFire && !Sim.fireNear(S, d).length) s += ' (열원 연결 안 됨)';
+  if (d.id === 'cooker' && (d.s.tank || 0) > 0) s += ` (탱크 ${fmt(d.s.tank, 0)} g)`;
+  return s;
+}
 function collectTargets() {
   const out = [], add = (kind, ref, wx, wy, wz, label, r) => out.push({ kind, ref, wx, wy, wz, label, r, x: wx, y: wy });
   for (const o of isl.objs) {
@@ -332,7 +365,11 @@ function collectTargets() {
     const n = NODE[o.type], label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)' }[o.type];
     add(o.type, o, o.x, o.y + (o.type === 'rock' || o.type === 'iceblock' ? 0.7 : n ? Math.min(2.2, n[4] / 4) : 1), o.z, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label, OBJ_R[o.type] || 1.1);
   }
-  for (const d of S.placed) { const [x, y, z] = devWorld(d); add('dev', d, x, y + 0.9, z, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''), 1.4); }
+  for (const d of S.placed) {
+    if (!visible(d)) continue;
+    const [x, y, z] = devWorld(d);
+    add('dev', d, x, y + 0.9, z, DEV[d.id].name + (d.s.broken ? ' (파손)' : '') + deviceNote(d), 1.4); out[out.length - 1].gy = y;
+  }
   for (const mb of S.mobs) { const [x, y, z] = wolfWorld(mb); add('wolf', mb, x, y + 0.6, z, `서리 늑대 ${fmt(mb.M, 0)} g`, 1.0); }
   return out;
 }
@@ -401,35 +438,121 @@ function useShaker() {
 // ---------- 건설(뗏목 격자 위의 2×2) ----------
 let mode = null, sel = null;   // mode: 'build:<id>' | 'demolish' · sel: 가방에서 고른 도구 아이템
 const ghost = new THREE.Mesh(new THREE.BoxGeometry(2, 1.8, 2), new THREE.MeshBasicMaterial({ color: 0x66ff88, transparent: true, opacity: 0.4 })); ghost.visible = false; scene.add(ghost);
+const LINK_MAX = 8;   // 가정(임의값) 연결선 최대 거리(m): DESIGN §4-18
 function ghostCell() {
   const [o, d] = lookRay(); if (d.y > -0.02) return null;
-  const tt = (SEA - o.y) / d.y; if (tt <= 0 || tt > 12) return null;
-  const hx = o.x + d.x * tt, hz = o.z + d.z * tt, { cx, cz } = raftDims();
-  return { gx: Math.floor(hx - RX0 - 0.5), gz: Math.floor(hz - RZ0 - 0.5), cx, cz, hx, hz };
+  const hitAt = (y) => { const tt = (y - o.y) / d.y; return tt > 0 && tt <= 12 ? [o.x + d.x * tt, o.z + d.z * tt] : null; };
+  const pad = hitAt(isl.padH);   // 행성 지표 부지(평평한 지반 8 × 8 m)
+  if (pad && pad[0] >= PAD.x0 && pad[0] < PAD.x0 + PAD.cx && pad[1] >= PAD.z0 && pad[1] < PAD.z0 + PAD.cz) return { plot: islName, gx: Math.floor(pad[0] - PAD.x0 - 0.5), gz: Math.floor(pad[1] - PAD.z0 - 0.5), cx: PAD.cx, cz: PAD.cz, hx: pad[0], hz: pad[1] };
+  const sh = hitAt(SEA), { cx, cz } = raftDims();   // 탐사정 칸 격자
+  if (!sh) return null;
+  return { plot: null, gx: Math.floor(sh[0] - RX0 - 0.5), gz: Math.floor(sh[1] - RZ0 - 0.5), cx, cz, hx: sh[0], hz: sh[1] };
 }
+const cellWorld = (c) => c.plot ? [PAD.x0 + c.gx + 1, isl.padH + 0.9, PAD.z0 + c.gz + 1] : [RX0 + c.gx + 1, SEA + 0.9 + bobNow, RZ0 + c.gz + 1];
 function ghostCheck(id, c) {
   const def = DEV[id];
-  if (!c) return { ok: false, msg: '뗏목 바닥을 바라보세요.' };
-  if (c.gx < 0 || c.gz < 0 || c.gx + 2 > c.cx || c.gz + 2 > c.cz) return { ok: false, msg: '뗏목 위에 지어야 합니다. (뗏목이 모자라면 건설 메뉴에서 넓히세요)' };
-  if (S.placed.some(d => Math.abs(d.x - c.gx) < 2 && Math.abs(d.y - c.gz) < 2)) return { ok: false, msg: '다른 장치와 겹칩니다.' };
-  if (def.needFire && !Sim.fireNear(S, { x: c.gx, y: c.gz }).length) return { ok: false, msg: `${def.name}은(는) 화덕 바로 옆에 지어야 합니다. (열 전달)` };
+  if (!c) return { ok: false, msg: '탐사정 바닥이나 기지 부지를 바라보세요.' };
+  if (c.gx < 0 || c.gz < 0 || c.gx + 2 > c.cx || c.gz + 2 > c.cz) return { ok: false, msg: c.plot ? '기지 부지 안에 지어야 합니다.' : '탐사정 위에 지어야 합니다. (탐사정이 모자라면 건설 메뉴에서 넓히세요)' };
+  const off = c.plot ? PLOT_OFF(c.plot) : 0, same = d => (d.plot || null) === c.plot;
+  if (S.placed.some(d => same(d) && Math.abs(d.x - off - c.gx) < 2 && Math.abs(d.y - c.gz) < 2)) return { ok: false, msg: '다른 장치와 겹칩니다.' };
+  if (def.needFire && !Sim.fireNear(S, { x: off + c.gx, y: c.gz }).length) {
+    // 옆에 화덕이 없어도, 같은 부지의 화덕이 연결 거리 안에 있으면 지을 수 있다(지은 뒤 열선을 이어야 한다)
+    const [wx, , wz] = cellWorld(c), far = S.placed.some(f => f.id === 'fire' && same(f) && visible(f) && Math.hypot(devWorld(f)[0] - wx, devWorld(f)[2] - wz) <= LINK_MAX);
+    if (!far) return { ok: false, msg: `${def.name}은(는) 화덕 바로 옆이나 열선이 닿는 거리(${LINK_MAX} m) 안에 지어야 합니다.` };
+    return { ok: true, warn: `${def.name}을(를) 지었습니다. 화덕과 열선을 이으세요 (L 키 → 화덕 → ${def.name}).` };
+  }
   return { ok: true };
 }
 function placeAtLook() {
   if (mode.startsWith('build:')) {
     const id = mode.slice(6), c = ghostCell(), g = ghostCheck(id, c);
     if (!g.ok) return say(g.msg);
-    if (Sim.act.place(S, id, c.gx, c.gz, undefined, `뗏목 격자 (${c.gx}, ${c.gz})`)) { mode = null; Party.note('build', `${DEV[id].name} 건설 (${c.gx}, ${c.gz})`); }
+    const off = c.plot ? PLOT_OFF(c.plot) : 0, where = c.plot ? `기지 부지 (${c.gx}, ${c.gz})` : `뗏목 격자 (${c.gx}, ${c.gz})`;
+    if (Sim.act.place(S, id, off + c.gx, c.gz, undefined, where)) {
+      const dev = S.placed[S.placed.length - 1]; if (c.plot) dev.plot = c.plot; dev.uid = nextUid();
+      mode = null; Party.note('build', `${DEV[id].name} 건설 (${where})`); if (g.warn) say(g.warn);
+    }
     flush(); refresh(); return;
   }
   if (mode === 'demolish') {
     const t = aimedTarget();
     if (!t || t.kind !== 'dev') return say('철거할 장치를 바라보세요.');
-    const dn = DEV[t.ref.id].name; Sim.act.demolish(S, t.ref); Party.note('demolish', `${dn} 철거(재료 환불)`); flush(); mode = null; refresh();
+    const dn = DEV[t.ref.id].name, uid = t.ref.uid; Sim.act.demolish(S, t.ref);
+    S.links = S.links.filter(l => l.a !== uid && l.b !== uid);   // 그 장치의 연결선도 지운다
+    Party.note('demolish', `${dn} 철거(재료 환불)`); flush(); mode = null; refresh();
   }
+}
+
+// ---------- 연결선(열선·배관, 10단계) ----------
+let linkKind = null, linkFrom = null;   // 연결 모드: null | 'heat' | 'water', 출발 장치
+const LINK_NAME = { heat: '열선(화덕 → 열이 필요한 장치)', water: '배관(증류기 → 밥솥, 증류수)' };
+function cycleLink() {
+  mode = null; sel = null; linkFrom = null;
+  linkKind = linkKind === null ? 'heat' : linkKind === 'heat' ? 'water' : null;
+  say(linkKind ? `연결 모드: ${LINK_NAME[linkKind]} — 출발 장치를 보고 우클릭 (L: 다음, Q: 취소)` : '연결 모드 끔');
+}
+function linkPick() {
+  const t = aimedTarget();
+  if (!t || t.kind !== 'dev') return say('연결할 장치를 바라보고 우클릭하세요.');
+  const d = t.ref;
+  if (!linkFrom) {
+    if (linkKind === 'heat' && d.id !== 'fire') return say('열선은 화덕에서 시작합니다.');
+    if (linkKind === 'water' && d.id !== 'still') return say('배관은 증류기에서 시작합니다.');
+    linkFrom = d; return say(`${DEV[d.id].name}에서 시작합니다. 도착 장치를 보고 우클릭하세요.`);
+  }
+  const a = linkFrom; linkFrom = null;
+  if (a === d) return say('같은 장치에는 이을 수 없습니다.');
+  if ((a.plot || null) !== (d.plot || null)) return say('다른 부지의 장치와는 이을 수 없습니다.');
+  if (linkKind === 'heat' && !DEV[d.id].needFire) return say(`${DEV[d.id].name}은(는) 열이 필요하지 않습니다.`);
+  if (linkKind === 'water' && d.id !== 'cooker') return say('배관은 밥솥으로 이어집니다.');
+  const wa = devWorld(a), wd = devWorld(d), dist = Math.hypot(wa[0] - wd[0], wa[2] - wd[2]);
+  if (dist > LINK_MAX) return say(`너무 멉니다. 연결선은 ${LINK_MAX} m 안에서만 닿습니다. (지금 ${fmt(dist, 1)} m)`);
+  const i = S.links.findIndex(l => l.a === a.uid && l.b === d.uid && l.kind === linkKind);
+  if (i >= 0) { S.links.splice(i, 1); say(`${DEV[a.id].name} → ${DEV[d.id].name} 연결을 풀었습니다.`); Party.note('device', `연결 해제: ${linkKind}`); }
+  else { S.links.push({ a: a.uid, b: d.uid, kind: linkKind, t: 0 }); say(`${DEV[a.id].name} → ${DEV[d.id].name} ${linkKind === 'heat' ? '열선' : '배관'}을(를) 이었습니다.`); Party.note('device', `연결: ${linkKind}`); }
+  refresh();
+}
+// 배관: 증류기가 낸 증류수를 밥솥 탱크로 흘린다(Sim.act.pipe: 손으로 수거해 넣는 것과 같은 증류수·같은 기록). 게임 시간 10분마다, 증류기 출력 50 g 이상일 때(가정)
+const PIPE_MIN = 10, PIPE_G = 50;
+function pipeStep() {
+  const now = S.day * 1440 + S.min;
+  for (const l of S.links) {
+    if (l.kind !== 'water' || now - (l.t || 0) < PIPE_MIN) continue;
+    const a = S.placed.find(x => x.uid === l.a), b = S.placed.find(x => x.uid === l.b);
+    if (!a || !b || a.s.outW < PIPE_G) continue;
+    l.t = now; Sim.act.pipe(S, a, b);
+  }
+}
+// 연결선 모양: 열선은 주황(화덕이 켜져 있으면 밝게), 배관은 파랑(흐르면 알갱이)
+const linkGroup = new THREE.Group(); scene.add(linkGroup);
+const linkMeshes = new Map();
+const upV = new THREE.Vector3(0, 1, 0), dirL = new THREE.Vector3();
+function syncLinks(t) {
+  const live = new Set();
+  for (const l of S.links) {
+    const a = S.placed.find(x => x.uid === l.a), b = S.placed.find(x => x.uid === l.b);
+    if (!a || !b || !visible(a) || !visible(b)) continue;
+    const key = l.a + '|' + l.b + '|' + l.kind; live.add(key);
+    let g = linkMeshes.get(key);
+    if (!g) {
+      const root = new THREE.Group(), tube = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1, 6), new THREE.MeshBasicMaterial({ color: l.kind === 'heat' ? 0xff8a2e : 0x4aa3ff, transparent: true, opacity: 0.85 }));
+      root.add(tube); const dots = []; for (let i = 0; i < 4; i++) { const dm = new THREE.Mesh(new THREE.SphereGeometry(0.13, 6, 5), new THREE.MeshBasicMaterial({ color: l.kind === 'heat' ? 0xffe27a : 0xbfe3ff })); root.add(dm); dots.push(dm); }
+      linkGroup.add(root); g = { root, tube, dots }; linkMeshes.set(key, g);
+    }
+    const pa = devWorld(a), pb = devWorld(b), by = a.plot ? 0 : bobNow;
+    const A = new THREE.Vector3(pa[0], pa[1] + 1.05 + by, pa[2]), B = new THREE.Vector3(pb[0], pb[1] + 1.05 + by, pb[2]);
+    dirL.copy(B).sub(A); const len = dirL.length(); dirL.normalize();
+    g.tube.position.copy(A).addScaledVector(dirL, len / 2); g.tube.scale.set(1, len, 1); g.tube.quaternion.setFromUnitVectors(upV, dirL);
+    // 흐름: 열선은 화덕이 켜져 있을 때, 배관은 증류기에 출력이 있거나 밥솥 탱크에 물이 있을 때 알갱이가 A → B로 움직인다
+    const on = l.kind === 'heat' ? (a.s.level > 0 && a.s.fuel > 0) : ((a.s.outW || 0) >= 1 || a.s.run);
+    g.tube.material.opacity = on ? 0.95 : 0.4;
+    g.dots.forEach((dm, i) => { dm.visible = !!on; const f = ((t * 0.5 + i / g.dots.length) % 1); dm.position.copy(A).addScaledVector(dirL, len * f); });
+  }
+  for (const [k, g] of linkMeshes) if (!live.has(k)) { linkGroup.remove(g.root); linkMeshes.delete(k); }
 }
 function useAction() {   // 우클릭: 건설·철거 모드 > 선택한 도구
   if (UI.isModalOpen()) return;
+  if (linkKind) return Party.inParty() ? Party.guard(linkPick) : linkPick();
   if (mode) return Party.inParty() ? Party.guard(placeAtLook) : placeAtLook();   // 팀이면 팀 쓰기 권한(임대)을 먼저 얻는다
   if (!sel) return;
   if (TOOL[sel] === 'salt') { if (Party.inParty()) Party.guard(() => { useShaker(); flush(); }); else { useShaker(); flush(); } return; }
@@ -438,7 +561,7 @@ function useAction() {   // 우클릭: 건설·철거 모드 > 선택한 도구
 async function doInteract() {
   const t = aimedTarget(); if (!t) return;
   if (Party.needsLease(t.kind) && !(await Party.ensureActive())) return say('동료가 조작 중이에요. 잠시 뒤에 다시 시도하세요.');   // 장치·늑대·바닷물·제단·항구는 팀 필드를 바꾼다
-  lastTarget = t; interact(t);
+  lastTarget = t; if (t.kind === 'dev') Sim.setDev(t.ref); interact(t);   // 지표 부지 장치의 패널은 그 행성의 환경으로 그린다
 }
 
 // ---------- 입력 ----------
@@ -454,7 +577,8 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if (k === 'w') keys.w = true; else if (k === 'a') keys.a = true; else if (k === 's') keys.s = true; else if (k === 'd') keys.d = true; else if (k === ' ') { keys.jump = true; e.preventDefault(); }
   else if (k === 'e') doInteract();
-  else if (k === 'q' || k === 'escape') { if (mode || sel) { mode = null; sel = null; say('취소'); } }
+  else if (k === 'l') cycleLink();
+  else if (k === 'q' || k === 'escape') { if (mode || sel || linkKind) { mode = null; sel = null; linkKind = null; linkFrom = null; say('취소'); } }
   else if (/^[1-9]$/.test(k)) { const u = usable()[+k - 1]; if (u) selectItem(u.k); }
 });
 addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k === 'w') keys.w = false; else if (k === 'a') keys.a = false; else if (k === 's') keys.s = false; else if (k === 'd') keys.d = false; else if (k === ' ') keys.jump = false; });
@@ -469,7 +593,7 @@ cv.addEventListener('wheel', e => { const u = usable().map(x => x.k).concat([nul
 // ---------- HUD(HTML) ----------
 const inv3 = $('inv3'), menu3 = $('menu3'), spd = $('spd3');
 const usable = () => Object.entries(S.inv).filter(([k, v]) => v >= 1 && TOOL[k]).map(([k, v]) => ({ k, n: Math.floor(v) }));
-function selectItem(k) { sel = sel === k ? null : k; mode = null; say(sel ? `${ITEM[sel][1]}: 바라보고 우클릭 (Q 취소)` : '취소'); }
+function selectItem(k) { sel = sel === k ? null : k; mode = null; linkKind = null; linkFrom = null; say(sel ? `${ITEM[sel][1]}: 바라보고 우클릭 (Q 취소)` : '취소'); }
 [['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)], ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()]].forEach(([icon, label, fn]) => {
   const b = document.createElement('button'); b.title = label; b.innerHTML = `<i style="background-image:url(${Art.iconURL[icon]})"></i>`; b.onclick = fn; menu3.appendChild(b);
 });
@@ -500,10 +624,11 @@ function drawHUD() {
   const sp1 = Party.speed(); spd.querySelectorAll('button').forEach(b => { b.classList.toggle('on', +b.dataset.sp === sp1); b.disabled = Party.inParty() && Party.online() > 1; });
   { const tb = $('teambtn'); if (Party.inParty() && Party.meta) { tb.style.borderColor = Party.meta.color; tb.title = `팀 ${Party.meta.name}`; } else { tb.style.borderColor = ''; tb.title = '팀'; } }
   const t = !UI.isModalOpen() && canAct() ? aimedTarget() : null;
-  $('target').textContent = mode && mode.startsWith('build:') ? `${DEV[mode.slice(6)].name} 짓기 — 뗏목 바닥을 보고 우클릭, Q 취소`
+  $('target').textContent = mode && mode.startsWith('build:') ? `${DEV[mode.slice(6)].name} 짓기 — 탐사정 바닥이나 기지 부지를 보고 우클릭, Q 취소`
+    : linkKind ? `연결 모드(${linkKind === 'heat' ? '열선' : '배관'}) — ${linkFrom ? '도착' : '출발'} 장치를 보고 우클릭, L 다음, Q 취소`
     : mode === 'demolish' ? '철거 — 장치를 보고 우클릭, Q 취소'
     : sel ? `${ITEM[sel][1]} — 바라보고 우클릭, Q 취소`
-    : t ? `[E] ${t.label}` : (dig.on && dig.need ? `캐는 중 ${Math.round(dig.p / dig.need * 100)} %` : 'WASD 이동 · Space 점프 · 마우스 시점 · E 또는 좌클릭 열기·채집(바위·얼음은 꾹) · 우클릭 도구 사용');
+    : t ? `[E] ${t.label}` : (dig.on && dig.need ? `캐는 중 ${Math.round(dig.p / dig.need * 100)} %` : 'WASD 이동 · Space 점프 · 마우스 시점 · E 또는 좌클릭 열기·채집(바위·얼음은 꾹) · 우클릭 도구 사용 · L 연결');
 }
 // 시선 아래 칸 표시(파기 대상) + 건설 미리보기
 // 조준 강조: 대상 발밑의 노란 고리 + 대상 위의 이름표(조준하면 이름이 보인다)
@@ -513,17 +638,17 @@ const aimLabel = $('aimlabel'), av = new THREE.Vector3();
 function updateAim() {
   const open = UI.isModalOpen() || !canAct();
   ghost.visible = !!(mode && mode.startsWith('build:')) && !open;
-  if (ghost.visible) { const c = ghostCell(), g = ghostCheck(mode.slice(6), c); ghost.material.color.set(g.ok ? 0x66ff88 : 0xff6666); if (c) ghost.position.set(RX0 + c.gx + 1, SEA + 0.9, RZ0 + c.gz + 1); else ghost.visible = false; }
+  if (ghost.visible) { const c = ghostCell(), g = ghostCheck(mode.slice(6), c); ghost.material.color.set(g.ok ? 0x66ff88 : 0xff6666); if (c) ghost.position.set(...cellWorld(c)); else ghost.visible = false; }
   const t = open || mode ? null : aimedTarget();
   marker.visible = !!t && t.kind !== 'water';
-  if (t) { const gy = t.kind === 'dev' || t.kind === 'wolf' ? SEA + bobNow : groundAt(t.wx, t.wz); marker.position.set(t.wx, gy + 0.06, t.wz); marker.scale.setScalar((t.r || 1) * (0.95 + 0.05 * Math.sin(tNow * 5))); }
+  if (t) { const gy = t.gy !== undefined ? t.gy + (t.kind === 'dev' ? bobNow * (t.ref.plot ? 0 : 1) : 0) : t.kind === 'wolf' ? SEA + bobNow : groundAt(t.wx, t.wz); marker.position.set(t.wx, gy + 0.06, t.wz); marker.scale.setScalar((t.r || 1) * (0.95 + 0.05 * Math.sin(tNow * 5))); }
   if (t) { av.set(t.wx, t.wy + (t.r || 1) * 0.9 + 0.5, t.wz).project(camera); aimLabel.style.left = ((av.x + 1) / 2 * innerWidth) + 'px'; aimLabel.style.top = ((1 - av.y) / 2 * innerHeight) + 'px'; aimLabel.textContent = t.label; }
   aimLabel.style.display = t && av.z < 1 ? '' : 'none';
 }
 
 // ---------- 시간·저장·시작·항해 ----------
 let tNow = 0, last = performance.now();
-setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; if (Party.canAdvance()) advance(Party.speed()); UI.tick(); refresh(); }, 500);   // 팀이면 시계 담당만 시간을 흘린다
+setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; if (Party.canAdvance()) { advance(Party.speed()); pipeStep(); } UI.tick(); refresh(); }, 500);   // 팀이면 시계 담당만 시간을 흘린다
 setInterval(() => Party.tick(), 1000);
 function savePos() { S.fp.x = p.x; S.fp.y = p.y; S.fp.z = p.z; S.fp.yaw = yaw; S.fp.pitch = pitch; }
 setInterval(() => { savePos(); save(); }, 5000);
@@ -562,7 +687,7 @@ const TeamUI = window.TeamUI = {
   warehouse() { UI.openModal('공용 창고', Party.warehouseHtml(ITEM), () => { if (document.getElementById('mtitle').textContent === '공용 창고') document.getElementById('mbody').innerHTML = Party.warehouseHtml(ITEM); }); },
   async xfer(item, n) { await Party.transfer(item, n); },
 };
-Party.init({ say, isModalOpen: () => UI.isModalOpen(), onApplied() { if (islName && islandName() !== islName) onMoved(); else { raftSig = ''; syncRaft(); } refresh(); } });
+Party.init({ say, isModalOpen: () => UI.isModalOpen(), onApplied() { ensureUids(); if (islName && islandName() !== islName) onMoved(); else { raftSig = ''; syncRaft(); } refresh(); } });
 // 장치 패널의 행동(공용 ui.js의 window.act)과 뗏목 넓히기는 팀 기록에 남긴다. 장치는 doInteract에서 이미 팀 쓰기 권한을 얻은 뒤에 열린다
 { const act0 = window.act; window.act = (name, arg) => { act0(name, arg); Party.note('device', `장치 조작: ${name}`); };
   const exp0 = G.expandRaft; G.expandRaft = () => { if (Party.inParty()) Party.guard(() => { exp0(); Party.note('device', '탐사정 확장'); }); else exp0(); }; }
@@ -576,7 +701,7 @@ UI.init({
     else if (islandName() !== islName) onMoved();              // 항해
     else { raftSig = ''; syncRaft(); }                         // 뗏목 넓히기
   },
-  startBuild(id) { mode = 'build:' + id; sel = null; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 바라보고 우클릭하세요. (Q 취소)`); },
+  startBuild(id) { mode = 'build:' + id; sel = null; linkKind = null; linkFrom = null; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 바라보고 우클릭하세요. (Q 취소)`); },
   startDemolish() { mode = 'demolish'; sel = null; $('modal').hidden = true; say('철거할 장치를 바라보고 우클릭하세요. (Q 취소)'); },
   joinMap() { joinPresence(); Party.start(); },
 });
@@ -595,7 +720,8 @@ function frame(now) {
   bobNow = raftBob(tNow); if (raftMesh) raftMesh.position.y = bobNow;
   warpK += ((warping ? 1 : 0) - warpK) * Math.min(1, dt * 5); const fovNow = FOV + warpK * 45; if (Math.abs(camera.fov - fovNow) > 0.01) { camera.fov = fovNow; camera.updateProjectionMatrix(); }
   camera.position.set(p.x, p.y + EYE + (onRaft ? bobNow : 0), p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');   // 뗏목 위에서는 카메라도 같이 출렁인다
-  syncRaft(); updateObjects(tNow); syncDevices(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
+  if (!UI.isModalOpen()) Sim.setDev(null);
+  syncRaft(); updateObjects(tNow); syncDevices(tNow); syncLinks(tNow); syncWolves(tNow); sky(dt); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }

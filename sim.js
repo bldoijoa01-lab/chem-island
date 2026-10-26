@@ -162,7 +162,8 @@
     S.mobs = []; syncRaft(S);                            // 늑대는 장치 위치에 붙어 있었으므로 새로 나타나게 한다
     S.log.push({ day: S.day, t: clockText(S), type: '뗏목', text: `예전 세이브: 장치 ${old.length}개를 뗏목(${S.raft.cells}칸) 위로 옮겼습니다.` });
   }
-  const envOf = (S) => ENV[dockOf(S).island];
+  let curDev = null;   // 지금 계산·표시 중인 장치(환경을 장치마다 다르게 정하는 고리용). 기본(2D)은 항상 탐사정/뗏목이 있는 섬
+  const envOf = (S) => ENV[geo.island(S, curDev)];
   const pAtm = (S) => envOf(S).P;
   const airTemp = (S) => C.airTemp(S.min) + envOf(S).dT;   // ℃, 시작섬 기준 오후 3시 최고(28) · 새벽 3시 최저(−15) + 섬별 보정
 
@@ -187,11 +188,15 @@
   // ---------- 장치 시뮬레이션 (1분 단위) ----------
   // 교체 고리: "두 장치가 붙어 있는가"만 위치 모델에 따라 다르다. 기본은 2D(뗏목 한 줄: 2x2 장치끼리 한 칸 이내).
   // 1인칭(fp/)은 격자 바닥이라 fp/main.js가 geo.adjacent를 격자 간격 판정으로 바꿔 끼운다(x, y = 격자 칸). 화학 계산은 그대로다.
-  const geo = { adjacent: (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1 };
+  // island(S, d): 장치 d의 환경을 정하는 섬(기본: 탐사정/뗏목이 있는 섬). heatSources(S, d): d를 데우는 화덕들(기본: 옆 화덕).
+  // 1인칭(fp/)은 행성 지표 부지 장치에 그 행성을, 열선으로 연결된 화덕에 열원 자격을 주도록 바꿔 끼운다(10단계). 화학 계산은 그대로다.
+  const geo = { adjacent: (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1, island: (S, d) => dockOf(S).island };
   const adjacentTo = (a, b) => a !== b && geo.adjacent(a, b);
-  const fireNear = (S, d) => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
+  geo.heatSources = (S, d) => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
+  const fireNear = (S, d) => geo.heatSources(S, d);
   function stepDevices(S) {
     for (const d of S.placed) {
+      curDev = d;   // 이 장치의 환경(geo.island)으로 계산한다
       const s = d.s;
       if (s.broken && d.id !== 'cooker') { if (d.id === 'fire') s.level = 0; continue; }   // 파손: 수리 전에는 작동하지 않음
       if (d.id === 'fire') {
@@ -202,6 +207,7 @@
       } else if (d.id === 'still') stepStill(S, d);
       else if (d.id === 'cooker') stepCooker(S, d);
     }
+    curDev = null;
   }
   function heatOf(S, d) {
     let t = 25;
@@ -369,10 +375,21 @@
       const s = d.s;
       if (s.broken) return say('먼저 수리하세요.');
       if (s.run || s.done) return say('이미 사용 중입니다.');
-      if (S.inv.water < 300 || S.inv.noodle < 1) return say('증류수 300 g과 면 1개가 필요합니다.');
+      const tank = s.tank || 0;   // 배관으로 들어온 증류수(10단계). 없으면 0이라 지금과 같다
+      if (S.inv.water + tank < 300 || S.inv.noodle < 1) return say('증류수 300 g과 면 1개가 필요합니다.');
       if (salt > S.inv.salt) return say('소금이 부족합니다.');
-      S.inv.water -= 300; S.inv.noodle--; S.inv.salt -= salt;
+      const fromTank = Math.min(tank, 300); s.tank = tank - fromTank;
+      S.inv.water -= 300 - fromTank; S.inv.noodle--; S.inv.salt -= salt;
       s.saltG = salt; s.valve = valve; s.prog = 0; s.run = true;
+    },
+    // 배관(10단계): 증류기 출력(outW)을 밥솥 탱크로 옮긴다. 손으로 `collect` 후 넣는 것과 같은 증류수이고 같은 기록·목표 집계(f.dW)를 한다. 소금은 증류기에 남는다
+    pipe(S, still, cooker) {
+      const TANK_MAX = 650, w = Math.min(still.s.outW, TANK_MAX - (cooker.s.tank || 0));
+      if (!(w > 0)) return 0;
+      still.s.outW -= w; cooker.s.tank = (cooker.s.tank || 0) + w; S.f.dW += w;
+      if (geo.island(S, still) === 'alpine') S.f.alpineW += w;
+      curDev = still; logEv(S, '증류수 배관', `증류수 ${fmt(w, 1)} g → 밥솥 탱크 (${fmt(cooker.s.tank, 0)} g) [${envOf(S).name}: 외기 ${pAtm(S)} atm]`); curDev = null;
+      return w;
     },
     take(S, d) { if (!d.s.done) return say('아직 완성되지 않았습니다.'); d.s.done = false; S.inv.ramen++; S.f.ramenP = Math.max(S.f.ramenP, d.s.doneP); say('라면 1개를 얻었습니다.'); },
     repair(S, d) {
@@ -488,6 +505,7 @@
     STILL, COOLER, WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, emit, say, logEv, clockText,   // 화면 모듈(world.js·ui.js)이 같은 이벤트·기록 통로를 쓰도록 노출(계산은 바뀌지 않음)
     setRng(fn) { rngFn = fn || null; },
+    setDev(d) { curDev = d || null; },   // 패널을 그릴 때 그 장치의 환경을 쓰게 한다(fp 10단계)
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Sim;
   root.Sim = Sim;

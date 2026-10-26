@@ -2,7 +2,7 @@
 // 팀 필드는 한 번에 한 명(lease를 가진 사람)만 서버에 쓰고, 서버 규칙이 state.ver가 +1일 때만 받는다. 나머지 팀원은 받아서 덮어쓴다.
 // 화학 계산은 한 줄도 바꾸지 않는다(Sim이 한 S를 도는 것은 그대로). 이 파일은 "누가 S의 팀 필드를 쓰는가"만 정한다.
 const S = Store.S;
-const TEAM_KEYS = ['placed', 'raft', 'f', 'qDone', 'mobs', 'mobId', 'dusk', 'day', 'min'];   // 팀 필드(나머지 inv·caps·packs·nodes·melt·boxDay·log·fp는 개인)
+const TEAM_KEYS = ['placed', 'raft', 'f', 'qDone', 'mobs', 'mobId', 'dusk', 'day', 'min', 'links'];   // 팀 필드(나머지 inv·caps·packs·nodes·melt·boxDay·log·fp는 개인)
 const LEASE_ACTIVE_MS = 6000, LEASE_PASSIVE_MS = 15000, PUBLISH_MS = 1000, BEAT_MS = 10000, ONLINE_MS = 30000;   // 가정(임의값)
 export const TEAM_MAX = 4, LOG_SHOW = 20;
 export const KINDS = { build: '건설', demolish: '철거', device: '장치 조작', deposit: '창고에 넣음', withdraw: '창고에서 꺼냄' };
@@ -26,6 +26,7 @@ function applyRemote(state) {
   const m = Sim.merge(Object.assign({ fp: {} }, state));   // fp를 넣어 2D 뗏목 이전(migrateRaft)을 건너뛴다
   const oldDay = S.day;
   for (const k of TEAM_KEYS) S[k] = m[k];
+  S.links = Array.isArray(state.links) ? state.links : Object.values(state.links || {});   // Firebase는 빈 배열을 지우고 배열을 객체로 돌려주기도 한다
   S.team = state.team || {}; ensureTeam(); for (const u in S.team.contrib) { const c = S.team.contrib[u]; if (!Array.isArray(c.goals)) c.goals = c.goals ? Object.values(c.goals) : []; }
   if (S.day !== oldDay) { S.nodes = {}; S.packs = S.packs.filter(p => p.day >= S.day); }   // 하루가 바뀌면 개인 자원 노드가 다시 자란다(Sim의 newDay와 같은 개인 부분)
   P.ver = state.ver; P.prevQ = S.qDone; P.lastHash = JSON.stringify(teamOf());
@@ -88,6 +89,7 @@ export const Party = {
     stop(false);
     const fresh = Sim.newState();   // 내 몫의 새 탐사정: 팀 필드를 처음 상태로(인벤토리·개인 기록은 가져간다)
     for (const k of TEAM_KEYS) S[k] = fresh[k];
+    S.links = [];
     S.team = {}; ensureTeam(); delete S.party; if (P.onApplied) P.onApplied(); Store.save(true);
   },
 

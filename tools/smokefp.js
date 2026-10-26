@@ -115,13 +115,53 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     ok('테마: 조준 이름표', /궤도 이동 단말/.test(shownLabel), shownLabel);
     ok('테마: 내부 id 유지', await ev(() => ['start', 'plaza', 'alpine', 'polar'].includes(__fp.islName()) && Sim.ISLANDS.start.name === '시작섬' && Sim.QUESTS.length === 11));
     await ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
+    // 지표 기지 부지와 연결선(10단계): 평평한 부지에 화덕·증류기·밥솥을 짓고, 열선·배관을 잇고, 환경은 그 행성의 것을 쓴다
+    await ev(() => { const S = __fp.S; S.f.raft = true; S.qDone = 11; if (S.raft.dock !== 'start') G.sail('start'); }); await page.waitForTimeout(1500);
+    await ev(() => { const S = __fp.S; window.__savedPlaced = JSON.parse(JSON.stringify(S.placed)); S.placed.length = 0; S.links.length = 0; S.mobs.length = 0; for (const k of ['stick', 'sand', 'bottle', 'stone']) S.inv[k] = 99; });
+    const padFlat = await ev(() => { const f = __fp, I = f.island(); let mn = 99, mx = -99; for (let z = 36; z <= 44; z += 0.5) for (let x = 24; x <= 32; x += 0.5) { const h = I.height(x, z); mn = Math.min(mn, h); mx = Math.max(mx, h); } return [mn, mx, I.padH]; });
+    ok('부지: 평평한 지반', padFlat[1] - padFlat[0] < 1e-6, JSON.stringify(padFlat));
+    const pad = async (id, gx, gz) => {   // 부지 칸 (gx, gz)를 보고 우클릭으로 짓는다
+      await ev(([id, gx, gz]) => { const f = __fp, H = f.island().padH; G.startBuild(id); f.p.x = 30.5; f.p.z = 43.2; f.p.y = H; f.p.vy = 0; const dx = 24 + gx + 1 - f.p.x, dz = 36 + gz + 1 - f.p.z, dy = H - (f.p.y + 1.6), l = Math.hypot(dx, dy, dz); f.setLook(Math.atan2(-dx, -dz), Math.asin(dy / l)); }, [id, gx, gz]);
+      await page.waitForTimeout(500); await page.mouse.move(450, 280); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(500);
+    };
+    await pad('fire', 1, 1); await pad('still', 5, 1);
+    const dv = await ev(() => __fp.S.placed.map(d => [d.id, d.x, d.y, d.plot || null, !!d.uid]));
+    ok('부지: 화덕·증류기를 지표 부지에 건설(좌표 오프셋·uid)', dv.length === 2 && dv.every(d => d[3] === 'start' && d[4]) && dv[0][1] === 101, JSON.stringify(dv) + await ev(() => document.getElementById('msg').textContent));
+    // 열선: 옆이 아니어서 열원이 없다 → 이름표에 안내 → L 키로 열선 모드, 화덕 → 증류기
+    const t0 = await ev(() => { const f = __fp, S = f.S; S.placed[0].s.level = 2; S.placed[0].s.fuel = 99; return [Sim.heatOf(S, S.placed[1]), f.targets().find(q => q.kind === 'dev' && q.ref === S.placed[1]).label]; });
+    ok('연결 안 됨 안내와 열원 25 ℃', t0[0] === 25 && /열원 연결 안 됨/.test(t0[1]), JSON.stringify(t0));
+    await page.keyboard.press('l'); await page.waitForTimeout(200);
+    const lookAtDev = async (i) => { await ev((i) => { const f = __fp, d = f.S.placed[i], H = f.island().padH; f.p.x = 28.0; f.p.z = 41.0; f.p.y = H; f.p.vy = 0; const cx = 24 + (d.x - 100) + 1, cz = 36 + d.y + 1, dx = cx - f.p.x, dz = cz - f.p.z, dy = H + 0.9 - (f.p.y + 1.6), l = Math.hypot(dx, dy, dz); f.setLook(Math.atan2(-dx, -dz), Math.asin(dy / l)); }, i); await page.waitForTimeout(300); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(500); };
+    await lookAtDev(0); await lookAtDev(1);
+    const t1 = await ev(() => { const S = __fp.S; return { links: S.links.map(l => l.kind), heat: Sim.heatOf(S, S.placed[1]) }; });
+    ok('열선: 연결하면 먼 증류기가 화덕 열을 받음', t1.links.includes('heat') && t1.heat > 25, JSON.stringify(t1));
+    // 같은 쌍을 다시 이으면 해제
+    await lookAtDev(0); await lookAtDev(1);
+    ok('열선 해제', await ev(() => __fp.S.links.length) === 0);
+    await lookAtDev(0); await lookAtDev(1);   // 다시 연결
+    // 환경: 부지 장치는 그 행성의 기후로 계산된다. 탐사정이 고원 행성에 가 있어도 불시착 행성 부지의 증류기는 1 atm으로 끓는점을 계산한다
+    const env = await ev(() => { const S = __fp.S, still = S.placed[1]; Object.assign(still.s, { w: 300, w0: 300, ns: 1.2, run: true }); G.sail('alpine'); return new Promise(r => setTimeout(() => { Sim.advance(S, 20); const tb = still.s.tb; Sim.setDev(still); const pg = Sim.pAtm(S); Sim.setDev(null); r({ tb, ship: S.raft.dock, pGround: pg, pShip: Sim.pAtm(S) }); }, 1800)); });
+    ok('환경: 지표 부지 장치는 그 행성(1 atm)의 끓는점', env.ship === 'alpine' && env.pGround === 1 && env.pShip < 1 && env.tb > 98, JSON.stringify(env));
+    await ev(() => { G.sail('start'); }); await page.waitForTimeout(1800);
+    // 배관: 밥솥을 짓고 증류기 → 밥솥 배관, 증류기 출력이 탱크로 흐르고 목표 집계(f.dW)가 같이 오른다
+    await pad('cooker', 5, 4);
+    await ev(() => { const S = __fp.S; S.placed[1].s.outW = 120; });
+    await page.keyboard.press('l'); await page.waitForTimeout(100);
+    await page.keyboard.press('l'); await page.waitForTimeout(100);   // 열선 → 배관 모드
+    await lookAtDev(1); await lookAtDev(2); await page.waitForTimeout(2000);
+    const pipe = await ev(() => { const S = __fp.S, still = S.placed[1], cook = S.placed[2]; return { kinds: S.links.map(l => l.kind), tank: cook.s.tank || 0, outW: still.s.outW, dW: S.f.dW }; });
+    ok('배관: 증류수가 밥솥 탱크로 흐름(f.dW 집계)', pipe.kinds.includes('water') && pipe.tank >= 100 && pipe.dW >= 100, JSON.stringify(pipe));
+    // 밥솥 조리는 탱크 물을 먼저 쓴다(가방 증류수는 그대로)
+    const cook = await ev(() => { const S = __fp.S, c = S.placed[2]; S.inv.water = 0; S.inv.noodle = 1; S.inv.salt = 0; c.s.tank = 400; const before = c.s.tank; Sim.act.cook(S, c, 0, 2); return { before, after: c.s.tank, run: c.s.run, inv: S.inv.water }; });
+    ok('조리: 탱크 증류수 300 g 사용(가방은 그대로)', cook.run && cook.before - cook.after === 300 && cook.inv === 0, JSON.stringify(cook));
+    await ev(() => { const S = __fp.S; S.placed.length = 0; S.links.length = 0; S.placed.push(...window.__savedPlaced); });
     // 점프만으로 네 섬을 건널 수 있다(자동 오르기 없음): 부두에서 서쪽 안쪽 끝까지 갔다가 돌아온다
     for (const dock of ['start', 'plaza', 'alpine', 'polar']) {
       await ev(d => { const S = __fp.S; S.f.raft = true; S.qDone = 11; if (S.raft.dock !== d) G.sail(d); }, dock); await page.waitForTimeout(1500);
       const walk = await ev(() => {
         const f = __fp, res = {};
         const go = (yaw, done) => { f.setLook(yaw, 0); let t = 0, lx = f.p.x, lz = f.p.z, stuck = 0;
-          while (t < 150 && !done()) { f.stepPlayer(1 / 60, stuck > 20 ? 1 : 0, 1, f.p.onGround && stuck > 1 || f.p.inW); t += 1 / 60; stuck = Math.hypot(f.p.x - lx, f.p.z - lz) < 0.004 ? stuck + 1 : 0; lx = f.p.x; lz = f.p.z; }
+          while (t < 150 && !done()) { f.stepPlayer(1 / 60, stuck > 10 ? (Math.floor(t / 2) % 2 ? 1 : -1) : 0, 1, f.p.onGround && stuck > 40 || f.p.inW); t += 1 / 60; stuck = Math.hypot(f.p.x - lx, f.p.z - lz) < 0.004 ? stuck + 1 : 0; lx = f.p.x; lz = f.p.z; }
           return done(); };
         f.p.x = 50.5; f.p.z = 32.5; f.p.y = f.groundAt(50.5, 32.5); f.p.vy = 0;
         res.west = go(Math.PI / 2, () => f.p.x < 12);

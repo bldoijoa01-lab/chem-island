@@ -7,6 +7,7 @@ export const SEABED = 3;      // 가정(임의값) 섬 밖 바다 밑바닥 높�
 export const RX0 = 52, RZ0 = 30;   // 가정(임의값) 뗏목 격자의 시작 칸(섬 동쪽 바다). 뗏목은 +x, +z 쪽으로 넓어진다
 export const ISLANDS = ['start', 'plaza', 'alpine', 'polar'];
 export const OFFSET = { start: [0, 0], plaza: [130, 0], alpine: [260, 0], polar: [390, 0] };   // 가정(임의값) 섬 사이 간격(멀리 보이게)
+export const PAD = { x0: 24, z0: 36, cx: 8, cz: 8 };   // 가정(임의값) 행성 지표 기지 부지(평평한 지반) 8 × 8 m. 섬 안쪽에 하나씩
 export const MAX_SLOPE = 0.5;   // 가정(임의값) 지형 기울기 상한 = tan 26.6°. 걷기 한계(tan 40°)보다 낮게 만들어 어디든 걸어서 오르게 한다(대각선 최대 0.71 < 0.84)
 const SEED = { start: 11, plaza: 23, alpine: 37, polar: 51 };   // 가정(임의값) 고정 시드 → 같은 지형
 
@@ -57,8 +58,12 @@ export class Island {
     // 부두: x 46 → RX0는 뗏목 바닥과 같은 높이(SEA)로 고정한다. 기울기 상한을 맞출 때 부두 정점은 움직이지 않고 이웃이 맞춘다
     const pin = new Uint8Array(W * W);
     for (let z = RZ0 - 1; z <= RZ0 + 13; z++) for (let x = 47; x <= RX0; x++) { h[z * W + x] = SEA; pin[z * W + x] = 1; }
+    // 지표 기지 부지: 부지 안 정점을 한 높이로 고정한다(평평한 지반). 높이는 부지 중심의 원래 높이(바다면 위 1.5 m 이상)
+    { let sum = 0, n = 0; for (let z = PAD.z0; z <= PAD.z0 + PAD.cz; z++) for (let x = PAD.x0; x <= PAD.x0 + PAD.cx; x++) { sum += h[z * W + x]; n++; }
+      this.padH = Math.min(SEA + 5, Math.max(SEA + 1.5, Math.round(sum / n * 4) / 4));   // 가정: 부지 높이는 바다면 위 1.5~5 m(가파른 둑을 피한다)
+      for (let z = PAD.z0; z <= PAD.z0 + PAD.cz; z++) for (let x = PAD.x0; x <= PAD.x0 + PAD.cx; x++) { h[z * W + x] = this.padH; pin[z * W + x] = 1; } }
     // 기울기 상한: 이웃 정점의 높이 차를 MAX_SLOPE(정점 간격 1 m) 이하로 되풀이해서 깎는다(가정: 어디든 걸어서 오를 수 있게)
-    for (let it = 0; it < 120; it++) {
+    for (let it = 0; it < 400; it++) {
       let moved = false;
       for (let z = 0; z <= N; z++) for (let x = 0; x <= N; x++) {
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
@@ -75,7 +80,7 @@ export class Island {
     }
     // 자원·시설: 땅 위(해안·부두 제외) 완만한 곳, 시드 고정 위치. id는 S.nodes의 키가 된다
     const free = [], used = [];
-    for (let z = 4; z < N - 4; z++) for (let x = 4; x < 43; x++) if (this.height(x, z) >= SEA + 1.5 && this.slope(x, z) < 0.4) free.push([x, z]);
+    for (let z = 4; z < N - 4; z++) for (let x = 4; x < 43; x++) if (this.height(x, z) >= SEA + 1.5 && this.slope(x, z) < 0.4 && !(x >= PAD.x0 - 2 && x <= PAD.x0 + PAD.cx + 2 && z >= PAD.z0 - 2 && z <= PAD.z0 + PAD.cz + 2)) free.push([x, z]);
     const pick = (minD) => { for (let t = 0; t < 500 && free.length; t++) { const [x, z] = free[Math.floor(rng() * free.length)]; if (used.every(([ux, uz]) => Math.hypot(ux - x, uz - z) >= minD)) { used.push([x, z]); return [x, z]; } } return null; };
     const add = (type, x, z) => { this.objs.push({ id: type + '-' + this.name + '-' + this.objs.length, type, x: x + 0.5, y: this.height(x + 0.5, z + 0.5), z: z + 0.5 }); };
     const fixed = (type, x, z) => { used.push([x, z]); add(type, x, z); };
