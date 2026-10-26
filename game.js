@@ -980,7 +980,7 @@ function drawPeers(t) {
   ctx.textAlign = 'left';
 }
 function frame(now) {
-  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));   // 첫 프레임은 rAF 시각이 last보다 이를 수 있어 음수 방지 last = now; tt += dt;
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; tt += dt;   // 첫 프레임은 rAF 시각이 last보다 이를 수 있어 dt 음수 방지
   physics(dt); stepDig(dt); stepParts(dt); netStep(dt, now);
   draw(tt);
   requestAnimationFrame(frame);
