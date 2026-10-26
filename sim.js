@@ -36,7 +36,7 @@
     { t: '바닷물 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕. 바닷가에서 E로 바닷물 뜨기' },
     { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 바닷물을 넣고 가열 시작' },
     { t: '증류에서 소금 20 g을 모으세요', ok: f => f.dS >= 20, hint: '바닷물이 농축되면 NaCl 결정이 남아요' },
-    { t: '해안의 뗏목 파편을 수리해 출항하세요', ok: f => f.raft, hint: '동쪽 해안의 뗏목 파편에서 E. 나뭇가지와 모래가 필요해요. 건너편 광장섬이 보여요' },
+    { t: '해안의 뗏목 파편을 수리해 출항하세요', ok: f => f.raft, hint: '동쪽 해안의 뗏목 파편에서 E. 냉각계를 채울 증류수 150 g + 소금 20 g이 필요해요(직접 증류해 얻은 것이어야 해요). 건너편 광장섬이 보여요' },
     { t: '압력 밥솥으로 2기압 이상에서 라면을 끓이세요', ok: f => f.ramenP >= 2, hint: '면 1개 + 증류수 300 g. 화덕 세기를 올려야 할 수도 있어요' },
     { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 시작섬 설원이나 극지 섬에서. 소금을 섞으면 어는점이 내려가요' },
     { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
@@ -67,7 +67,8 @@
     BASE_CELLS: 4,                        // 가정(임의값) 처음 뗏목 칸 수(화덕 1 + 장치 1)
     MAX_CELLS: 12,                        // 가정(임의값) 뗏목 최대 칸 수
     EXPAND: 2, EXPAND_COST: { stick: 10, sand: 4 },   // 가정(임의값) 한 번에 넓히는 칸 수와 재료
-    REPAIR_COST: { stick: 8, sand: 4 },  // 가정(임의값) 뗏목 파편을 고쳐 출항 가능하게 하는 재료
+    REPAIR_COST: { water: 150, salt: 20 },  // 가정(임의값) 15단계: 파편을 고쳐 출항 가능하게 하는 재료 = 냉각계를 채우는 증류수 150 g + 소금 20 g(이전: 나뭇가지 8 + 모래 4)
+    REPAIR_NEED: { dW: 200, dS: 20 },    // 가정(임의값) 수리 조건: 직접 증류로 얻은 증류수·소금 누적(f.dW, f.dS). 시작 증류수 400 g만으로 증류 없이 고쳐지지 않게 한다(= 목표 2·3 달성)
     ROW: 25,                              // 뗏목 바닥이 놓이는 타일 줄(바다 표면)
     DEV_Y: 23,                            // 장치(2x2)의 위쪽 타일 줄 = ROW − 2
   };
@@ -301,6 +302,7 @@
     logEv(S, '서리 늑대 정화', `${how === 'salt' ? '소금으로' : '화덕 열로'} ${fmt(m.M0, 0)} g 모두 녹임${extra ? ' · ' + extra : ''}`);
     emit({ t: 'refresh' });
   }
+  const repairRecord = (S) => S.f.dW >= RAFT.REPAIR_NEED.dW && S.f.dS >= RAFT.REPAIR_NEED.dS;   // 15단계: 증류 기록 조건
   const tutorial = (S) => !S.f.raft;   // 뗏목 파편을 고치기 전까지는 튜토리얼: 서리 늑대와 폭발을 끈다
   function stepMobs(S) {
     const T = airTemp(S), h = S.min / 60;
@@ -467,6 +469,7 @@
     // 뗏목 파편 수리: 출항 가능(광장섬 해금). 튜토리얼이 끝난다(서리 늑대·폭발이 켜진다)
     repairRaft(S) {
       if (S.f.raft) return say('뗏목은 이미 고쳤습니다.'), false;
+      if (!repairRecord(S)) return say(`냉각계를 채우려면 직접 증류한 증류수 ${RAFT.REPAIR_NEED.dW} g와 소금 ${RAFT.REPAIR_NEED.dS} g의 기록이 필요합니다. (지금 증류수 ${Math.floor(S.f.dW)} g · 소금 ${Math.floor(S.f.dS)} g)`), false;
       if (!has(S, RAFT.REPAIR_COST)) return say('재료가 부족합니다.'), false;
       pay(S, RAFT.REPAIR_COST); S.f.raft = true;
       say('뗏목을 고쳤습니다! 이제 항구 표지판에서 출항할 수 있어요.'); logEv(S, '뗏목', `파편 수리 완료(재료 ${Object.entries(RAFT.REPAIR_COST).map(([k, v]) => k + ' ' + v).join(', ')}) — 튜토리얼 종료`);

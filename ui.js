@@ -45,10 +45,11 @@ const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cooker
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function uiFragment() {
   const R = Sim.RAFT;
-  openModal('뗏목 파편', `<div class="box"><p>해안에 걸린 뗏목 파편입니다. 고치면 뗏목이 출항할 수 있게 되어 건너편 광장섬으로 갈 수 있어요.</p>
+  openModal('뗏목 파편', `<div class="box"><p>해안에 걸린 뗏목 파편입니다. 고치면 뗏목이 출항할 수 있게 되어 건너편 광장섬으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
     <div class="kv"><span>필요한 재료</span><b>${costText(R.REPAIR_COST)}</b></div>
-    <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
-    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 서리 늑대가 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·칸 수는 가정(임의값))</div>`);
+    <div class="kv"><span>증류 기록 (직접 얻은 양)</span><b>증류수 ${Math.floor(S.f.dW)} / ${R.REPAIR_NEED.dW} g · 소금 ${Math.floor(S.f.dS)} / ${R.REPAIR_NEED.dS} g</b></div>
+    <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) && S.f.dW >= R.REPAIR_NEED.dW && S.f.dS >= R.REPAIR_NEED.dS ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
+    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 서리 늑대가 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·조건·칸 수는 가정(임의값))</div>`);
 }
 function uiSail() {
   const here = Sim.dockOf(S).island;

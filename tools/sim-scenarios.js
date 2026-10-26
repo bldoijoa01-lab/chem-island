@@ -58,4 +58,11 @@ module.exports = {
     adv(60); const s = S.placed[1].s;
     return { prog: s.prog, done: !!s.done, pIn: s.cs.pIn, boil: s.cs.boil };
   },
+  // 15단계에서 추가: 수리 재료(증류수 150 g + 소금 20 g)와 증류 기록 조건. 부족 → 실패, 기록만 있고 재료 부족 → 실패, 충분 → 성공 + 재료 차감
+  K_repair_needs_distilled_water_and_salt: (S, adv) => {
+    S.inv.water = 400; S.inv.salt = 20; const r0 = Sim.act.repairRaft(S);   // 시작 증류수 400 g만 있고 증류 기록이 없으면 실패
+    S.f.dW = 200; S.f.dS = 20; S.inv.salt = 19; const r1 = Sim.act.repairRaft(S);   // 기록은 있으나 소금 19 g: 실패
+    S.inv.salt = 20; const r2 = Sim.act.repairRaft(S); Sim.drain();
+    return { r0, r1, r2, raft: S.f.raft, water: S.inv.water, salt: S.inv.salt, log: S.log.map(l => l.type + ':' + l.text) };
+  },
 };

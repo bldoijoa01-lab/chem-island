@@ -128,5 +128,16 @@
   "done": false,
   "pIn": 1,
   "boil": false
+ },
+ "K_repair_needs_distilled_water_and_salt": {
+  "r0": false,
+  "r1": false,
+  "r2": true,
+  "raft": true,
+  "water": 250,
+  "salt": 0,
+  "log": [
+   "뗏목:파편 수리 완료(재료 water 150, salt 20) — 튜토리얼 종료"
+  ]
  }
 }
