@@ -374,7 +374,7 @@ function applyRemote(r) { Store.merge(r); H.applyWorld(); document.querySelector
 // 신원이 확정된 뒤: 서버 세이브가 있으면 그것으로, 없으면 지금 진행 상황을 서버에 올린다
 async function enterWorld() {
   try {
-    const r = await Net.loadSave();
+    const r = Store.remote ? await Net.loadSave() : null;   // fp는 2D 서버 세이브를 읽지 않는다
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
   $('auth').hidden = true; Store.paused = false; lastRemote = 0; save(true); refresh();
@@ -429,7 +429,7 @@ window.G = {
   async logout() {
     if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
     save(true); await Net.logout();
-    try { localStorage.removeItem(KEY); } catch { /* 무시 */ }
+    try { localStorage.removeItem(Store.KEY); } catch { /* 무시 */ }
     Store.reset(); H.applyWorld(); closeModal(); showAuth();
   },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
