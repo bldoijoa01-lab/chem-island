@@ -111,3 +111,4 @@ raid.js          협동 보스 (/raid/{id} 구독)
   - `sim.js` 분리는 월드 공유가 필요한 M3 직전에 진행.
 - **M2 완료**: presence — `/presence/main/{uid}`에 10Hz로 위치 전송(변화 없으면 생략), 다른 플레이어는 보간해서 닉네임과 함께 표시, `onDisconnect`로 자동 삭제 (`net.js`의 `joinMap/sendPos/leaveMap`, `game.js`의 `netStep/drawPeers`). **규칙(`database.rules.json`)에 `/presence`가 추가되었으니 콘솔에 다시 게시해야 한다.**
 - **보안 규칙 적용 방법**: Firebase 콘솔 → Realtime Database → **규칙** 탭에 [`database.rules.json`](database.rules.json) 내용을 붙여 넣고 **게시**. (규칙을 올리지 않으면 잠금 모드라 접속 시 서버 저장이 거부된다.)
+- **땅 파기(`S.dug`)**: 바뀐 타일만 `/saves/{uid}`에 함께 저장되고(본인 세이브 안), 다른 플레이어의 지형과는 동기화하지 않는다(M3 월드 공유에서 `/world/{map}/edits`로 옮길 후보).

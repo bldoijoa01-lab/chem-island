@@ -33,6 +33,7 @@ const ITEM = {
   ice: ['ice', '얼음(100 g)', '개'], bottle: ['bottle', '유리병', '개'], syringe: ['syringe', '주사기', '개'],
   sugar: ['sugar', '설탕', 'g'], salt: ['salt', '소금', 'g'], water: ['water', '증류수', 'g'],
   noodle: ['noodle', '면', '개'], ramen: ['ramen', '라면', '개'],
+  dirt: ['dirt', '흙', '개'], stone: ['stone', '돌', '개'],
 };
 const RECIPES = [
   { id: 'bottle', out: 'bottle', n: 1, cost: { sand: 3, stick: 1 }, note: '모래를 가열해 유리로' },
@@ -53,8 +54,8 @@ const QUESTS = [
 function newState() {
   return {
     day: 1, min: 360, px: 48 * T, py: 24 * T - PH, vx: 0, vy: 0, face: 1, speed: 1,
-    inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0 },
-    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0,
+    inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0 },
+    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {},
     f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
     qDone: 0, log: [], memo: '',
   };
@@ -114,6 +115,13 @@ const OBJS = [];
   [86, 89, 96, 99, 103].forEach(x => add('icecrystal', x));
   add('box', 44); add('altar', 72);
 })();
+// 땅 파기/놓기로 바뀐 타일만 S.dug(타일 번호 y*WW+x → 새 종류)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
+const BASE = MAP.slice();
+function applyDug() {
+  MAP.set(BASE);
+  for (const k in S.dug) { const v = S.dug[k]; if (v != null && k >= 0 && k < MAP.length) MAP[k] = v; }
+}
+applyDug();
 // 종류별 [얻는 아이템, 1회 양, 하루 횟수, 이름, 중심 y 오프셋(위로 몇 px)]
 const NODE = {
   tree: ['stick', 2, 2, '나무', 16], cane: ['sugar', 50, 2, '사탕수수', 8], wheat: ['noodle', 1, 2, '밀', 8],
@@ -278,6 +286,63 @@ function stepCooker(d) {
   }
 }
 
+// ---------- 땅 파기 · 블록 놓기 ----------
+// 타일별 [얻는 아이템, 파는 데 걸리는 시간(초, 마우스 꾹 누르기)]. 시간은 모두 가정(임의값): 흙·모래 짧게, 눈·얼음 중간, 돌은 곡괭이가 필요(2단계)하고 오래
+const DIG = {
+  [GRASS]: { item: 'dirt', t: 0.5 }, [DIRT]: { item: 'dirt', t: 0.5 }, [SAND]: { item: 'sand', t: 0.4 },
+  [SNOWTOP]: { item: 'ice', t: 0.8 }, [ICE]: { item: 'ice', t: 1.0 },
+  [STONE]: { item: 'stone', t: 2.0, tool: 'pickaxe' },
+};
+const BLOCK = { dirt: DIRT, stone: STONE, sand: SAND };   // 가방에서 꺼내 놓을 수 있는 블록
+const dig = { on: false, tx: -1, ty: -1, p: 0, need: 0 };
+const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
+const inReach = (tx, ty) => Math.hypot(tx * T + T / 2 - (S.px + PW / 2), ty * T + T / 2 - (S.py + PH / 2)) <= REACH;
+// 장치·오브젝트가 서 있는 바로 아래 땅은 파지 못한다
+function holdsThing(tx, ty) {
+  if (S.placed.some(d => ty === d.y + 2 && (tx === d.x || tx === d.x + 1))) return true;
+  return OBJS.some(o => ty === o.y && (tx === o.x || (o.type === 'altar' && tx === o.x + 1)));
+}
+function digCheck(tx, ty) {
+  const id = tileAt(tx, ty);
+  if (!DIG[id]) return { ok: false, msg: id === WATER ? '물은 팔 수 없습니다.' : '' };
+  if (ty >= WH - 1) return { ok: false, msg: '맨 아래는 팔 수 없습니다.' };
+  if (!inReach(tx, ty)) return { ok: false, msg: '' };
+  if (holdsThing(tx, ty)) return { ok: false, msg: '장치나 자원 바로 아래 땅은 팔 수 없습니다.' };
+  const def = DIG[id];
+  if (def.tool && !(S.inv[def.tool] > 0)) return { ok: false, msg: '돌은 곡괭이가 있어야 팔 수 있어요.' };
+  return { ok: true, def };
+}
+function setTile(tx, ty, id) {
+  const k = ty * WW + tx;
+  MAP[k] = id;
+  if (BASE[k] === id) delete S.dug[k]; else S.dug[k] = id;
+}
+function stepDig(dt) {
+  if (!dig.on) return;
+  if (!$('modal').hidden || mode) { dig.p = 0; return; }
+  const [tx, ty] = mouseTile();
+  if (tx !== dig.tx || ty !== dig.ty) { dig.tx = tx; dig.ty = ty; dig.p = 0; dig.msg = false; }
+  const c = digCheck(tx, ty);
+  if (!c.ok) { dig.p = 0; if (c.msg && !dig.msg) { dig.msg = true; say(c.msg); } return; }
+  dig.need = c.def.t; dig.p += dt;
+  if (dig.p < c.def.t) return;
+  const id = tileAt(tx, ty);
+  setTile(tx, ty, AIR); S.inv[c.def.item] = (S.inv[c.def.item] || 0) + 1; dig.p = 0;
+  puff(tx * T + 8, ty * T + 8, id === STONE ? '#8b919c' : id === SAND ? '#f6e7b0' : id === ICE || id === SNOWTOP ? '#d8f3ff' : '#8a5a35', 6);
+  say(`${ITEM[c.def.item][1]} +1`);
+}
+function placeBlock() {
+  const item = mode.slice(6), [tx, ty] = mouseTile();
+  if (!(S.inv[item] >= 1)) { mode = null; return say(`${ITEM[item][1]}이(가) 없습니다.`); }
+  if (tileAt(tx, ty) !== AIR || ty >= WH || tx < 0 || tx >= WW) return say('빈 공간에만 놓을 수 있습니다.');
+  if (!inReach(tx, ty)) return say('너무 멉니다.');
+  if (tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) return say('내가 서 있는 자리에는 놓을 수 없습니다.');
+  if (S.placed.some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || OBJS.some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) return say('장치나 자원 자리에는 놓을 수 없습니다.');
+  if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) return say('땅에 닿은 곳에만 놓을 수 있습니다.');
+  S.inv[item]--; setTile(tx, ty, BLOCK[item]);
+  if (S.inv[item] < 1) mode = null;
+}
+
 // ---------- 퀘스트 ----------
 function checkQuests() {
   while (S.qDone < QUESTS.length && QUESTS[S.qDone].ok(S.f)) {
@@ -352,6 +417,7 @@ function ghostCheck(id) {
   return { ok: true, tx, ty: g - 2 };
 }
 function placeAtMouse() {
+  if (mode.startsWith('block:')) return placeBlock();
   if (mode === 'demolish') {
     const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
     const d = S.placed.find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
@@ -669,7 +735,7 @@ function openSave() {
 // ---------- 접속(게스트 입장 / 로그인) ----------
 const authErr = (t) => { $('a-err').textContent = t || ''; };
 function showAuth() { $('modal').hidden = true; authErr(''); $('auth').hidden = false; paused = true; clearKeys(); }
-function applyRemote(r) { S = merge(r); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
+function applyRemote(r) { S = merge(r); applyDug(); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
 // 신원이 확정된 뒤: 서버 세이브가 있으면 그것으로, 없으면 지금 진행 상황을 서버에 올린다
 async function enterWorld() {
   try {
@@ -718,10 +784,10 @@ window.G = {
     if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
     save(true); await Net.logout();
     try { localStorage.removeItem(KEY); } catch { /* 무시 */ }
-    S = newState(); closeModal(); showAuth();
+    S = newState(); applyDug(); closeModal(); showAuth();
   },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
-  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); save(true); closeModal(); refresh(); } },
+  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); applyDug(); save(true); closeModal(); refresh(); } },
 };
 
 // ---------- 목표 텍스트(DOM 오버레이) ----------
@@ -748,6 +814,17 @@ window.addEventListener('keyup', e => { const k = KEYMAP[e.key.toLowerCase()]; i
 const cv = $('cv'), ctx = cv.getContext('2d');
 function canvasPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
 cv.addEventListener('mousemove', e => Object.assign(mouse, canvasPos(e)));
+// 마우스를 꾹 누르면 그 자리의 땅을 판다(클릭할 대상·HUD·건설 모드가 아닐 때)
+cv.addEventListener('pointerdown', e => {
+  Object.assign(mouse, canvasPos(e));
+  if (e.button > 0 || !$('modal').hidden || mode) return;
+  if (HUD.hits.some(h => mouse.x >= h.x && mouse.x < h.x + h.w && mouse.y >= h.y && mouse.y < h.y + h.h) || mouse.y < HUD.bottom) return;
+  const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
+  if (targets().some(o => Math.hypot(o.x - wx, o.y - wy) < 26)) return;
+  dig.on = true; dig.p = 0; dig.tx = dig.ty = -1;
+});
+cv.addEventListener('pointermove', e => { Object.assign(mouse, canvasPos(e)); });
+for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) cv.addEventListener(ev, () => { dig.on = false; dig.p = 0; });
 cv.addEventListener('click', e => {
   Object.assign(mouse, canvasPos(e));
   if (!$('modal').hidden) return;
@@ -848,7 +925,7 @@ function drawPeers(t) {
 }
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; tt += dt;
-  physics(dt); stepParts(dt); netStep(dt, now);
+  physics(dt); stepDig(dt); stepParts(dt); netStep(dt, now);
   draw(tt);
   requestAnimationFrame(frame);
 }
@@ -885,7 +962,7 @@ function draw(t) {
   const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
   for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
     const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
-    if (id === AIR) { if (ty >= 31) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.min(0.55, (ty - 28) * 0.04)})`; ctx.fillRect(sx, sy, T, T); } continue; }
+    if (id === AIR) { if (tx >= 0 && tx < WW && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); } continue; }
     if (id === WATER) {
       ctx.fillStyle = ty - 25 < 2 ? '#3f9be0' : ty - 25 < 4 ? '#2c7cc0' : '#1f66a4'; ctx.fillRect(sx, sy, T, T);
       drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
@@ -977,6 +1054,15 @@ function draw(t) {
   // 가장자리 어둡게(비네트)
   const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.45, VW / 2, VH / 2, Math.max(VW, VH) * 0.75);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.32)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  // 파기 표시: 팔 수 있는 타일에 테두리, 파는 중에는 진행 막대
+  if ($('modal').hidden && !mode) {
+    const [hx, hy] = mouseTile(), c = digCheck(hx, hy);
+    if (c.ok) {
+      const sx = hx * T - cam.x, sy = hy * T - cam.y;
+      ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1; ctx.strokeRect(sx + 0.5, sy + 0.5, T - 1, T - 1);
+      if (dig.on && dig.p > 0) { ctx.fillStyle = '#000'; ctx.fillRect(sx, sy - 4, T, 3); ctx.fillStyle = '#ffd84a'; ctx.fillRect(sx + 1, sy - 3, Math.round((T - 2) * Math.min(1, dig.p / dig.need)), 1); }
+    }
+  }
   drawHUD(t);
   // 상호작용 표시(픽셀 화살표)
   if (tg && $('modal').hidden) {
@@ -984,7 +1070,7 @@ function draw(t) {
     ctx.fillStyle = '#000'; ctx.fillRect(ax - 4, ay - 1, 9, 3); ctx.fillRect(ax - 3, ay + 2, 7, 2); ctx.fillRect(ax - 1, ay + 4, 3, 2);
     ctx.fillStyle = '#ffd84a'; ctx.fillRect(ax - 3, ay, 7, 1); ctx.fillRect(ax - 2, ay + 2, 5, 1); ctx.fillRect(ax, ay + 4, 1, 1);
   }
-  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
+  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
@@ -1027,7 +1113,7 @@ function drawHUD(t) {
   HUD.hits = []; HUD.tip = '';
   const over = (x, y, w, h) => mouse.x >= x && mouse.x < x + w && mouse.y >= y && mouse.y < y + h;
   // 가방: 칸마다 아이콘 + 개수
-  const items = Object.entries(S.inv).filter(([, v]) => v >= 1).map(([k, v]) => ({ icon: ITEM[k][0], name: ITEM[k][1], n: Math.floor(v) }));
+  const items = Object.entries(S.inv).filter(([, v]) => v >= 1).map(([k, v]) => ({ k, icon: ITEM[k][0], name: ITEM[k][1], n: Math.floor(v) }));
   if (S.caps.length) items.push({ icon: 'cap', name: '기체 캡슐 (' + capText() + ')', n: S.caps.length });
   if (S.packs.length) items.push({ icon: 'pack', name: '한제 팩', n: S.packs.length });
   const SL = 17, per = Math.max(4, Math.floor((VW - 118) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
@@ -1035,7 +1121,8 @@ function drawHUD(t) {
     const x = 4 + (i % per) * SL, y = 4 + Math.floor(i / per) * SL, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);
     const s = String(it.n); drawText(s, x + 15 - textW(s), y + 10);
-    if (hov) HUD.tip = `${it.name} ${it.n}`;
+    if (BLOCK[it.k]) HUD.hits.push({ x, y, w: 16, h: 16, fn: () => { mode = mode === 'block:' + it.k ? null : 'block:' + it.k; say(mode ? `${it.name}을(를) 놓을 곳을 클릭하세요. (ESC 취소)` : '취소'); } });
+    if (hov) HUD.tip = `${it.name} ${it.n}` + (BLOCK[it.k] ? ' (클릭: 놓기)' : '');
   });
   HUD.bottom = 4 + rows * SL;
   // 시계(해/달 아이콘 + 일차 + 시각)
