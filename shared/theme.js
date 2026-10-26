@@ -44,3 +44,18 @@ export function installTheme(root) {
     .observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['title', 'placeholder'] });
   document.title = themed(document.title);
 }
+
+// 행성별 하늘·바다 표현(보이기만, fp/와 td/ 공용): atm = 대기 두께(0이면 진공), 바다 색·불투명도·파도 크기 배율, 하늘 색조. 모두 가정(임의값)
+export const PLANET = {
+  start: { atm: 1, sea: 0x2f86c8, seaOp: 0.8, wave: 1, tint: 0 },         // 불시착 행성: 바다가 있는 지구형
+  plaza: { atm: 0, sea: 0x070b1c, seaOp: 0.96, wave: 0, tint: 0 },        // 허브 정거장: 진공, 발밑 너머는 어두운 공간
+  alpine: { atm: 0.6, sea: 0x6b5a9c, seaOp: 0.88, wave: 0.5, tint: 0x7a5fb0 },   // 저기압 고원 행성: 옅은 보랏빛 대기
+  polar: { atm: 0.45, sea: 0xa8dcec, seaOp: 0.97, wave: 0.15, tint: 0x9fd0e8 },  // 얼음 위성: 얼어붙은 바다
+};
+
+// 시작 이야기(첫 실행에 한 번). 문구는 이 파일의 치환표가 이름을 맞춘다
+export const STORY_HTML = `
+    <div class="box"><h4>연구선 신호 두절</h4>
+      <div>항성 사이를 도약하던 연구선이 사고로 부서졌다. 살아남은 것은 탐사정 한 척과 실험 장비 몇 개뿐이다.</div>
+      <div>탐사정은 푸른 바다가 있는 낯선 행성의 해안에 불시착했다. 잔해를 고치면 궤도 이동으로 다른 행성과 허브 정거장에 갈 수 있다.</div>
+      <div>이곳 대기와 바닷물로 살아남아야 한다. 먼저 바닷물을 증류해 마실 물과 소금을 얻자.</div></div>`;

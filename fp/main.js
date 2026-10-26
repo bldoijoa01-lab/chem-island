@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { N, SEA, SEABED, RX0, RZ0, PAD, ISLANDS, OFFSET, Island } from '../shared/gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
-import { installTheme, themed, GAME_TITLE } from '../shared/theme.js';
+import { installTheme, themed, GAME_TITLE, PLANET, STORY_HTML } from '../shared/theme.js';
 import { Party } from '../shared/party.js';
 import { stepBody, HALF, BODY } from '../shared/move.js';
 import { makeCtx, PLOT_OFF } from '../shared/ctl.js';
@@ -236,12 +236,6 @@ const stars = (() => { const n = 260, pos = new Float32Array(n * 3);
 const mkDisc = (cv) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ map: tex(cv), transparent: true, alphaTest: 0.4, fog: false, depthWrite: false })); scene.add(m); return m; };
 const sunM = mkDisc(Art.sun), moonM = mkDisc(Art.moon);
 // 행성별 하늘·바다 표현(우주 테마, 보이기만): atm = 대기 두께(0이면 진공: 검은 하늘과 별, 안개 없음), 바다 색·불투명도·파도 크기 배율. 모두 가정(임의값)
-const PLANET = {
-  start: { atm: 1, sea: 0x2f86c8, seaOp: 0.8, wave: 1, tint: 0 },         // 불시착 행성: 바다가 있는 지구형
-  plaza: { atm: 0, sea: 0x070b1c, seaOp: 0.96, wave: 0, tint: 0 },        // 허브 정거장: 진공, 발밑 너머는 어두운 공간
-  alpine: { atm: 0.6, sea: 0x6b5a9c, seaOp: 0.88, wave: 0.5, tint: 0x7a5fb0 },   // 저기압 고원 행성: 옅은 보랏빛 대기
-  polar: { atm: 0.45, sea: 0xa8dcec, seaOp: 0.97, wave: 0.15, tint: 0x9fd0e8 },  // 얼음 위성: 얼어붙은 바다
-};
 const SPACE_TOP = new THREE.Color(0x02040c), SPACE_BOT = new THREE.Color(0x05070f);
 const sunDirV = new THREE.Vector3();
 function sky(dt) {
@@ -693,11 +687,7 @@ const STORY_KEY = 'chemisle_fp_story_v1';
 function maybeStory() {
   let seen = false; try { seen = !!localStorage.getItem(STORY_KEY); } catch { /* 무시 */ }
   if (seen || S.day > 1 || S.qDone > 0 || !$('auth').hidden) return false;
-  UI.openModal('불시착', `
-    <div class="box"><h4>연구선 신호 두절</h4>
-      <div>항성 사이를 도약하던 연구선이 사고로 부서졌다. 살아남은 것은 탐사정 한 척과 실험 장비 몇 개뿐이다.</div>
-      <div>탐사정은 푸른 바다가 있는 낯선 행성의 해안에 불시착했다. 잔해를 고치면 궤도 이동으로 다른 행성과 허브 정거장에 갈 수 있다.</div>
-      <div>이곳 대기와 바닷물로 살아남아야 한다. 먼저 바닷물을 증류해 마실 물과 소금을 얻자.</div></div>`,
+  UI.openModal('불시착', STORY_HTML,
     null, () => { try { localStorage.setItem(STORY_KEY, '1'); } catch { /* 저장 불가 */ } });
   return true;
 }

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>화학 섬 이야기 (탑다운 2D)</title>
+<link rel="stylesheet" href="../style.css">
+<link rel="stylesheet" href="../fp/stylefp.css">
+<link rel="stylesheet" href="styletd.css">
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="gl"><canvas id="c"></canvas></div>
+    <div id="uw"></div><div id="warp"></div><div id="fade"></div><div id="aimlabel" style="display:none"></div>
+    <div id="hud3"><div id="inv3"></div><div id="top3"><span id="clock3"></span><span id="temp3"></span><span id="spd3"></span></div><div id="menu3"></div></div>
+    <div id="quest"></div>
+    <div id="msg"></div>
+    <div id="target"></div>
+    <div id="pad">
+      
+    </div>
+  </div>
+</div>
+
+<div id="modal" hidden>
+  <div id="mbox">
+    <button id="mclose" aria-label="닫기">X</button>
+    <h2 id="mtitle"></h2>
+    <div id="mbody"></div>
+  </div>
+</div>
+
+<div id="title">
+  <div id="tbox">
+    <h1>화학 섬 이야기</h1>
+    <p class="sub"><b>탑다운 2D</b> — 1인칭 3D(fp)와 같은 월드·같은 저장·같은 서버를 위에서 내려다보는 픽셀 아트 화면입니다. 같은 팀에서 한 사람은 이쪽, 다른 사람은 3D로 함께 할 수 있어요.<br>바닷물을 증류하고, 압력 밥솥으로 라면을 끓이고, 행성을 오가며 화학을 실험하세요.</p>
+    <button id="t-start" class="primary">시작하기</button>
+    <div id="t-info" class="mut"></div>
+    <button id="t-help">도움말</button>
+    <a id="t-2d" href="../index.html">측면 2D 버전으로</a> · <a id="t-fp" href="../fp/index.html">1인칭 3D로</a>
+    <small class="mut">Enter 또는 스페이스로도 시작할 수 있어요</small>
+  </div>
+</div>
+
+<div id="auth" hidden>
+  <div id="abox">
+    <h2>화학 섬 이야기</h2>
+    <p class="mut">닉네임만 정하면 바로 시작! 친구들과 같은 섬에서 만날 수 있어요.</p>
+    <div class="row"><input id="a-nick" maxlength="8" placeholder="닉네임 (2~8자)" autocomplete="off"><button id="a-start" class="primary">시작하기</button></div>
+    <small class="mut">한글·영문·숫자. 나중에 메뉴에서 비밀번호를 설정하면 다른 기기에서도 이어서 할 수 있어요.</small>
+    <details id="a-login"><summary>이미 캐릭터가 있어요 (로그인)</summary>
+      <div class="row"><input id="a-lnick" maxlength="8" placeholder="닉네임" autocomplete="username"><input id="a-lpw" type="password" placeholder="비밀번호" autocomplete="current-password"><button id="a-lgo">로그인</button></div>
+    </details>
+    <div id="a-err"></div>
+    <button id="a-off">혼자 하기 (이 브라우저에만 저장)</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>window.CHEM_FP = true;</script>
+<script src="../firebase-config.js"></script>
+<script src="../net.js"></script>
+<script src="../chem.js"></script>
+<script src="../sim.js"></script>
+<script src="../store.js"></script>
+<script src="../world.js"></script>
+<script src="../sprites.js"></script>
+<script src="../ui.js"></script>
+<script src="../notes.js"></script>
+<script src="../raid.js"></script>
+<script type="module" src="main.js"></script>
+</body>
+</html>

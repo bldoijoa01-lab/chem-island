@@ -1,0 +1,2 @@
+/* 탑다운 2D 전용 스타일(HUD는 ../fp/stylefp.css를 같이 쓴다). 캔버스는 게임 픽셀 크기로 그리고 정수 배율로 키운다 */
+#gl canvas { image-rendering: pixelated; image-rendering: crisp-edges; background: #05070f; }
