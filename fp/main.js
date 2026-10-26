@@ -6,6 +6,7 @@ import { N, SEA, SEABED, RX0, RZ0, ISLANDS, OFFSET, Island } from './gen.js';
 import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 import { installTheme, themed, GAME_TITLE } from './theme.js';
+import { Party } from './party.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
 const { ITEM, NODE, DIG, TOOL, STONE, ICE, ICE_TILE_G, SHAKE_G } = World;
@@ -418,23 +419,27 @@ function placeAtLook() {
   if (mode.startsWith('build:')) {
     const id = mode.slice(6), c = ghostCell(), g = ghostCheck(id, c);
     if (!g.ok) return say(g.msg);
-    if (Sim.act.place(S, id, c.gx, c.gz, undefined, `뗏목 격자 (${c.gx}, ${c.gz})`)) mode = null;
+    if (Sim.act.place(S, id, c.gx, c.gz, undefined, `뗏목 격자 (${c.gx}, ${c.gz})`)) { mode = null; Party.note('build', `${DEV[id].name} 건설 (${c.gx}, ${c.gz})`); }
     flush(); refresh(); return;
   }
   if (mode === 'demolish') {
     const t = aimedTarget();
     if (!t || t.kind !== 'dev') return say('철거할 장치를 바라보세요.');
-    Sim.act.demolish(S, t.ref); flush(); mode = null; refresh();
+    const dn = DEV[t.ref.id].name; Sim.act.demolish(S, t.ref); Party.note('demolish', `${dn} 철거(재료 환불)`); flush(); mode = null; refresh();
   }
 }
 function useAction() {   // 우클릭: 건설·철거 모드 > 선택한 도구
   if (UI.isModalOpen()) return;
-  if (mode) return placeAtLook();
+  if (mode) return Party.inParty() ? Party.guard(placeAtLook) : placeAtLook();   // 팀이면 팀 쓰기 권한(임대)을 먼저 얻는다
   if (!sel) return;
-  if (TOOL[sel] === 'salt') useShaker(); else if (TOOL[sel] === 'thermo') useThermo();
-  flush();
+  if (TOOL[sel] === 'salt') { if (Party.inParty()) Party.guard(() => { useShaker(); flush(); }); else { useShaker(); flush(); } return; }
+  useThermo(); flush();
 }
-function doInteract() { const t = aimedTarget(); if (!t) return; lastTarget = t; interact(t); }
+async function doInteract() {
+  const t = aimedTarget(); if (!t) return;
+  if (Party.needsLease(t.kind) && !(await Party.ensureActive())) return say('동료가 조작 중이에요. 잠시 뒤에 다시 시도하세요.');   // 장치·늑대·바닷물·제단·항구는 팀 필드를 바꾼다
+  lastTarget = t; interact(t);
+}
 
 // ---------- 입력 ----------
 const keys = { w: false, a: false, s: false, d: false, jump: false };
@@ -468,6 +473,7 @@ function selectItem(k) { sel = sel === k ? null : k; mode = null; say(sel ? `${I
 [['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)], ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()]].forEach(([icon, label, fn]) => {
   const b = document.createElement('button'); b.title = label; b.innerHTML = `<i style="background-image:url(${Art.iconURL[icon]})"></i>`; b.onclick = fn; menu3.appendChild(b);
 });
+{ const b = document.createElement('button'); b.id = 'teambtn'; b.title = '팀'; b.textContent = '팀'; b.onclick = () => TeamUI.open(); menu3.appendChild(b); }
 [10, 3, 1].forEach(sp => { const b = document.createElement('button'); b.textContent = 'x' + sp; b.dataset.sp = sp; b.title = `시간 속도 x${sp}`; b.onclick = () => { S.speed = sp; }; spd.appendChild(b); });
 let invSig = '';
 function drawHUD() {
@@ -491,7 +497,8 @@ function drawHUD() {
   $('clock3').textContent = `D${S.day} ${hh}:${mm}`;
   $('clock3').title = `${S.day}일차 ${hh}:${mm} · ${Sim.ISLANDS[Sim.dockOf(S).island].name} 외기 ${Math.round(Sim.airTemp(S))}℃ · ${fmt(pAtm(), 2)} atm`;
   $('temp3').textContent = `${Math.round(Sim.airTemp(S))}℃ · ${fmt(pAtm(), 2)} atm`;
-  spd.querySelectorAll('button').forEach(b => b.classList.toggle('on', +b.dataset.sp === S.speed));
+  const sp1 = Party.speed(); spd.querySelectorAll('button').forEach(b => { b.classList.toggle('on', +b.dataset.sp === sp1); b.disabled = Party.inParty() && Party.online() > 1; });
+  { const tb = $('teambtn'); if (Party.inParty() && Party.meta) { tb.style.borderColor = Party.meta.color; tb.title = `팀 ${Party.meta.name}`; } else { tb.style.borderColor = ''; tb.title = '팀'; } }
   const t = !UI.isModalOpen() && canAct() ? aimedTarget() : null;
   $('target').textContent = mode && mode.startsWith('build:') ? `${DEV[mode.slice(6)].name} 짓기 — 뗏목 바닥을 보고 우클릭, Q 취소`
     : mode === 'demolish' ? '철거 — 장치를 보고 우클릭, Q 취소'
@@ -516,7 +523,8 @@ function updateAim() {
 
 // ---------- 시간·저장·시작·항해 ----------
 let tNow = 0, last = performance.now();
-setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; advance(S.speed); UI.tick(); refresh(); }, 500);
+setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; if (Party.canAdvance()) advance(Party.speed()); UI.tick(); refresh(); }, 500);   // 팀이면 시계 담당만 시간을 흘린다
+setInterval(() => Party.tick(), 1000);
 function savePos() { S.fp.x = p.x; S.fp.y = p.y; S.fp.z = p.z; S.fp.yaw = yaw; S.fp.pitch = pitch; }
 setInterval(() => { savePos(); save(); }, 5000);
 addEventListener('pagehide', () => { savePos(); save(true); });
@@ -544,6 +552,20 @@ function findFree() {   // 뗏목 위에서 장치와 겹치지 않는 자리
   return null;
 }
 const MAPID = 'main';
+// 팀 창(공용 openModal에 HTML을 넣는다). 버튼은 인라인 onclick으로 TeamUI를 부른다
+const TeamUI = window.TeamUI = {
+  open() { if (Party.inParty()) UI.openModal('팀', Party.panelHtml(), () => { if (UI.isModalOpen() && document.getElementById('mtitle').textContent === '팀') document.getElementById('mbody').innerHTML = Party.panelHtml(); }); else UI.openModal('팀', Party.noPartyHtml()); },
+  err(e) { const el = document.getElementById('tm-err'); if (el) el.textContent = e.message || String(e); else say(e.message || String(e)); },
+  async create() { try { await Party.create(document.getElementById('tm-name').value, document.getElementById('tm-color').value); say('팀을 만들었습니다. 초대 코드를 친구에게 알려 주세요.'); TeamUI.open(); } catch (e) { TeamUI.err(e); } },
+  async join() { if (S.placed.length && !confirm('지금 가진 장치는 철거되어 재료로 돌려받고, 팀의 탐사정과 진행도를 이어받습니다. 들어갈까요?')) return; try { await Party.join(document.getElementById('tm-code').value); say('팀에 들어왔습니다.'); TeamUI.open(); } catch (e) { TeamUI.err(e); } },
+  async leave() { if (!confirm('팀을 나갈까요? 팀의 장치는 두고 가고, 나는 새 탐사정으로 처음부터 시작합니다. 인벤토리는 가져갑니다.')) return; await Party.leave(); say('팀에서 나왔습니다.'); TeamUI.open(); },
+  warehouse() { UI.openModal('공용 창고', Party.warehouseHtml(ITEM), () => { if (document.getElementById('mtitle').textContent === '공용 창고') document.getElementById('mbody').innerHTML = Party.warehouseHtml(ITEM); }); },
+  async xfer(item, n) { await Party.transfer(item, n); },
+};
+Party.init({ say, isModalOpen: () => UI.isModalOpen(), onApplied() { if (islName && islandName() !== islName) onMoved(); else { raftSig = ''; syncRaft(); } refresh(); } });
+// 장치 패널의 행동(공용 ui.js의 window.act)과 뗏목 넓히기는 팀 기록에 남긴다. 장치는 doInteract에서 이미 팀 쓰기 권한을 얻은 뒤에 열린다
+{ const act0 = window.act; window.act = (name, arg) => { act0(name, arg); Party.note('device', `장치 조작: ${name}`); };
+  const exp0 = G.expandRaft; G.expandRaft = () => { if (Party.inParty()) Party.guard(() => { exp0(); Party.note('device', '탐사정 확장'); }); else exp0(); }; }
 UI.init({
   puff(x, y, col, n) { const [wx, wy, wz] = fxPos(); puff(wx, wy, wz, col.startsWith('rgba') ? '#ebf5ff' : col, n); },
   burst(d) { const [x, y, z] = devWorld(d); puff(x, y + 1, z, '#ff7a3d', 14); puff(x, y + 1, z, '#4a4f56', 10); },
@@ -556,7 +578,7 @@ UI.init({
   },
   startBuild(id) { mode = 'build:' + id; sel = null; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 바라보고 우클릭하세요. (Q 취소)`); },
   startDemolish() { mode = 'demolish'; sel = null; $('modal').hidden = true; say('철거할 장치를 바라보고 우클릭하세요. (Q 취소)'); },
-  joinMap() { joinPresence(); },
+  joinMap() { joinPresence(); Party.start(); },
 });
 
 // ---------- 프레임 ----------
@@ -618,4 +640,4 @@ function startGame() {
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => fpHelp();
 installTheme(document.body);   // 우주 테마: 화면의 이름·문구를 치환표(theme.js)로 덮어쓴다
-window.__fp = { targets: collectTargets, scene, camera, S, p, groundAt, terrainHit, aimedTarget, getMode: () => mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig, ghostCell, stepPlayer, setSel(k) { sel = k; } };   // 시험(tools/smokefp.js)용 통로
+window.__fp = { party: Party, targets: collectTargets, scene, camera, S, p, groundAt, terrainHit, aimedTarget, getMode: () => mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig, ghostCell, stepPlayer, setSel(k) { sel = k; } };   // 시험(tools/smokefp.js)용 통로

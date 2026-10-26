@@ -131,5 +131,63 @@ window.Net = (() => {
     snap.forEach((c) => { const v = c.val(); if (v && v.text) out.push({ nick: v.nick, text: v.text }); });
     return out.reverse();
   };
+  // ---- 팀(파티, 9단계: fp/ 전용): /parties/{pid}, /partyCodes/{code} ----
+  // 팀 상태는 한 번에 한 명(lease를 가진 사람)만 쓰고, 서버 규칙이 state.ver가 +1일 때만 받는다(MULTIPLAYER.md, DESIGN.md §4-17)
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 헷갈리는 문자(I, O, 0, 1) 제외
+  const newCode = () => Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+  N.partyCreate = async (name, color) => {
+    const pid = db.ref('parties').push().key;
+    for (let i = 0; i < 5; i++) {
+      const code = newCode();
+      const taken = (await db.ref('partyCodes/' + code).once('value')).exists();
+      if (taken) continue;
+      const t = firebase.database.ServerValue.TIMESTAMP, up = {};
+      up['parties/' + pid] = { code, name, color, owner: N.user.uid, members: { [N.user.uid]: { nick: N.nick, t, code } } };
+      up['partyCodes/' + code] = pid;
+      await db.ref().update(up);
+      return { pid, code };
+    }
+    throw new Error('초대 코드를 만들지 못했습니다. 다시 시도하세요.');
+  };
+  N.partyJoin = async (code) => {
+    code = String(code || '').trim().toUpperCase();
+    const pid = (await db.ref('partyCodes/' + code).once('value')).val();
+    if (!pid) throw new Error('없는 초대 코드입니다.');
+    try { await db.ref('parties/' + pid + '/members/' + N.user.uid).set({ nick: N.nick, t: firebase.database.ServerValue.TIMESTAMP, code }); }
+    catch { throw new Error('팀에 들어갈 수 없습니다(인원이 가득 찼거나 코드가 맞지 않습니다).'); }
+    return pid;
+  };
+  N.partyLeave = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid).remove();
+  // cb({ meta:{name,color,code,owner}, members, state, lease })를 값이 바뀔 때마다 부른다. 반환값은 구독 해제 함수
+  N.partyWatch = (pid, cb) => {
+    const ref = db.ref('parties/' + pid), fn = (s) => { const v = s.val(); if (!v) return cb(null); cb({ meta: { name: v.name, color: v.color, code: v.code, owner: v.owner }, members: v.members || {}, state: v.state || null, lease: v.lease || null }); };
+    ref.on('value', fn, () => cb(null));
+    return () => ref.off('value', fn);
+  };
+  N.partyWatchLog = (pid, cb) => {
+    const ref = db.ref('parties/' + pid + '/log').orderByChild('t').limitToLast(20), fn = (s) => { const out = []; s.forEach(c => { out.push(c.val()); }); cb(out); };
+    ref.on('value', fn); return () => ref.off('value', fn);
+  };
+  // lease: 본인이거나 만료됐거나 passive일 때만 가져간다(규칙이 검사). 성공하면 true
+  N.partyLease = async (pid, active, ms) => {
+    const exp = Date.now() + ms;
+    const r = await db.ref('parties/' + pid + '/lease').transaction((cur) => {
+      if (cur && cur.uid !== N.user.uid && cur.active && cur.exp > Date.now()) return;   // 다른 사람의 유효한 active 임대
+      return { uid: N.user.uid, nick: N.nick, active: !!active, exp };
+    }, undefined, false);
+    return !!r.committed;
+  };
+  // 팀 상태 올리기: base 버전일 때만(낙관적 동시성). 성공하면 { ok: true, ver }
+  N.partyPublish = async (pid, base, state) => {
+    const r = await db.ref('parties/' + pid + '/state').transaction((cur) => {
+      const curVer = cur ? cur.ver : 0;
+      if (curVer !== base) return;
+      return Object.assign({}, state, { ver: base + 1, by: N.user.uid });
+    }, undefined, false);
+    return { ok: !!r.committed, ver: base + 1 };
+  };
+  N.partyLog = (pid, entry) => db.ref('parties/' + pid + '/log').push(Object.assign({ uid: N.user.uid, nick: N.nick, t: firebase.database.ServerValue.TIMESTAMP }, entry));
+  N.partyBeat = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid + '/t').set(firebase.database.ServerValue.TIMESTAMP);
+  N.partyMeta = (pid, meta) => db.ref('parties/' + pid).update(meta);
   return N;
 })();

@@ -121,6 +121,66 @@
         "$other": { ".validate": false }
       }
     },
+    "partyCodes": {
+      "$code": {
+        ".read": "auth != null",
+        ".write": "auth != null && !data.exists()",
+        ".validate": "newData.isString() && $code.matches(/^[A-Z2-9]{6}$/)"
+      }
+    },
+    "parties": {
+      "$pid": {
+        ".read": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+        ".write": "auth != null && !data.exists() && newData.child('owner').val() === auth.uid && newData.child('members').child(auth.uid).exists()",
+        "code": { ".validate": "newData.isString() && newData.val().length === 6" },
+        "name": {
+          ".write": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 10"
+        },
+        "color": {
+          ".write": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+          ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)"
+        },
+        "owner": { ".validate": "newData.isString()" },
+        "members": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid && (!newData.exists() || data.exists() || (newData.child('code').val() === root.child('parties/' + $pid + '/code').val() && root.child('parties/' + $pid + '/members').numChildren() < 4))",
+            ".validate": "newData.hasChildren(['nick', 't', 'code'])",
+            "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
+            "t": { ".validate": "newData.isNumber()" },
+            "code": { ".validate": "newData.isString() && newData.val().length === 6" },
+            "$other": { ".validate": false }
+          }
+        },
+        "state": {
+          ".write": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+          ".validate": "newData.hasChildren(['ver', 'raft', 'f', 'qDone', 'day', 'min']) && newData.child('ver').isNumber() && (!data.exists() ? newData.child('ver').val() === 1 : newData.child('ver').val() === data.child('ver').val() + 1)",
+          "qDone": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
+          "day": { ".validate": "newData.isNumber() && newData.val() >= 1" },
+          "min": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() < 1440" },
+          "by": { ".validate": "newData.isString()" },
+          "$other": { ".validate": true }
+        },
+        "lease": {
+          ".write": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists() && (!data.exists() || data.child('uid').val() === auth.uid || data.child('exp').val() < now || data.child('active').val() === false)",
+          ".validate": "newData.hasChildren(['uid', 'active', 'exp']) && newData.child('uid').val() === auth.uid && newData.child('active').isBoolean() && newData.child('exp').isNumber() && newData.child('exp').val() <= now + 20000"
+        },
+        "log": {
+          ".indexOn": ["t"],
+          "$id": {
+            ".write": "auth != null && !data.exists() && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['uid', 'nick', 'kind', 'text', 't']) && newData.child('uid').val() === auth.uid",
+            "uid": { ".validate": "newData.isString()" },
+            "nick": { ".validate": "newData.isString() && newData.val().length <= 8" },
+            "kind": { ".validate": "newData.isString() && newData.val().length <= 12" },
+            "text": { ".validate": "newData.isString() && newData.val().length <= 120" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    },
     "saves": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",
