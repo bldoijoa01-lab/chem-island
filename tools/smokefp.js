@@ -67,12 +67,46 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     ok('목표 1 달성', await ev(() => __fp.S.qDone) >= 1, String(await ev(() => __fp.S.qDone)));
     // 공용 패널: 메뉴 5개
     for (let i = 0; i < 5; i++) { await page.click(`#menu3 button:nth-child(${i + 1})`); await page.waitForTimeout(200); if (!(await ev(() => !document.getElementById('modal').hidden))) errors.push(`메뉴 ${i + 1}번이 열리지 않았습니다`); await page.click('#mclose'); await page.waitForTimeout(100); }
+    // 서리 늑대(목표 9): 밤에 장치에 붙은 늑대를 보고 소금 뿌리개(우클릭) → 질량이 줄어든다
+    await ev(() => { const f = __fp, S = f.S; S.min = 180; S.inv.salt = 200; S.inv.shaker = 1; S.mobs.push({ id: 3, k: 'wolf', M: 100, M0: 100, dx: S.placed[0].x, dy: S.placed[0].y, att: 0 }); f.p.x = 55.5; f.p.z = 30.4; f.p.y = 10.05; f.p.vy = 0; });
+    await page.waitForTimeout(600);
+    await ev(() => { const f = __fp, m = f.S.mobs[0], d = f.S.placed[0]; const wx = 52 + d.x + 1 + (m.id % 2 ? 2.2 : -2.2), wz = 30 + d.y + 1; aim(wx, 10.6, wz); f.setSel('shaker'); });
+    await page.waitForTimeout(300);
+    const tgtKind = await ev(() => (__fp.aimedTarget() || {}).kind), dbgW = await ev(() => JSON.stringify([__fp.p.x, __fp.p.y, __fp.p.z, __fp.targets().map(t => [t.kind, t.wx, t.wy, t.wz])]));
+    const M0 = await ev(() => __fp.S.mobs[0].M);
+    await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(300);
+    ok('서리 늑대에 소금 뿌리기', tgtKind === 'wolf' && await ev(() => !__fp.S.mobs[0] || __fp.S.mobs[0].M) < M0, `대상 ${tgtKind} ${dbgW}, 질량 ${M0} → ${await ev(() => __fp.S.mobs[0] ? __fp.S.mobs[0].M : 'gone')}`);
+    // 극지 섬(목표 11): 눈 칸에 소금을 뿌려 얼음 100 g을 녹이면 물이 되고 S.f.polarMelt
+    await ev(() => { const S = __fp.S; S.f.raft = true; S.qDone = 11; S.mobs.length = 0; S.inv.salt = 500; G.sail('polar'); });
+    await page.waitForTimeout(1500);
+    const polar = await ev(() => { const f = __fp, I = f.island(); for (let x = 20; x < 40; x++) { const y = I.topY(x, 24) - 1, id = I.get(x, y, 24); if (id === 5 || id === 6) { f.p.x = x + 0.5; f.p.z = 26.5; f.p.y = y + 1.1; f.p.vy = 0; f.S.min = 180; f.setSel('shaker'); return { x, y, z: 24, id, isl: f.islName() }; } } return null; });
+    await page.waitForTimeout(800);
+    if (polar) await ev(({ x, y, z }) => aim(x + 0.5, y + 0.9, z + 0.5), polar);
+    await page.waitForTimeout(300);
+    for (let i = 0; i < 40 && polar && !(await ev(() => __fp.S.f.polarMelt)); i++) { await ev(() => { __fp.S.min = 180; }); await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' }); await page.waitForTimeout(60); }
+    ok('극지 섬 얼음 녹이기(목표 11 조건)', !!polar && await ev(() => __fp.S.f.polarMelt), JSON.stringify(polar) + ' 소금 ' + await ev(() => __fp.S.inv.salt));
+    // 점프만으로 네 섬을 건널 수 있다(자동 오르기 없음): 부두에서 서쪽 안쪽 끝까지 갔다가 돌아온다
+    for (const dock of ['start', 'plaza', 'alpine', 'polar']) {
+      await ev(d => { const S = __fp.S; S.f.raft = true; S.qDone = 11; if (S.raft.dock !== d) G.sail(d); }, dock); await page.waitForTimeout(1500);
+      const walk = await ev(() => {
+        const f = __fp, res = {};
+        const go = (yaw, done) => { f.setLook(yaw, 0); let t = 0, lx = f.p.x, lz = f.p.z, stuck = 0;
+          while (t < 150 && !done()) { f.stepPlayer(1 / 60, 0, 1, f.p.onGround && stuck > 1 || f.p.inW); t += 1 / 60; stuck = Math.hypot(f.p.x - lx, f.p.z - lz) < 0.004 ? stuck + 1 : 0; lx = f.p.x; lz = f.p.z; }
+          return done(); };
+        f.p.x = 50.5; f.p.z = 32.5; f.p.y = 11; f.p.vy = 0;
+        res.west = go(Math.PI / 2, () => f.p.x < 12);
+        res.east = go(-Math.PI / 2, () => f.p.x > 50);
+        return res;
+      });
+      ok(`섬 통과: ${dock}`, walk.west && walk.east, JSON.stringify(walk));
+    }
     // 항해: 광장섬으로 → 섬이 바뀌고 뗏목 위에 서며 장치가 따라온다
     await ev(() => { __fp.S.f.raft = true; G.sail('plaza'); });
     await page.waitForTimeout(1500);
     const arr = await ev(() => { const f = __fp; return { isl: f.islName(), onG: f.p.onGround, x: f.p.x, z: f.p.z, dev: f.S.placed.length, dock: f.S.raft.dock }; });
     ok('항해(광장섬 도착)', arr.isl === 'plaza' && arr.dock === 'plaza' && arr.onG && arr.dev === 1, JSON.stringify(arr));
     // 보스: 제단을 보고 E → 골렘 화면
+
     await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'altar'); f.p.x = o.x + 3; f.p.z = o.z; f.p.y = f.island().topY(Math.floor(o.x + 3), Math.floor(o.z)) + 0.1; f.p.vy = 0; });
     await page.waitForTimeout(600);
     await ev(() => { const f = __fp, o = f.island().objs.find(q => q.type === 'altar'); aim(o.x, o.y + 1, o.z); }); await page.waitForTimeout(300);
@@ -81,6 +115,39 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     await page.click('#mclose');
     if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
     console.log(checks.join(' · '));
+
+  // 온라인(가짜 Net): /saves3 불러오기 → 광장섬·파낸 복셀 복원, 다른 플레이어·정박 뗏목 표시, 위치(x·y·z·yaw)·세이브 전송
+  try {
+    const page2 = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+    page2.on('pageerror', e => errors.push('페이지 에러(온라인): ' + e.message));
+    page2.on('console', m => { if (m.type() === 'error' && !/ERR_|Failed to load|404/.test(m.text())) errors.push('콘솔 에러(온라인): ' + m.text()); });
+    await page2.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => (mod && /three\.module\.js/.test(r.request().url())) ? r.fulfill({ path: mod, contentType: 'text/javascript' }) : r.abort());
+    await page2.addInitScript(() => {
+      const calls = { saveSave: 0, saves: [], pos: [], join: [], rafts: 0 };
+      const fake = {
+        ok: true, user: { uid: 'u1' }, nick: '테스터', guest: true, peers: { u2: { nick: '친구', x: 30, y: 12, z: 30, yaw: 0, air: false } }, calls,
+        init: () => true, restore: async () => '테스터',
+        loadSave: async () => { const s = Sim.newState(); s.fp = { x: 40.5, y: 14, z: 30.5, yaw: 1, pitch: 0, mods: { plaza: { '33,12,40': 0 } } }; s.raft.dock = 'plaza'; s.f.raft = true; s.qDone = 4; s.placed = [{ id: 'fire', x: 1, y: 1, s: { level: 0, fuel: 0 } }]; return s; },
+        saveSave: async (o) => { calls.saveSave++; calls.saves.push(Object.keys(o)); }, saveRaft: async (o) => { calls.rafts++; calls.raft = o; },
+        joinMap: (m, first) => calls.join.push([m, Object.keys(first)]), sendPos: (pk) => calls.pos.push(pk), leaveMap() {},
+        loadRafts: async () => [{ nick: '이웃', cells: 6, dock: 'plaza', devs: [{ id: 'still', u: 0, z: 0 }] }], loadBottles: async () => [],
+      };
+      Object.defineProperty(window, 'Net', { get: () => fake, set: () => {} });
+    });
+    await page2.goto(`http://127.0.0.1:${PORT}/fp/index.html?test`); await page2.waitForTimeout(1500);
+    await page2.click('#t-start'); await page2.waitForTimeout(1800);
+    if (await page2.evaluate(() => !document.getElementById('modal').hidden)) await page2.click('#mclose');
+    await page2.waitForTimeout(1500);
+    const on = await page2.evaluate(() => { const f = __fp; return { isl: f.islName(), dock: f.S.raft.dock, voxel: f.voxel(33, 12, 40), fire: f.S.placed.length, x: f.p.x, calls: Net.calls, labels: document.querySelectorAll('.nick3').length, lt: [...document.querySelectorAll('.nick3')].map(e => e.textContent), peers: Object.keys(Net.peers), presKeys: Object.keys(f.S.fp), pause: Store.paused, scene: f.scene.children.length }; });
+    ok('온라인: 서버 세이브로 광장섬 복원', on.isl === 'plaza' && on.dock === 'plaza' && on.fire === 1, JSON.stringify(on));
+    ok('온라인: 파낸 복셀 복원', on.voxel === 0, 'voxel ' + on.voxel);
+    ok('온라인: 광장 접속(fp-plaza)과 위치 전송', on.calls.join.some(j => j[0] === 'fp-plaza' && j[1].includes('z') && j[1].includes('yaw')) && on.calls.pos.length >= 0, JSON.stringify(on.calls.join));
+    ok('온라인: 다른 플레이어·정박 뗏목 이름표', on.labels >= 2, JSON.stringify([on.labels, on.lt, on.peers, on.pause]));
+    await page2.waitForTimeout(6500);
+    const sv = await page2.evaluate(() => Net.calls);
+    ok('온라인: /saves3 저장에 fp 포함, 뗏목 요약에 z', sv.saves.some(k => k.includes('fp')) && sv.rafts > 0 && sv.raft.devs.every(d => 'z' in d), JSON.stringify([sv.saves.slice(0, 1), sv.raft]));
+    await page2.close();
+  } catch (e) { errors.push('온라인 시험 실패: ' + e.message); }
   } finally { await browser.close(); srv.kill(); }
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
   console.log('1인칭 3D 연기 시험 통과');

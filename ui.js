@@ -377,7 +377,7 @@ async function enterWorld() {
     const r = Store.remote ? await Net.loadSave() : null;   // fp는 2D 서버 세이브를 읽지 않는다
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
-  $('auth').hidden = true; Store.paused = false; lastRemote = 0; save(true); refresh();
+  $('auth').hidden = true; Store.paused = false; Store.forceNext(); save(true); refresh();
   H.joinMap();
   say(`${Net.nick}님, 환영합니다!`);
 }

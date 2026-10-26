@@ -31,6 +31,8 @@
           "vx": { ".validate": "newData.isNumber() && newData.val() >= -200 && newData.val() <= 200" },
           "face": { ".validate": "newData.isNumber() && (newData.val() === 1 || newData.val() === -1)" },
           "air": { ".validate": "newData.isBoolean()" },
+          "z": { ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 4000" },
+          "yaw": { ".validate": "newData.isNumber() && newData.val() >= -10 && newData.val() <= 10" },
           "$other": { ".validate": false }
         }
       }
@@ -50,6 +52,30 @@
             ".validate": "newData.hasChildren(['id', 'u'])",
             "id": { ".validate": "newData.isString() && newData.val().length <= 12" },
             "u": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
+            "run": { ".validate": "newData.isBoolean()" },
+            "broken": { ".validate": "newData.isBoolean()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    },
+    "rafts3": {
+      ".indexOn": ["t"],
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['cells', 'dock', 'nick'])",
+        "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
+        "cells": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 24" },
+        "dock": { ".validate": "newData.isString() && newData.val().length <= 16" },
+        "t": { ".validate": "newData.isNumber()" },
+        "devs": {
+          "$i": {
+            ".validate": "newData.hasChildren(['id', 'u'])",
+            "id": { ".validate": "newData.isString() && newData.val().length <= 12" },
+            "u": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
+            "z": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 24" },
             "run": { ".validate": "newData.isBoolean()" },
             "broken": { ".validate": "newData.isBoolean()" },
             "$other": { ".validate": false }
@@ -100,6 +126,13 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "newData.hasChildren(['inv', 'f'])"
+      }
+    },
+    "saves3": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['inv', 'f', 'fp'])"
       }
     }
   }

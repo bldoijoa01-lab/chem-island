@@ -122,20 +122,22 @@ function updateObjects() {
 const devWorld = (d) => [RX0 + d.x + 1, SEA, RZ0 + d.y + 1];   // 장치(2×2)의 가운데 바닥
 const wolfWorld = (m) => { const d = S.placed.find(x => x.x === m.dx && x.y === m.dy); const [x, y, z] = d ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
 const topMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
+function devModel(id) {   // 장치 모형: 2D 그림을 옆면에 입힌 상자(화덕은 불꽃 캔버스를 더한다)
+  const side = new THREE.MeshLambertMaterial({ map: tex(Art.dev[id]), transparent: true, alphaTest: 0.4 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(2, 1.8, 2), [side, side, topMat, topMat, side, side]);
+  box.position.y = 0.9;
+  const root = new THREE.Group(); root.add(box);
+  const bad = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: 0xff5a4a })); bad.position.set(0, 2.1, 0); bad.visible = false; root.add(bad);
+  const g = { root, bad };
+  if (id === 'fire') { const cv = document.createElement('canvas'); cv.width = cv.height = 32; g.flameCv = cv; const fl = cross(cv, 1); fl.position.y = 0.3; g.flame = fl; root.add(fl); }
+  return g;
+}
 function syncDevices(t) {
   const live = new Set(S.placed);
   for (const [d, g] of devMeshes) if (!live.has(d)) { scene.remove(g.root); devMeshes.delete(d); }
   for (const d of S.placed) {
     let g = devMeshes.get(d);
-    if (!g) {
-      const side = new THREE.MeshLambertMaterial({ map: tex(Art.dev[d.id]), transparent: true, alphaTest: 0.4 });
-      const box = new THREE.Mesh(new THREE.BoxGeometry(2, 1.8, 2), [side, side, topMat, topMat, side, side]);
-      box.position.y = 0.9;
-      const root = new THREE.Group(); root.add(box);
-      const bad = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: 0xff5a4a })); bad.position.set(0, 2.1, 0); bad.visible = false; root.add(bad);
-      g = { root, bad }; scene.add(root); devMeshes.set(d, g);
-      if (d.id === 'fire') { const cv = document.createElement('canvas'); cv.width = cv.height = 32; g.flameCv = cv; const fl = cross(cv, 1); fl.position.y = 0.3; g.flame = fl; root.add(fl); }
-    }
+    if (!g) { g = devModel(d.id); scene.add(g.root); devMeshes.set(d, g); }
     const [x, y, z] = devWorld(d); g.root.position.set(x, y, z);
     g.bad.visible = !!d.s.broken;
     if (g.flame) { const c2 = g.flameCv.getContext('2d'); c2.clearRect(0, 0, 32, 32); Art.flame(c2, 0, 0, d.s.level, t); tex(g.flameCv).needsUpdate = true; }
@@ -165,6 +167,60 @@ function syncRaft() {
 function loadIsland(name) {
   islName = name; isl = new Island(name); isl.applyMods(S.fp.mods[name]);
   rebuildAll(); setFar(); buildObjects(); raftSig = ''; syncRaft();
+}
+
+// ---------- 광장: 다른 플레이어(presence)와 정박한 남의 뗏목(읽기 전용) ----------
+const PRES_HZ = 100;   // 위치를 서버에 보내는 간격(ms) = 10 Hz
+let presMap = null, lastPos = '', lastPosAt = 0;
+const peerMeshes = {};
+const posPacket = () => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, z: Math.round(p.z * 100) / 100, yaw: Math.round(yaw * 100) / 100, air: !p.onGround });
+function joinPresence() {   // 광장섬에서만 서로 보인다(시작섬은 내 섬)
+  if (!(window.Net && Net.user)) return;
+  const want = islName === 'plaza' ? 'fp-plaza' : null;
+  if (want === presMap) return;
+  presMap = want; for (const id in peerMeshes) dropPeer(id);
+  if (want) Net.joinMap(want, posPacket()); else Net.leaveMap();
+}
+function dropPeer(id) { scene.remove(peerMeshes[id].m); peerMeshes[id].label.remove(); delete peerMeshes[id]; }
+function netStep(dt, now) {
+  if (!(window.Net && Net.user) || !presMap || Store.paused) return;
+  if (now - lastPosAt >= PRES_HZ) { const pk = posPacket(), k = JSON.stringify(pk); if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(pk); } }
+  const a = 1 - Math.exp(-dt * 14);
+  for (const id in Net.peers) {
+    const q = Net.peers[id]; if (typeof q.x !== 'number' || typeof q.z !== 'number') continue;
+    let g = peerMeshes[id];
+    if (!g) { const label = document.createElement('div'); label.className = 'nick3'; document.body.appendChild(label); const mm = cross(Art.playerFrames[0], 1.1); scene.add(mm); g = peerMeshes[id] = { m: mm, label, x: q.x, y: q.y, z: q.z }; }
+    g.x += (q.x - g.x) * a; g.y += (q.y - g.y) * a; g.z += (q.z - g.z) * a;
+    g.m.position.set(g.x, g.y, g.z); g.m.rotation.y = Math.atan2(p.x - g.x, p.z - g.z); g.label.textContent = q.nick || '';
+  }
+  for (const id in peerMeshes) if (!Net.peers[id]) dropPeer(id);
+}
+const lv = new THREE.Vector3();
+function placeLabels() {
+  for (const id in peerMeshes) { const g = peerMeshes[id]; lv.set(g.x, g.y + 2.1, g.z).project(camera); g.label.style.left = ((lv.x + 1) / 2 * innerWidth) + 'px'; g.label.style.top = ((1 - lv.y) / 2 * innerHeight) + 'px'; g.label.style.display = lv.z < 1 ? '' : 'none'; }
+}
+// 정박한 남의 뗏목: 광장섬 앞바다에 내 뗏목 북쪽으로 10칸 간격으로 세 척까지(2D의 drawPlazaRafts와 같은 읽기 전용 표시)
+let plazaGroup = new THREE.Group(), plazaSig = '';
+scene.add(plazaGroup);
+const rcz = cells => Math.min(8, 4 + Math.floor((cells - 4) / 2));
+function syncPlaza() {
+  const rafts = islName === 'plaza' ? UI.plazaRafts().slice(0, 3) : [], sig = islName + JSON.stringify(rafts.map(r => [r.nick, r.cells, (r.devs || []).length]));
+  if (sig === plazaSig) return; plazaSig = sig;
+  scene.remove(plazaGroup); plazaGroup = new THREE.Group();
+  rafts.forEach((r, i) => {
+    const cx = Math.max(2, Math.min(12, r.cells | 0)), cz = rcz(cx), z0 = RZ0 - 10 * (i + 1);
+    const fl = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ map: tex(Art.tiles.raft[0]) }), cx * cz), dm = new THREE.Object3D();
+    let k = 0; for (let z = 0; z < cz; z++) for (let x = 0; x < cx; x++) { dm.position.set(RX0 + x + 0.5, SEA - 0.5, z0 + z + 0.5); dm.updateMatrix(); fl.setMatrixAt(k++, dm.matrix); }
+    fl.frustumCulled = false; plazaGroup.add(fl);
+    for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cx) { const g = devModel(d.id); g.root.position.set(RX0 + d.u + 1, SEA, z0 + (d.z | 0) + 1); g.bad.visible = !!d.broken; plazaGroup.add(g.root); }
+    const label = document.createElement('div'); label.className = 'nick3'; label.textContent = r.nick || ''; label.dataset.plaza = '1'; document.body.appendChild(label);
+    plazaGroup.userData.labels = (plazaGroup.userData.labels || []).concat([[label, RX0 + cx / 2, SEA + 3, z0 + cz / 2]]);
+  });
+  scene.add(plazaGroup);
+  document.querySelectorAll('.nick3[data-plaza]').forEach(el => { if (!(plazaGroup.userData.labels || []).some(l => l[0] === el)) el.remove(); });
+}
+function placePlazaLabels() {
+  for (const [el, x, y, z] of (plazaGroup.userData.labels || [])) { lv.set(x, y, z).project(camera); el.style.left = ((lv.x + 1) / 2 * innerWidth) + 'px'; el.style.top = ((1 - lv.y) / 2 * innerHeight) + 'px'; el.style.display = lv.z < 1 ? '' : 'none'; }
 }
 
 // ---------- 하늘·바다·낮밤 ----------
@@ -478,6 +534,12 @@ function savePos() { S.fp.x = p.x; S.fp.y = p.y; S.fp.z = p.z; S.fp.yaw = yaw; S
 setInterval(() => { savePos(); save(); }, 5000);
 addEventListener('pagehide', () => { savePos(); save(true); });
 // 항해: 'moved' 이벤트(Sim.act.sail) → 화면이 어두워졌다 밝아지는 동안 새 섬을 불러오고 뗏목 위에 선다
+let fpRef = S.fp;
+function resetFromState() {
+  p.x = S.fp.x; p.y = S.fp.y; p.z = S.fp.z; p.vx = p.vy = p.vz = 0; yaw = S.fp.yaw; pitch = S.fp.pitch;
+  loadIsland(islandName()); if (hitsBody(p.x, p.y, p.z)) { const f = findFree(); if (f) { p.x = f[0]; p.z = f[1]; p.y = SEA + 0.05; } }
+  loadPlaza(); joinPresence();
+}
 function onMoved() {
   const f = $('fade'); f.style.opacity = 1;
   setTimeout(() => { arrive(); setTimeout(() => { f.style.opacity = 0; }, 150); }, TEST ? 50 : 500);
@@ -486,7 +548,7 @@ function arrive() {
   loadIsland(islandName()); const { cx, cz } = raftDims();
   p.x = RX0 + cx / 2; p.z = RZ0 + cz / 2 + (S.placed.length ? cz / 2 - 0.5 : 0); p.y = SEA + 0.05; p.vx = p.vy = p.vz = 0; yaw = -Math.PI / 2; pitch = 0;
   const free = findFree(); if (free) { p.x = free[0]; p.z = free[1]; }
-  loadPlaza();
+  loadPlaza(); joinPresence();
 }
 function findFree() {   // 뗏목 위에서 장치와 겹치지 않는 자리
   const { cx, cz } = raftDims();
@@ -498,10 +560,15 @@ UI.init({
   puff(x, y, col, n) { const [wx, wy, wz] = fxPos(); puff(wx, wy, wz, col.startsWith('rgba') ? '#ebf5ff' : col, n); },
   burst(d) { const [x, y, z] = devWorld(d); puff(x, y + 1, z, '#ff7a3d', 14); puff(x, y + 1, z, '#4a4f56', 10); },
   clearKeys,
-  applyWorld() { ensureFp(); if (islandName() !== islName) onMoved(); else { raftSig = ''; syncRaft(); rebuildAll(); } },
+  applyWorld() {
+    ensureFp();
+    if (S.fp !== fpRef) { fpRef = S.fp; resetFromState(); }   // 서버 세이브·처음부터: 위치·파낸 복셀까지 상태에서 다시 읽는다
+    else if (islandName() !== islName) onMoved();              // 항해
+    else { raftSig = ''; syncRaft(); }                         // 뗏목 넓히기
+  },
   startBuild(id) { mode = 'build:' + id; sel = null; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 바라보고 우클릭하세요. (Q 취소)`); },
   startDemolish() { mode = 'demolish'; sel = null; $('modal').hidden = true; say('철거할 장치를 바라보고 우클릭하세요. (Q 취소)'); },
-  joinMap() { /* 다른 플레이어 표시는 6-e */ },
+  joinMap() { joinPresence(); },
 });
 
 // ---------- 프레임 ----------
@@ -513,10 +580,10 @@ function frame(now) {
   const act = !modalOpen && canAct();
   const ax = act ? (keys.d ? 1 : 0) - (keys.a ? 1 : 0) : 0, az = act ? (keys.w ? 1 : 0) - (keys.s ? 1 : 0) : 0;
   if (!Store.paused || TEST) stepPlayer(dt, ax, az, act && keys.jump); else { p.vx = p.vz = 0; }
-  stepDig(dt); stepParts(dt);
+  stepDig(dt); stepParts(dt); netStep(dt, now);
   for (const k of dirty) { const [cx, cz] = k.split(',').map(Number); buildChunk(cx, cz); } dirty.clear();
   camera.position.set(p.x, p.y + EYE, p.z); camera.rotation.set(pitch, yaw, 0, 'YXZ');
-  syncRaft(); updateObjects(); syncDevices(tNow); syncWolves(tNow); sky(); updateAim(); drawHUD();
+  syncRaft(); updateObjects(); syncDevices(tNow); syncWolves(tNow); sky(); updateAim(); drawHUD(); placeLabels(); syncPlaza(); placePlazaLabels();
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -534,4 +601,4 @@ function startGame() {
 }
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => openHelp();
-window.__fp = { scene, camera, S, p, raycast, voxel, aimedTarget, getMode: () => mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig, ghostCell, solid, stepPlayer, setSel(k) { sel = k; } };   // 시험(tools/smokefp.js)용 통로
+window.__fp = { targets: collectTargets, scene, camera, S, p, raycast, voxel, aimedTarget, getMode: () => mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig, ghostCell, solid, stepPlayer, setSel(k) { sel = k; } };   // 시험(tools/smokefp.js)용 통로

@@ -72,7 +72,8 @@ window.Net = (() => {
     } catch (e) { throw new Error(e.code ? errText(e) : e.message); }
   };
   N.logout = async () => { N.leaveMap(); await auth.signOut(); N.user = null; N.nick = null; N.guest = true; };
-  N.loadSave = async () => (await db.ref('saves/' + N.user.uid).once('value')).val();
+  const SAVES = window.CHEM_FP ? 'saves3' : 'saves', RAFTS = window.CHEM_FP ? 'rafts3' : 'rafts';   // 1인칭(fp/)은 2D와 다른 경로를 쓴다
+  N.loadSave = async () => (await db.ref(SAVES + '/' + N.user.uid).once('value')).val();
   // ---- presence: 같은 맵의 다른 플레이어 ----
   let pref = null, pOff = [];
   N.peers = {};   // uid -> { nick, x, y, vx, face, anim, t }
@@ -95,7 +96,7 @@ window.Net = (() => {
     }
     pref = null; pOff = []; N.peers = {};
   };
-  N.saveSave = (obj) => db.ref('saves/' + N.user.uid).set(obj);
+  N.saveSave = (obj) => db.ref(SAVES + '/' + N.user.uid).set(obj);
   // ---- 협동 보스(솥 골렘 3단계): 같은 탱크(/raid/golem)에 두 사람이 역할(O2 / N2)을 나눠 캡슐을 넣는다 ----
   let rref = null, rHandler = null;
   N.raidJoin = async (role, cb, init) => {
@@ -118,9 +119,9 @@ window.Net = (() => {
     rref = null; rHandler = null;
   };
   // ---- 광장: 정박한 뗏목(남은 읽기만)과 유리병 편지 ----
-  N.saveRaft = (sum) => db.ref('rafts/' + N.user.uid).set(Object.assign({ nick: N.nick }, sum));
+  N.saveRaft = (sum) => db.ref(RAFTS + '/' + N.user.uid).set(Object.assign({ nick: N.nick }, sum));
   N.loadRafts = async (n) => {
-    const out = [], snap = await db.ref('rafts').orderByChild('t').limitToLast((n || 3) + 1).once('value');
+    const out = [], snap = await db.ref(RAFTS).orderByChild('t').limitToLast((n || 3) + 1).once('value');
     snap.forEach((c) => { if (c.key !== N.user.uid) out.push(c.val()); });
     return out.reverse().slice(0, n || 3);
   };

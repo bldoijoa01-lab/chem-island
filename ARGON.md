@@ -96,3 +96,15 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 질문: (1) `3d/main.js`에서 `S`를 **쓰는**(대입·`Sim.act.*` 호출 아닌 직접 변경) 코드가 있는지, 있다면 2D(`game.js`)에는 없는 변경인지, (2) 마우스 클릭을 칸으로 바꾸는 방식(지형 앞면 평면 z=5 교점)이 카메라가 비스듬해서 2D의 "커서 아래 칸"과 다르게 집히는 경계(절벽 가장자리·물 위)를 알려 줘, (3) `World.stepPlayer`로 옮긴 이동이 옛 `physics`와 달라진 입력 조합(점프+벽, 물속 점프)이 있는지 diff로 확인해 줘.
 - 사람이 확인할 방법: 2D·3D에서 같은 세이브로 목표 1~3을 해 보고 상태(일차·가방·장치)가 같은지, `node tools/smoke3d.js`(CDN이 막히면 `THREE_MODULE=` 지정), 직접 플레이하며 땅 파기·건설이 마우스 위치와 맞는지
 
+### [2026-10-26] 6단계: 1인칭 3D (fp/) — sim.js 교체 고리와 서버 규칙
+- 맡길 일: (1) `sim.js` 교체 고리(`Sim.geo.adjacent`, `S.fp`일 때 `syncRaft`·`migrateRaft` 건너뛰기, `act.place`) diff 리뷰, (2) `database.rules.json`의 새 경로 보안 검토
+- 같이 붙일 파일: `sim.js`(변경 전 커밋 `5c91368`과 현재), `fp/main.js`, `fp/gen.js`, `store.js`, `net.js`, `database.rules.json`, `MULTIPLAYER.md` 11절, `tools/sim-check.js`
+- 질문: (1) `5c91368`의 `sim.js`와 현재를 비교해서 **2D 계산이 달라질 수 있는 경로**(특히 `act.build`가 `act.place`를 거치며 장치 객체의 필드 순서·`u` 유무가 바뀐 곳, `adjacentTo`가 `geo.adjacent`로 바뀐 곳)가 있는지, (2) 1인칭 장치의 `x, y`(격자 칸)가 `sim.js`의 서리 늑대 위치 비교(`m.dx === d.x && m.dy === d.y`)·`fireNear`와 충돌하는 입력이 있는지, (3) `/saves3`·`/rafts3`·`presence/fp-plaza`의 새 필드(`fp`, `z`, `yaw`)로 남의 데이터를 읽거나 고치는 길이 있는지, 범위를 벗어난 값이 들어가는지, `fp.mods`(파낸 복셀 키)로 데이터 크기를 부풀리는 부정이 가능한지 알려 줘.
+- 사람이 확인할 방법: `node tools/sim-check.js`(10개 기준값 그대로), Firebase 콘솔 규칙 시뮬레이터로 다른 uid로 `/saves3/{남의 uid}` 쓰기 시도, 2D와 1인칭 세이브를 각각 만들어 서로 안 섞이는지(`chemisle_side_v1` / `chemisle_fp_v1`)
+
+### [2026-10-26] 6단계: 1인칭 이동·충돌과 지형(동등성)
+- 맡길 일: 자동 오르기 없는 이동 규칙(바닥 딛고 물속 점프, 수면 점프)이 2D·1인칭에서 같은 의미인지, 지형에서 점프로 못 가는 곳이 있는지 점검
+- 같이 붙일 파일: `world.js`(`stepPlayer`, `SURF_JUMP`), `fp/main.js`(`stepPlayer`, `hitsBody`), `fp/gen.js`, `tools/move-check.js`, `tools/smokefp.js`, `DESIGN.md` §4-14·§4-15
+- 질문: (1) 2D `stepPlayer`와 1인칭 `stepPlayer`가 같은 상수·순서로 같은 결과를 내는지(점프+벽, 물속, 수면, 낙하 상한), (2) `fp/gen.js`가 만든 지형에서 부두~뗏목~섬 안쪽 사이에 점프로 못 넘는 3칸 이상 턱이나 갇히는 구덩이가 생기는 좌표가 있는지(시드 11·23·37·51) 알려 줘.
+- 사람이 확인할 방법: `node tools/move-check.js`, `node tools/smokefp.js`(섬 통과 4개), 직접 걸어 다니며 막히는 곳이 없는지
+
