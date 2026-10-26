@@ -6,8 +6,11 @@
 - 설계·화학 규칙·수업 아이템 번호: [DESIGN.md](DESIGN.md)
 - 모든 화학 식: [chem.js](chem.js) · 게임: [game.js](game.js) · 보스: [raid.js](raid.js) · 연구 노트: [notes.js](notes.js)
 
+테라리아처럼 **옆에서 본 2D 픽셀 월드**를 걸어 다니며 진행합니다. 모든 그림(타일·캐릭터·장치·아이콘·골렘)은 코드로 직접 그린 픽셀 아트라서 외부 이미지가 없습니다 ([sprites.js](sprites.js)).
+
 ## 실행
-`index.html`을 브라우저에서 열기 (서버·설치 불필요). 조작: 방향키/WASD 이동, E 또는 클릭으로 상호작용.
+`index.html`을 브라우저에서 열기 (서버·설치 불필요).
+조작: A/D 또는 ←/→ 이동, W/스페이스/↑ 점프(물속에서는 헤엄), E 또는 클릭으로 상호작용, 건설은 메뉴에서 고른 뒤 땅을 클릭. 터치 화면에는 이동 버튼이 나옵니다.
 
 ## GitHub Pages 배포
 저장소 Settings → Pages → Branch `main` / `(root)` → `https://<사용자명>.github.io/<저장소>/`

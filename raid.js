@@ -35,6 +35,8 @@ window.Raid = (() => {
     const title = ['', '🗿 1단계 — 증기 방어막', '🗿 2단계 — 끓어 넘치는 솥', '🗿 3단계 — 가스 과압'][R.phase];
     const html = [null, p1(), p2(), p3()][R.phase];
     A.openModal(title, html, null, close);
+    document.getElementById('mbody').insertAdjacentHTML('afterbegin', '<canvas id="golem" class="golem"></canvas>');
+    A.Art.drawGolem($('golem'), R.phase, R.phase === 2 ? R.hp / 100 : 1);
     if (R.phase === 1) p1Update();
     if (R.phase === 2) p2Update();
     if (R.phase === 3) p3Update();
@@ -118,6 +120,7 @@ window.Raid = (() => {
     A.set('r-T', A.fmt(R.T, 1) + ' ℃'); A.set('r-pa', A.fmt(pa, 2) + ' atm'); A.set('r-pv', A.fmt(C.pStar(R.T), 2) + ' atm');
     A.set('r-pt', A.fmt(pt, 2) + ' atm'); A.setw('r-pbar', pt / 3.2 * 100, pt >= P2_WIN[0] && pt <= P2_WIN[1] ? 'good' : (pt > P2_WIN[1] ? 'bad' : ''));
     A.set('r-hp', A.fmt(R.hp, 0) + ' / 100'); A.setw('r-hbar', R.hp);
+    if ($('golem')) A.Art.drawGolem($('golem'), 2, Math.max(0, R.hp) / 100);
     A.set('r-have2', `증류수 ${A.fmt(S().inv.water, 0)} g · 한제 팩 ${S().packs.length}개`);
     A.set('r-st', R.warn > 0 ? '🔥 골렘이 불을 뿜으려 합니다! (온도 상승 임박)' : (R.running ? (pt >= P2_WIN[0] && pt <= P2_WIN[1] ? '안전 압력대 — 골렘이 약해지는 중' : '압력대 밖') : '대기 중'));
   }

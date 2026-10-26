@@ -21,7 +21,7 @@ window.Notes = (() => {
 
   function linksHtml() {
     return `<table><tr><th>A</th><th>관계 (원인 → 변화 → 결과)</th><th>B</th><th>성립 조건/가정</th><th>아이템</th><th>게임 역할</th><th>구현</th></tr>` +
-      LINKS.map(l => `<tr><td>${l[0]}</td><td>${l[1]}</td><td>${l[2]}</td><td>${l[3]}</td><td>${l[4]}</td><td>${l[5]}</td><td class="${l[6] ? 'ok' : 'no'}">${l[6] ? '✔' : '✘'}</td></tr>`).join('') + `</table>`;
+      LINKS.map(l => `<tr><td>${l[0]}</td><td>${l[1]}</td><td>${l[2]}</td><td>${l[3]}</td><td>${l[4]}</td><td>${l[5]}</td><td class="${l[6] ? 'ok' : 'no'}">${l[6] ? '구현' : '미구현'}</td></tr>`).join('') + `</table>`;
   }
   function calcHtml() {
     return `<div class="grid2">

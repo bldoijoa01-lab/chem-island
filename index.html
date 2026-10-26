@@ -9,9 +9,12 @@
 <body>
 <div id="app">
   <div id="left">
-    <canvas id="cv" width="704" height="448"></canvas>
+    <canvas id="cv" width="384" height="224"></canvas>
     <div id="msg"></div>
-    <div id="hint">이동: 방향키/WASD 또는 타일 클릭 · 상호작용: E 또는 대상 클릭</div>
+    <div id="target"></div>
+    <div id="pad">
+      <button data-k="left">◀</button><button data-k="right">▶</button><button data-k="jump">▲</button><button data-k="e">E</button>
+    </div>
   </div>
   <aside id="side">
     <div class="row between">
@@ -23,24 +26,25 @@
     <section><h3>목표</h3><div id="quest"></div></section>
     <section><h3>가방</h3><div id="inv"></div></section>
     <section class="btns">
-      <button id="b-build">🔨 건설</button>
-      <button id="b-craft">🧰 제작</button>
-      <button id="b-notes">📖 연구 노트</button>
-      <button id="b-log">📝 기록</button>
-      <button id="b-save">💾 저장/초기화</button>
+      <button id="b-build">건설</button>
+      <button id="b-craft">제작</button>
+      <button id="b-notes">연구 노트</button>
+      <button id="b-log">기록</button>
+      <button id="b-save">저장/초기화</button>
     </section>
   </aside>
 </div>
 
 <div id="modal" hidden>
   <div id="mbox">
-    <button id="mclose" aria-label="닫기">✕</button>
+    <button id="mclose" aria-label="닫기">X</button>
     <h2 id="mtitle"></h2>
     <div id="mbody"></div>
   </div>
 </div>
 
 <script src="chem.js"></script>
+<script src="sprites.js"></script>
 <script src="notes.js"></script>
 <script src="raid.js"></script>
 <script src="game.js"></script>
