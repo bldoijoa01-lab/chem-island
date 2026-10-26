@@ -15,8 +15,8 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `index.html` | DOM shell: `#cv` canvas, HUD overlays, `#modal`, `#auth`. **Script load order matters** (see below). |
 | `style.css` | All styling (modal, auth, HUD, touch pad). |
 | `chem.js` | `window.Chem`: **the only place chemistry formulas/constants live** (`pStar`, `xw`, `pSol`, `tb`, `molality`, `coolTemp`, `moles`, `partial`, `mixT`, `packMix`, `AIR`...). Item numbers from class appear as `[#n]` comments. |
-| `sim.js` | `window.Sim` (also `require`-able in Node): state, time, device/wolf simulation, quests, action rules. **No window/DOM/canvas.** Screen effects leave as events (`Sim.drain()`). Check with `node tools/sim-check.js`. |
-| `game.js` | IIFE, ~1,000 lines: save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
+| `sim.js` | `window.Sim` (also `require`-able in Node): state + save migration, time, device/wolf simulation, quests, action rules, raft/islands/docks (`DOCKS`, `ENV` per-island pressure/temperature, `bounds`). **No window/DOM/canvas.** Screen effects leave as events (`Sim.drain()`). Check with `node tools/sim-check.js` (baseline) and `node tools/sim-compare.js` (same devices per island). |
+| `game.js` | IIFE, ~1,200 lines (380-tile world: start island, plaza, alpine, polar; raft, sailing, plaza rafts/bottle board): save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
 | `raid.js` | `window.Raid`: 3-phase "솥 골렘" boss puzzle (P1 Raoult, P2 pressure/heat balance, P3 Dalton partial pressure). Opened via `Raid.open(api)`. |
 | `notes.js` | `window.Notes`: research-note modal — concept-link table (`LINKS`, with lesson item numbers and implemented ✔/✘) and live calculators. |
 | `sprites.js` | `window.Art`: all pixel art drawn procedurally onto canvases (tiles, player, devices, icons, golem, sky/parallax). 16×16 tiles, auto 1px outline. |
