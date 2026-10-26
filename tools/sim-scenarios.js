@@ -1,3 +1,4 @@
+const Sim = require('../sim.js');   // 시나리오 I가 행동 규칙(Sim.act)을 직접 부른다
 // 시나리오: (S, adv) → 결과 스냅샷. 브라우저(분리 전 game.js)와 Node(sim.js)에서 같은 코드를 돌린다.
 module.exports = {
   A_distill_3buckets_80min: (S, adv) => {
@@ -32,5 +33,29 @@ module.exports = {
     S.min = 1300; S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 4, fuel: 40 } }, { id: 'cooker', x: 50, y: 22, s: { run: true, prog: 0, valve: 4, saltG: 0, water: 300, T: 25 } }];
     adv(600); const s = S.placed[1].s;
     return { wolves: S.mobId, broken: s.broken, safeWarned: s.safeWarned, done: s.done, doneP: s.doneP, log: S.log.map(l => l.type + ':' + l.text) };
+  },
+  // ---- 보완 일괄에서 추가한 경계 시나리오 G~J (분리 전 기준값 없음: 현재 sim.js를 돌려 저장한 값이다) ----
+  G_cooker_valve3_strongest_fire_no_burst: (S, adv) => {   // 밸브 2.5 atm(index 3) + 최강불: 터지지 않고 내부 2.5 atm에서 완성
+    S.f.raft = true;
+    S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 4, fuel: 40 } }, { id: 'cooker', x: 50, y: 22, s: { run: true, prog: 0, valve: 3, saltG: 0, water: 300, T: 25 } }];
+    adv(20); const s = S.placed[1].s;
+    return { broken: !!s.broken, done: s.done, doneP: s.doneP, Teff: Math.round(s.cs.Teff * 100) / 100 };
+  },
+  H_still_end_boundary: (S, adv) => {   // 끝나기 직전 경계: 1분 가열하면 남은 물이 하한에 닿아 소금이 남고 가열이 끝난다
+    S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 4, fuel: 40 } }, { id: 'still', x: 50, y: 22, s: { w: 19.636 + 0.5, ns: 7 / 58.44, outW: 0, outS: 0, run: true, T: 25 } }];
+    adv(1); const s = S.placed[1].s;
+    return { w: Math.round(s.w * 1000) / 1000, ns: s.ns, outW: Math.round(s.outW * 1000) / 1000, outS: Math.round(s.outS * 1000) / 1000, run: s.run };
+  },
+  I_wolf_5g_salt_10g_at_3am: (S, adv) => {   // 늑대가 5 g뿐이면 필요한 만큼만 쓰고 정화
+    S.min = 180; S.inv.salt = 10; S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }];
+    S.mobs = [{ id: 1, k: 'wolf', M: 5, M0: 5, dx: 47, dy: 22, att: 0 }]; S.mobId = 1;
+    Sim.act.saltOnWolf(S, S.mobs[0], 10); Sim.drain();
+    return { mobs: S.mobs.length, wolfDone: S.f.wolf, saltLeft: Math.round(S.inv.salt * 1000) / 1000 };
+  },
+  J_cold_cooker_no_progress: (S, adv) => {   // 화덕이 꺼진 밥솥은 60분 뒤에도 진행도 0 (끓지 않으면 조리되지 않는다)
+    S.f.raft = true;
+    S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }, { id: 'cooker', x: 50, y: 22, s: { run: true, prog: 0, valve: 2, saltG: 0, water: 300, T: 25 } }];
+    adv(60); const s = S.placed[1].s;
+    return { prog: s.prog, done: !!s.done, pIn: s.cs.pIn, boil: s.cs.boil };
   },
 };

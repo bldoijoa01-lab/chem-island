@@ -122,8 +122,13 @@
       raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
   }
+  // 서버(Firebase)는 빈 배열을 지우고, 구멍 난 배열을 객체로 돌려주기도 한다 → 배열·객체 필드를 기본 형태로 복구한다
+  const asArray = (v, def) => Array.isArray(v) ? v.filter(x => x != null) : (v && typeof v === 'object') ? Object.values(v).filter(x => x != null) : def;
+  const asObject = (v, def) => (v && typeof v === 'object' && !Array.isArray(v)) ? v : def;
   function merge(j) {
-    const d = newState(), S = Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f), raft: Object.assign(d.raft, j.raft) });
+    const d = newState(), S = Object.assign(d, j, { inv: Object.assign(d.inv, asObject(j.inv, {})), f: Object.assign(d.f, asObject(j.f, {})), raft: Object.assign(d.raft, asObject(j.raft, {})) });
+    for (const k of ['caps', 'packs', 'placed', 'mobs', 'log']) S[k] = asArray(S[k], []);
+    for (const k of ['nodes', 'dug', 'melt']) S[k] = asObject(S[k], {});
     migrateWorld(S, j); migrateRaft(S); return S;
   }
   // 월드가 넓어지고(120 → 380칸) 목표가 하나 늘었다: 예전 세이브의 땅 파기 기록(타일 번호 y·WW+x)을 새 폭으로 다시 매기고,
@@ -226,9 +231,11 @@
     const xw = C.xw(s.water || 300, np);
     const pHeat = C.pSol(Theat, xw);
     const cap = VALVE[s.valve] + P - 1;
-    const pIn = Math.min(cap, pHeat);
+    const pIn = Math.max(P, Math.min(cap, pHeat));       // 내부 압력은 외기 압력보다 낮아지지 않는다(밀폐 용기가 진공이 될 수는 없다)
+    const boil = Theat >= C.tb(P, xw);                   // 열원이 용액의 끓는점(외기 압력 기준)에 닿아야 끓고, 끓어야 조리가 진행된다
     const Teff = pIn === cap ? C.tb(cap, xw) : Theat;
-    return { xw, pHeat, pIn, Teff, speed: Math.pow(2, (Math.min(Teff, Theat) - 100) / 10) };
+    // 조리 속도 2^((T−100)/10)는 게임 설정(경험칙, 가정)이며 끓는 100 ℃ 부근에서만 쓴다: 끓지 않으면 0
+    return { xw, pHeat, pIn, Teff, boil, speed: boil ? Math.pow(2, (Math.min(Teff, Theat) - 100) / 10) : 0 };
   }
   function stepCooker(S, d) {
     const s = d.s;

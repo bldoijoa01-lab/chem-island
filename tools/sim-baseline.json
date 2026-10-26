@@ -26,6 +26,7 @@
    "pHeat": 2.600997269855987,
    "pIn": 2,
    "Teff": 121.46131821856318,
+   "boil": true,
    "speed": 4.426393842120199
   },
   "min": 370,
@@ -103,5 +104,29 @@
    "안전장치:튜토리얼 중 밥솥 압력이 3.00 atm에 닿아 폭발하지 않고 제한됨(밸브 잠금(막힘), 열원 145℃)",
    "조리 완료:내부 압력 3.00 atm, 끓는점 134.1℃, 속도 x22.63 [시작섬: 외기 1 atm]"
   ]
+ },
+ "G_cooker_valve3_strongest_fire_no_burst": {
+  "broken": false,
+  "done": true,
+  "doneP": 2.5,
+  "Teff": 128.02
+ },
+ "H_still_end_boundary": {
+  "w": 0,
+  "ns": 0,
+  "outW": 0.5,
+  "outS": 7,
+  "run": false
+ },
+ "I_wolf_5g_salt_10g_at_3am": {
+  "mobs": 0,
+  "wolfDone": 1,
+  "saltLeft": 8.822
+ },
+ "J_cold_cooker_no_progress": {
+  "prog": 0,
+  "done": false,
+  "pIn": 1,
+  "boil": false
  }
 }
