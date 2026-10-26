@@ -60,14 +60,21 @@ const OBJS = [];
     else if (x >= 118 && x <= 125) g = Math.round(24 + 6 * (125 - x) / 7);          // 광장섬 서쪽 해안(시작섬 동쪽 해안과 마주 봄: 바다 폭 5칸)
     else if (x >= 126 && x <= 194) g = 24;
     else if (x >= 195 && x <= 202) g = Math.round(24 + 6 * (x - 195) / 7);          // 광장섬 동쪽 해안
+    else if (x >= 213 && x <= 220) g = Math.round(24 + 6 * (220 - x) / 7);          // 고산 섬(고원 호수 섬) 서쪽 해안
+    else if (x >= 221 && x <= 278) g = 24 - Math.round(2 * Math.abs(Math.sin((x - 221) / 4)));   // 위로만 솟은 완만한 언덕(물웅덩이가 생기지 않게)
+    else if (x >= 279 && x <= 286) g = Math.round(24 + 6 * (x - 279) / 7);
+    else if (x >= 303 && x <= 310) g = Math.round(24 + 6 * (310 - x) / 7);          // 극지 섬 서쪽 해안
+    else if (x >= 311 && x <= 368) g = 24;
+    else if (x >= 369 && x <= 376) g = Math.round(24 + 6 * (x - 369) / 7);
     else g = 30;                                                                      // 바다 밑바닥(섬 사이)
     GY[x] = g;
-    const plaza = x >= 118 && x <= 202;
-    const beach = x <= 27 || (x >= 106 && x <= 117) || (plaza && (x <= 126 || x >= 194)), snow = x >= 83 && x <= 105, pond = x >= 90 && x <= 94;
+    const plaza = x >= 118 && x <= 202, alpine = x >= 213 && x <= 286, polar = x >= 303 && x <= 376;
+    const beach = x <= 27 || (x >= 106 && x <= 117) || (plaza && (x <= 126 || x >= 194)) || (alpine && (x <= 220 || x >= 279)),
+      snow = (x >= 83 && x <= 105) || polar, pond = (x >= 90 && x <= 94) || (x >= 330 && x <= 340);
     for (let y = g; y < WH; y++) {
       const d = y - g;
       MAP[y * WW + x] = d === 0 ? (pond ? ICE : beach ? SAND : snow ? SNOWTOP : GRASS)
-        : d <= 4 ? (pond && d <= 1 ? ICE : beach ? SAND : DIRT) : STONE;
+        : d <= (alpine ? 1 : 4) ? (pond && d <= 1 ? ICE : beach ? SAND : DIRT) : STONE;   // 고산 섬은 흙이 얇고 바위가 많다
     }
     for (let y = 25; y < g; y++) MAP[y * WW + x] = WATER;
   }
@@ -86,7 +93,10 @@ const OBJS = [];
   [86, 89, 95, 97, 100].forEach(x => add('icecrystal', x));
   add('harbor', 102); add('fragment', 104);                                          // 시작섬: 항구 표지판, 해안의 뗏목 파편
   [143, 146].forEach(x => add('tree', x)); [147, 148].forEach(x => add('wheat', x)); add('cane', 149);   // 광장섬
-  add('harbor', 129); add('box', 133); add('board', 137); add('altar', 140);        // 광장섬: 항구 표지판, 보급 상자, 유리병 편지 게시판, 솥 골렘 제단
+  add('harbor', 129); add('box', 133); add('board', 137); add('altar', 140);
+  // 탐험섬: 고산 섬(저압: 암염과 소나무)과 극지 섬(영하: 얼음, 나무 없음)
+  add('harbor', 223); [226, 231, 236, 252, 262, 270].forEach(x => add('tree', x)); [241, 255, 267].forEach(x => add('rocksalt', x));
+  add('harbor', 313); [316, 319, 323, 327, 346, 350, 354, 358].forEach(x => add('icecrystal', x));        // 광장섬: 항구 표지판, 보급 상자, 유리병 편지 게시판, 솥 골렘 제단
 })();
 // 땅 파기/놓기로 바뀐 타일만 S.dug(타일 번호 y*WW+x → 새 종류)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
 const BASE = MAP.slice();
@@ -101,6 +111,7 @@ applyDug();
 const NODE = {
   tree: ['stick', 2, 2, '나무', 16], cane: ['sugar', 50, 2, '사탕수수', 8], wheat: ['noodle', 1, 2, '밀', 8],
   sandpile: ['sand', 2, 4, '모래 더미', 4], icecrystal: ['ice', 1, 3, '얼음 결정', 10],
+  rocksalt: ['salt', 30, 2, '암염', 8],   // NaCl 결정(이온 결정이라 녹는점이 높아 곡괭이로 캔다)   [#24]
 };
 
 // ---------- 유틸 ----------
@@ -110,7 +121,8 @@ const EMO = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;   // 그
 const pix = s => String(s).replace(EMO, '').replace(/^\s+/, '');
 const ic = k => `<i class="ic" style="background-image:url(${Art.iconURL[k]})"></i>`;
 const clockText = () => `${S.day}일차 ${String(Math.floor(S.min / 60)).padStart(2, '0')}:${String(Math.floor(S.min % 60)).padStart(2, '0')}`;
-const airTemp = () => C.airTemp(S.min);   // ℃, 오후 3시 최고(28) · 새벽 3시 최저(−15): chem.js
+const airTemp = () => Sim.airTemp(S);   // ℃: chem.js의 시각별 기온 + 섬별 보정(sim.js ENV)
+const pAtm = () => Sim.pAtm(S);         // 외기 압력(atm): 섬마다 다르다(고산 섬은 낮음)
 let msgTimer;
 function say(t) { $('msg').textContent = pix(t); clearTimeout(msgTimer); msgTimer = setTimeout(() => $('msg').textContent = '', 6000); }
 function logEv(type, text) { S.log.push({ day: S.day, t: clockText(), type, text: pix(text) }); if (S.log.length > 300) S.log.shift(); }
@@ -226,7 +238,7 @@ function useShaker() {
   S.inv.salt -= used; S.melt[k] = had + done;
   logEv('소금 뿌림(얼음 타일)', `기온 ${fmt(T, 1)}℃ (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg), 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g)`);
   puff(tx * T + 8, ty * T + 8, '#d8f3ff', 8);
-  if (had + done >= ICE_TILE_G - 1e-6) { setTile(tx, ty, WATER); say('얼음이 모두 녹아 물이 되었습니다.'); }
+  if (had + done >= ICE_TILE_G - 1e-6) { setTile(tx, ty, WATER); say('얼음이 모두 녹아 물이 되었습니다.'); if (Sim.dockOf(S).island === 'polar') S.f.polarMelt = true; }
   else say(`얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g). 소금 ${fmt(used, 1)} g 사용`);
 }
 
@@ -240,15 +252,17 @@ function uiFragment() {
     <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 서리 늑대가 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·칸 수는 가정(임의값))</div>`);
 }
 function uiSail() {
-  const here = Sim.dockOf(S).island, R = Sim.RAFT;
-  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '동쪽 건너편', name: '광장섬', open: true }];
+  const here = Sim.dockOf(S).island;
+  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '귀항', name: '광장섬', open: true }];
   const rows = list.map(h => {
-    const on = S.f.raft && h.open && Sim.DOCKS[h.dock] && h.dock !== S.raft.dock;
-    return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? '' : '<span class="no">아직 갈 수 없음</span>'}</div>
+    const need = Sim.UNLOCK[h.dock] || 0, locked = S.qDone < need, env = Sim.ENV[Sim.DOCKS[h.dock] ? Sim.DOCKS[h.dock].island : ''];
+    const on = S.f.raft && h.open && Sim.DOCKS[h.dock] && h.dock !== S.raft.dock && !locked;
+    const info = env && (env.P !== 1 || env.dT) ? `<div class="mut">외기 ${fmt(env.P, 2)} atm(물 ${fmt(C.tb(env.P), 0)} ℃에서 끓음) · 기온 ${env.dT >= 0 ? '+' : ''}${env.dT} ℃</div>` : '';
+    return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? (locked ? `<span class="no">목표 ${need}개 달성 시 열림</span>` : `<span class="mut">${Sim.SAIL_MIN[h.dock] || 30}분</span>`) : '<span class="no">아직 갈 수 없음</span>'}${info}</div>
       <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">출항</button></div>`;
   }).join('');
   openModal(`항구 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">뗏목 파편을 먼저 고쳐야 출항할 수 있어요. (시작섬 동쪽 해안)</div>')
-    + rows + `<div class="mut">항해에는 ${R.SAIL_MIN}분이 걸리고(가정), 내 뗏목과 그 위의 장치가 함께 옮겨 갑니다.</div>`);
+    + rows + `<div class="mut">항해 시간은 가정(임의값)이고, 내 뗏목과 그 위의 장치가 함께 옮겨 갑니다. 섬마다 외기 압력·기온이 달라 같은 장치도 다르게 동작합니다.</div>`);
 }
 const NPC_BOTTLES = [
   { nick: '선배1', text: '증류기는 화덕 옆에! 약불(105 ℃)로는 끝까지 못 끓여요.' },
@@ -327,6 +341,7 @@ function interact(t) {
   if (t.kind === 'harbor') return uiSail();
   if (t.kind === 'board') return uiBoard();
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
+  if (t.kind === 'rocksalt' && !(S.inv.pickaxe > 0)) return say('암염은 단단한 이온 결정이라 곡괭이가 있어야 캘 수 있어요.');
   const n = NODE[t.kind], ok = Sim.act.gather(S, t.ref, n, ITEM[n[0]][1]);
   flush();
   if (ok) { puff(t.x, t.y, '#ffffff', 5); refresh(); }
@@ -466,7 +481,7 @@ function uiStill(d) {
       <div class="kv"><span>용액 속 물</span><b id="s-w"></b></div>
       <div class="kv"><span>몰랄농도 m</span><b id="s-m"></b></div>
       <div class="kv"><span>물의 몰분율 x</span><b id="s-x"></b></div>
-      <div class="kv"><span>용액 끓는점(1 atm)</span><b id="s-tb"></b></div>
+      <div class="kv"><span>외기 압력 · 용액 끓는점</span><b id="s-tb"></b></div>
       <div class="kv"><span>열원에서 용액 증기압</span><b id="s-pv"></b></div>
       <div id="s-st" class="mut"></div></div>
     <div class="box"><h4>산출물</h4>
@@ -483,11 +498,11 @@ function uiStill(d) {
     if (s.w > 0) {
       const xw = C.xw(s.w, np);
       set('s-m', fmt(C.molality(s.ns, s.w), 2) + ' mol/kg'); set('s-x', fmt(xw, 4));
-      set('s-tb', fmt(C.tb(1, xw), 2) + ' ℃ (ΔTb ≈ ' + fmt(C.tb(1, xw) - 100, 2) + ')');
+      set('s-tb', fmt(pAtm(), 2) + ' atm · ' + fmt(C.tb(pAtm(), xw), 2) + ' ℃ (순수한 물 ' + fmt(C.tb(pAtm()), 1) + ' ℃ 보다 ΔTb ≈ ' + fmt(C.tb(pAtm(), xw) - C.tb(pAtm()), 2) + ')');
       set('s-pv', fmt(C.pSol(heatOf(d), xw), 3) + ' atm');
     } else { ['s-m', 's-x', 's-tb', 's-pv'].forEach(i => set(i, '-')); }
     set('s-tg', s.run ? '가열 중지' : '가열 시작');
-    set('s-st', !s.run ? '대기 중' : (s.w > 0 && C.pSol(heatOf(d), C.xw(s.w, np)) > 1 ? '끓는 중 — 증기가 응축되어 증류수가 됩니다' : '열원 온도가 용액의 끓는점보다 낮아 끓지 않습니다 (화덕 세기를 올리세요)'));
+    set('s-st', !s.run ? '대기 중' : (s.w > 0 && C.pSol(heatOf(d), C.xw(s.w, np)) > pAtm() ? '끓는 중 — 증기가 응축되어 증류수가 됩니다' : '열원 온도가 용액의 끓는점보다 낮아 끓지 않습니다 (화덕 세기를 올리세요)'));
   });
 }
 ACT.load = d => { Sim.act.load(S, d); flush(); };
@@ -514,7 +529,7 @@ function uiCooker(d) {
     const s = d.s, T0 = heatOf(d);
     s.valve = +($('c-valve') ? $('c-valve').value : s.valve);
     s.saltG = s.run ? s.saltG : +($('c-salt') ? $('c-salt').value : s.saltG);
-    const cs = cookerState(s, T0);
+    const cs = cookerState(s, T0, pAtm());
     set('c-T', fmt(T0, 0) + ' ℃'); set('c-P', fmt(cs.pIn, 2) + ' atm'); set('c-tb', fmt(cs.Teff, 1) + ' ℃');
     set('c-sp', 'x' + fmt(cs.speed, 2)); setw('c-bar', s.prog / 18 * 100, cs.pIn > 2.7 ? 'bad' : 'good');
     set('c-st', s.broken ? '파손됨 — 수리가 필요합니다' : s.done ? '완성! 꺼내세요' : s.run ? `조리 중 (${fmt(s.prog / 18 * 100, 0)} %)` : '대기 중');
@@ -557,7 +572,7 @@ function uiCollector(d) {
     <div class="warnbox">공기는 반응하지 않는 기체의 혼합물이라 전체 압력은 분압의 합입니다(돌턴). 같은 압력·부피라도 온도가 낮을수록 더 많은 기체가 모입니다. 질소·산소·헬륨 캡슐은 광장 보급 상자에서 얻습니다. (공기에서 성분을 분리하려면 분별증류 등이 필요 — 이 섬에는 없음)</div>`,
   () => {
     const t = airTemp();
-    set('g-T', fmt(t, 1) + ' ℃ / 1 atm'); set('g-n', fmt(C.moles(1, 0.5, t), 4) + ' mol');
+    set('g-T', fmt(t, 1) + ' ℃ / ' + fmt(pAtm(), 2) + ' atm'); set('g-n', fmt(C.moles(pAtm(), 0.5, t), 4) + ' mol');
     set('g-p', 'N₂ ' + fmt(C.AIR.N2, 3) + ' · O₂ ' + fmt(C.AIR.O2, 3) + ' · Ar ' + fmt(C.AIR.Ar, 3) + ' atm');
     set('g-c', capText());
   });
@@ -886,11 +901,12 @@ function draw(t) {
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit(o.x >= 83 && o.x <= 112 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
+    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit((o.x >= 83 && o.x <= 112) || o.x >= 213 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
     else if (o.type === 'cane') blit(Art.obj.cane, sx, sy - 32);
     else if (o.type === 'wheat') blit(Art.obj.wheat, sx, sy - 20);
     else if (o.type === 'sandpile') blit(Art.obj.sandpile, sx, sy - 8);
     else if (o.type === 'icecrystal') blit(Art.obj.icecrystal, sx, sy - 24);
+    else if (o.type === 'rocksalt') blit(Art.obj.rocksalt, sx, sy - 14);
     else if (o.type === 'harbor') blit(Art.obj.harbor, sx, sy - 32);
     else if (o.type === 'board') blit(Art.obj.board, sx, sy - 28);
     else if (o.type === 'fragment') { if (!S.f.raft) blit(Art.obj.fragment, sx - 4, sy - 12); }
@@ -1034,7 +1050,7 @@ function drawHUD(t) {
   const ts = `D${S.day} ${hh}:${mm}`, pw = textW(ts) + 20, px = VW - 4 - pw;
   hudBox(px, 4, pw, 14); ctx.drawImage(S.min >= 360 && S.min < 1080 ? Art.sun : Art.moon, px + 3, 6, 9, 9); drawText(ts, px + 16, 9);
   const tempS = Math.round(airTemp()) + 'C';
-  if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · 외기 ${Math.round(airTemp())}℃`;
+  if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · ${Sim.ISLANDS[Sim.dockOf(S).island].name} 외기 ${Math.round(airTemp())}℃ · ${fmt(pAtm(), 2)} atm`;
   // 메뉴 버튼
   hudMenu.forEach(([icon, label, fn], i) => {
     const x = VW - 4 - (5 - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);

@@ -1,4 +1,4 @@
-// 솥 골렘 레이드 (혼자 하기 버전). 기지에서 만든 물질로 3단계 화학 퍼즐을 푼다.
+// 솥 골렘 레이드. 기지에서 만든 물질로 3단계 화학 퍼즐을 푼다(혼자 하기). 온라인에서는 3단계 분압을 두 사람이 나눠 맞추는 협동도 있다.
 // P1 증기 방어막: 증기압력 내림(라울)   P2 끓어 넘침: 압력·끓는점·열 평형   P3 가스 과압: 돌턴 분압·이상 기체
 window.Raid = (() => {
   const C = Chem;
@@ -22,12 +22,87 @@ window.Raid = (() => {
   const $ = id => document.getElementById(id);
   const S = () => A.S();
 
-  api.open = (a) => {
+  function soloOpen(a) {
     A = a;
     if (S().f.boss) { A.say('솥 골렘은 이미 정화되었습니다. 다시 도전해 볼 수도 있어요.'); }
     R = fresh(); api.active = true;
     render();
+  }
+  // 온라인이면 혼자/협동을 고른다
+  api.open = (a) => {
+    A = a;
+    const net = window.Net;
+    if (!(net && net.user && net.raidJoin)) return soloOpen(a);
+    A.openModal('솥 골렘 제단', `<div class="box"><p>혼자서 1~3단계를 모두 풀거나, 온라인 친구와 <b>3단계(분압)</b>를 분업해 풀 수 있어요.</p>
+      <div class="row"><button class="primary" onclick="Raid.solo()">혼자 도전 (1~3단계)</button></div>
+      <div class="row" style="margin-top:6px"><button onclick="Raid.coop('O2')">협동: 산소(O₂) 담당</button><button onclick="Raid.coop('N2')">협동: 질소·헬륨(N₂·He) 담당</button></div></div>
+      <div class="warnbox">협동은 같은 탱크를 두 사람이 함께 보며, 각자 맡은 기체의 캡슐만 넣을 수 있습니다. 돌턴의 분압 법칙: 전체 압력 = 분압의 합.</div>`);
   };
+  api.solo = () => { A.closeModal(); soloOpen(A); };
+
+  // ---------- 협동 (온라인): O₂ 담당 / N₂·He 담당이 같은 탱크(서버 /raid/golem)에 캡슐을 넣어 분압을 맞춘다 ----------
+  let coop = null;
+  const ROLE_KEYS = { O2: ['O2'], N2: ['N2', 'He'] };
+  const ROLE_NAME = { O2: '산소(O₂) 담당', N2: '질소·헬륨(N₂·He) 담당' };
+  const tankOf = (st) => (st && st.n) || fresh().n;
+  const coopP = (st) => { const n = tankOf(st), o = {}; let tot = 0; for (const k in n) { o[k] = C.partial(n[k] || 0, TANK_V, TANK_T); tot += o[k]; } return { o, tot }; };
+  function coopClose() { const net = window.Net; if (coop) { coop = null; if (net && net.raidLeave) net.raidLeave(); } api.active = false; }
+  api.coop = async (role) => {
+    A.closeModal(); coop = { role, st: {}, done: false }; api.active = true;
+    const keys = ROLE_KEYS[role];
+    A.openModal(`협동 — ${ROLE_NAME[role]}`, `<p>탱크(${TANK_V} L, ${TANK_T} K)를 <b>전체 ${GOAL_P} atm</b>, <b>산소 분압 ${GOAL_O2} atm</b>으로 맞추세요. 나는 <b>${ROLE_NAME[role]}</b>이라 ${keys.map(k => k === 'O2' ? 'O₂' : k === 'N2' ? 'N₂' : k).join('·')} 캡슐만 넣을 수 있어요. 다른 역할의 친구가 필요합니다.</p>
+      <div class="grid2"><div class="box"><h4>공유 탱크</h4>
+        <div class="kv"><span>N₂ 분압</span><b id="c-N2"></b></div><div class="kv"><span>O₂ 분압</span><b id="c-O2"></b></div>
+        <div class="kv"><span>He 분압</span><b id="c-He"></b></div><div class="kv"><span>전체 압력</span><b id="c-P"></b></div>
+        <div class="bar"><i id="c-bar"></i></div><div id="c-st" class="mut"></div></div>
+      <div class="box"><h4>참가자</h4><div id="c-players" class="mut"></div>
+        <h4 style="margin-top:8px">내 캡슐</h4><div id="c-btns"></div>
+        <div class="row" style="margin-top:8px"><button onclick="Raid.coopVent()">배기 (10 %)</button><button class="primary" onclick="Raid.coopCheck()">안정화 확인</button></div>
+        <div class="row" style="margin-top:6px"><button class="danger" onclick="Raid.coopReset()">탱크 처음으로</button></div></div></div>
+      <div class="warnbox">반응하지 않는 기체의 전체 압력은 분압의 합입니다(P_i = n_i·R·T/V). O₂ 분압 0.40 atm에 맞추려면 O₂ 쪽이, 전체 2.0 atm에 맞추려면 N₂·He 쪽이 양을 조절해야 합니다. 전체가 ${C.PBURST} atm을 넘으면 터져 처음으로 돌아갑니다. (친구가 같은 시간에 접속해 있어야 합니다)</div>`, null, coopClose);
+    try { await window.Net.raidJoin(role, (st) => { if (coop) { coop.st = st; coopUpdate(); } }, fresh().n); }
+    catch { A.say('협동 방에 들어가지 못했습니다. 인터넷 연결을 확인하세요.'); A.closeModal(); }
+  };
+  function coopUpdate() {
+    if (!coop || !$('c-P')) return;
+    const st = coop.st, { o, tot } = coopP(st), pl = Object.values(st.players || {});
+    for (const k of ['N2', 'O2', 'He']) A.set('c-' + k, A.fmt(o[k] || 0, 3) + ' atm');
+    A.set('c-P', A.fmt(tot, 3) + ' atm'); A.setw('c-bar', tot / 3.2 * 100, tot > 2.8 ? 'bad' : '');
+    const okP = Math.abs(tot - GOAL_P) <= 0.04, okO = Math.abs(o.O2 - GOAL_O2) <= 0.03;
+    A.set('c-st', okP && okO ? '목표 범위입니다. 안정화 확인을 누르세요' : `전체 ${okP ? 'OK' : (tot < GOAL_P ? '낮음' : '높음')} · O₂ ${okO ? 'OK' : (o.O2 < GOAL_O2 ? '낮음' : '높음')}`);
+    $('c-players').innerHTML = pl.map(p => `<div>${String(p.nick || '').replace(/[<>&]/g, '')} — ${ROLE_NAME[p.role] || ''}</div>`).join('') || '없음';
+    const have = (k) => A.capCount(k);
+    $('c-btns').innerHTML = ROLE_KEYS[coop.role].map(k => `<div class="row" style="margin-bottom:4px"><button ${have(k) ? '' : 'disabled'} onclick="Raid.coopAdd('${k}')">${k === 'O2' ? 'O₂' : k === 'N2' ? 'N₂' : k} 캡슐 넣기</button><span class="mut">보유 ${have(k)}</span></div>`).join('');
+    if (!coop.done && st.doneRound != null && st.doneRound === (st.round || 0)) coopSuccess('친구가 안정화에 성공했습니다');
+  }
+  api.coopAdd = async (k) => {
+    if (!coop || !ROLE_KEYS[coop.role].includes(k)) return A.say('내 역할의 기체가 아닙니다.');
+    const caps = S().caps, i = caps.findIndex(c => c.k === k); if (i < 0) return;
+    const c = caps.splice(i, 1)[0], { tot } = coopP(coop.st), add = C.partial(c.n, TANK_V, TANK_T);
+    if (tot + add > C.PBURST) {
+      A.logEv('골렘 협동 폭발', `전체 ${A.fmt(tot + add, 2)} atm > ${C.PBURST} atm (${ROLE_NAME[coop.role]}가 ${k} 캡슐을 넣음)`);
+      A.say('탱크가 폭발했습니다! 처음으로 돌아갑니다.');
+      try { await window.Net.raidReset(fresh().n, (coop.st.round || 0) + 1); } catch { /* 무시 */ }
+    } else { try { await window.Net.raidAdd(k, c.n); } catch { A.say('서버에 반영하지 못했습니다.'); } }
+    A.refresh(); coopUpdate();
+  };
+  api.coopVent = async () => { try { await window.Net.raidVent(); } catch { /* 무시 */ } };
+  api.coopReset = async () => { try { await window.Net.raidReset(fresh().n, (coop.st.round || 0) + 1); } catch { /* 무시 */ } };
+  api.coopCheck = async () => {
+    const st = coop.st, { o, tot } = coopP(st), roles = new Set(Object.values(st.players || {}).map(p => p.role));
+    if (!(roles.has('O2') && roles.has('N2'))) return A.say('O₂ 담당과 N₂·He 담당, 두 사람이 모두 있어야 합니다.');
+    const okP = Math.abs(tot - GOAL_P) <= 0.04, okO = Math.abs(o.O2 - GOAL_O2) <= 0.03;
+    A.logEv('골렘 협동 확인', `전체 ${A.fmt(tot, 3)} atm, O₂ 분압 ${A.fmt(o.O2, 3)} atm → ${okP && okO ? '성공' : '실패'}`);
+    if (!okP || !okO) return A.say(`${okP ? '' : '전체 압력이 맞지 않습니다. '}${okO ? '' : '산소 분압이 맞지 않습니다.'}`);
+    try { await window.Net.raidDone(st.round || 0); } catch { /* 무시 */ }
+    coopSuccess('협동으로 안정화에 성공했습니다');
+  };
+  function coopSuccess(why) {
+    if (!coop || coop.done) return; coop.done = true;
+    S().f.boss = true; A.logEv('골렘 협동 성공', why); A.say('솥 골렘이 정화되었습니다!'); A.refresh();
+    A.openModal('솥 골렘 정화 완료 (협동)', `<p>${S().day}일차에 친구와 함께 골렘을 정화했습니다.</p>
+      <div class="box">돌턴의 분압 법칙: 전체 압력 = <b>분압의 합</b>. 두 사람이 O₂·N₂ 분압을 나눠 맞췄습니다.</div>`, null, coopClose);
+  }
   function close() { clearInterval(timer); timer = null; api.active = false; }
 
   function render() {
@@ -201,6 +276,7 @@ window.Raid = (() => {
   api.p1Update = p1Update; api.p1Add = p1Add; api.p2In = p2In; api.p2Go = p2Go; api.p2Water = p2Water; api.p2Pack = p2Pack;
   api.debugGoto = (n) => { R.phase = n; render(); };   // 시험 플레이용: 단계로 바로 이동
   api.p3Add = p3Add; api.p3Vent = p3Vent; api.p3Check = p3Check;
+  api.debugCoop = () => ({ coop });   // 시험용
   // 2단계 렌더 후 타이머 시작
   const _render = render;
   render = function () { _render(); if (R.phase === 2) timer = setInterval(p2Tick, 100); };

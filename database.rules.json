@@ -71,6 +71,30 @@
         "$other": { ".validate": false }
       }
     },
+    "raid": {
+      "golem": {
+        ".read": "auth != null",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && auth.uid === $uid",
+            ".validate": "newData.hasChildren(['nick', 'role', 't'])",
+            "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
+            "role": { ".validate": "newData.val() === 'O2' || newData.val() === 'N2'" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        },
+        "n": {
+          ".write": "auth != null && (!data.exists() || root.child('raid/golem/players/' + auth.uid).exists())",
+          "$k": {
+            ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10 && ($k === 'N2' || $k === 'O2' || $k === 'He' || $k === 'Ar')"
+          }
+        },
+        "round": { ".write": "auth != null && root.child('raid/golem/players/' + auth.uid).exists()", ".validate": "newData.isNumber()" },
+        "doneRound": { ".write": "auth != null && root.child('raid/golem/players/' + auth.uid).exists()", ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    },
     "saves": {
       "$uid": {
         ".read": "auth != null && auth.uid === $uid",

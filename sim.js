@@ -38,10 +38,12 @@
     { t: '증류에서 소금 20 g을 모으세요', ok: f => f.dS >= 20, hint: '바닷물이 농축되면 NaCl 결정이 남아요' },
     { t: '해안의 뗏목 파편을 수리해 출항하세요', ok: f => f.raft, hint: '동쪽 해안의 뗏목 파편에서 E. 나뭇가지와 모래가 필요해요. 건너편 광장섬이 보여요' },
     { t: '압력 밥솥으로 2기압 이상에서 라면을 끓이세요', ok: f => f.ramenP >= 2, hint: '면 1개 + 증류수 300 g. 화덕 세기를 올려야 할 수도 있어요' },
-    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 오른쪽 설원에서. 소금을 섞으면 어는점이 내려가요' },
+    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 시작섬 설원이나 극지 섬에서. 소금을 섞으면 어는점이 내려가요' },
     { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
     { t: '광장섬의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '광장섬의 제단. 소금·증류수·한제 팩·캡슐(광장 보급 상자)을 챙기세요' },
     { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 늑대가 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
+    { t: '고산 섬에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '광장섬 동항에서 출항(라면 목표 뒤). 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
+    { t: '극지 섬에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '광장섬 북항(한제 목표 뒤). 공융점(−21.1 ℃) 아래에서는 소금이 듣지 않아요. 온도계로 재 보세요' },
   ];
   // 월드: 한 줄로 이어진 바다 위에 섬들이 놓인다. 시작섬(0~119) → 건너편 광장섬 → (4단계) 탐험섬. 타일 크기 16 px, 높이 56줄.
   const WORLD = { WW: 380, WH: 56 };
@@ -49,6 +51,15 @@
   const ISLANDS = {
     start: { name: '시작섬', L: 13, R: 112 },
     plaza: { name: '광장섬', L: 118, R: 202 },
+    alpine: { name: '고산 섬', L: 213, R: 287 },
+    polar: { name: '극지 섬', L: 303, R: 377 },
+  };
+  // 섬별 환경(가정(임의값)): 같은 장치를 다른 조건에서 돌려 비교한다. P = 외기 압력(atm), dT = 기온 보정(℃, C.airTemp에 더함)
+  const ENV = {
+    start: { name: '시작섬', P: 1.0, dT: 0 },
+    plaza: { name: '광장섬', P: 1.0, dT: 0 },
+    alpine: { name: '고산 섬', P: 0.65, dT: -10 },   // 해발 약 3.6 km 고원 호수: 기압 ≈ exp(−h/8.4 km) = 0.65 atm, 기온은 약 10 ℃ 낮게   [#18 #19]
+    polar: { name: '극지 섬', P: 1.0, dT: -20 },       // 기온 20 ℃ 낮게: 밤에 공융점(−21.1 ℃) 아래까지 내려가 소금이 듣지 않는다   [#37 #39]
   };
   // 뗏목(개인 자산): 장치는 항상 뗏목 위에 짓는다. 위치는 뗏목의 해안 쪽 끝에서 떨어진 칸 수 u로 저장한다(뗏목이 옮겨 가도 유지).
   // 아래 값은 모두 가정(임의값): 시작 칸 수, 최대 칸 수, 확장 단위·재료, 항해 시간, 파편 수리 재료. DESIGN.md §4-6·§4-7에 근거와 조정 이력을 적는다.
@@ -57,7 +68,6 @@
     MAX_CELLS: 12,                        // 가정(임의값) 뗏목 최대 칸 수
     EXPAND: 2, EXPAND_COST: { stick: 10, sand: 4 },   // 가정(임의값) 한 번에 넓히는 칸 수와 재료
     REPAIR_COST: { stick: 8, sand: 4 },  // 가정(임의값) 뗏목 파편을 고쳐 출항 가능하게 하는 재료
-    SAIL_MIN: 30,                         // 가정(임의값) 섬 사이 항해 시간(게임 분)
     ROW: 25,                              // 뗏목 바닥이 놓이는 타일 줄(바다 표면)
     DEV_Y: 23,                            // 장치(2x2)의 위쪽 타일 줄 = ROW − 2
   };
@@ -65,12 +75,16 @@
   const DOCKS = {
     start: { island: 'start', anchor: 107, dir: 1 },    // 시작섬 동쪽 해안. 건너편에 광장섬이 보인다
     plaza: { island: 'plaza', anchor: 123, dir: -1 },   // 광장섬 서쪽 해안
+    alpine: { island: 'alpine', anchor: 218, dir: -1 }, // 고산 섬 서쪽 해안
+    polar: { island: 'polar', anchor: 308, dir: -1 },   // 극지 섬 서쪽 해안
   };
+  const SAIL_MIN = { start: 30, plaza: 30, alpine: 60, polar: 60 };   // 가정(임의값) 도착지별 항해 시간(게임 분)
+  const UNLOCK = { alpine: 5, polar: 6 };                              // 가정(임의값) 해금 순서: 라면(목표 5) 뒤 고산 섬, 한제(목표 6) 뒤 극지 섬
   // 광장섬의 사방 항구: 행선지(4단계에서 탐험섬을 연다)
   const HARBORS = [
     { dock: 'start', label: '서항', name: '시작섬', open: true },
-    { dock: 'alpine', label: '동항', name: '고산 섬', open: false },
-    { dock: 'polar', label: '북항', name: '극지 섬', open: false },
+    { dock: 'alpine', label: '동항', name: '고산 섬', open: true },
+    { dock: 'polar', label: '북항', name: '극지 섬', open: true },
     { dock: 'volcano', label: '남항', name: '화산 섬', open: false },
   ];
   const dockOf = (S) => DOCKS[S.raft.dock];
@@ -99,10 +113,11 @@
   // ---------- 상태 ----------
   function newState() {
     return {
-      day: 1, min: 360, px: 104 * 16, py: 25 * 16 - 18, vx: 0, vy: 0, face: 1, speed: 1,
+      day: 1, min: 360, px: 104 * 16, py: 18 * 16,   // 시작 위치는 땅 위 허공에서 떨어져 내려앉는다(지형 높이가 칸마다 달라서)
+      vx: 0, vy: 0, face: 1, speed: 1,
       inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
       caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
-      f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0, raft: false },
+      f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0, raft: false, alpineW: 0, polarMelt: false },
       qDone: 0, log: [], memo: '', ver: 2,
       raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
@@ -137,7 +152,9 @@
     S.mobs = []; syncRaft(S);                            // 늑대는 장치 위치에 붙어 있었으므로 새로 나타나게 한다
     S.log.push({ day: S.day, t: clockText(S), type: '뗏목', text: `예전 세이브: 장치 ${old.length}개를 뗏목(${S.raft.cells}칸) 위로 옮겼습니다.` });
   }
-  const airTemp = (S) => C.airTemp(S.min);   // ℃, 오후 3시 최고(28) · 새벽 3시 최저(−15): chem.js
+  const envOf = (S) => ENV[dockOf(S).island];
+  const pAtm = (S) => envOf(S).P;
+  const airTemp = (S) => C.airTemp(S.min) + envOf(S).dT;   // ℃, 시작섬 기준 오후 3시 최고(28) · 새벽 3시 최저(−15) + 섬별 보정
 
   // ---------- 시간 ----------
   function advance(S, dm) {
@@ -186,12 +203,13 @@
     if (s.broken || !s.run || s.w <= 0) return;
     const np = 2 * s.ns;                       // NaCl → Na⁺ + Cl⁻ (i = 2 가정)
     const xw = C.xw(s.w, np);
-    s.xw = xw; s.tb = C.tb(1, xw);
+    const P = pAtm(S);                         // 외기 압력: 증기압이 이보다 커야 끓는다(고산 섬은 낮아 더 낮은 온도에서 끓음)
+    s.xw = xw; s.tb = C.tb(P, xw);
     const pv = C.pSol(s.T, xw);
     s.pv = pv;
-    if (pv > 1) {
+    if (pv > P) {
       const wmin = s.ns / C.NACL_SAT * 1000;   // 포화 몰랄농도에 이르면 결정 석출
-      const ev = Math.min(12 * (pv - 1), s.w - wmin);
+      const ev = Math.min(12 * (pv - P), s.w - wmin);
       s.w -= ev; s.outW += ev;
       if (s.w - wmin < 1e-6) {
         s.outS += s.ns * C.MW_NACL; s.ns = 0; s.w = 0; s.run = false;
@@ -202,11 +220,12 @@
   }
 
   // 압력 밥솥: 압력 P → 끓는점 Tb(P) → 조리 속도 2^((T−100)/10)   [#5 #18 #34]
-  function cookerState(s, Theat) {
+  // 밸브 숫자는 (해수면 기준) 게이지 압력의 감각: 상한 = 외기 압력 + (밸브 − 1). 폭발 한계(3 atm)도 게이지 기준으로 P + 2 atm
+  function cookerState(s, Theat, P = 1) {
     const np = 2 * s.saltG / C.MW_NACL;
     const xw = C.xw(s.water || 300, np);
     const pHeat = C.pSol(Theat, xw);
-    const cap = VALVE[s.valve];
+    const cap = VALVE[s.valve] + P - 1;
     const pIn = Math.min(cap, pHeat);
     const Teff = pIn === cap ? C.tb(cap, xw) : Theat;
     return { xw, pHeat, pIn, Teff, speed: Math.pow(2, (Math.min(Teff, Theat) - 100) / 10) };
@@ -215,15 +234,15 @@
     const s = d.s;
     s.T = heatOf(S, d);
     if (s.broken || !s.run) return;
-    const cs = cookerState(s, s.T);
+    const P = pAtm(S), cs = cookerState(s, s.T, P), limit = P + C.PBURST - 1;   // 한계 압력(절대): 해수면 3 atm = 게이지 2 atm
     s.cs = cs;
-    if (cs.pIn > C.PBURST && tutorial(S)) {   // 튜토리얼 안전장치: 한계 압력에서 멈추고 터지지 않는다
-      cs.pIn = C.PBURST; cs.Teff = C.tb(C.PBURST, cs.xw);
-      if (!s.safeWarned) { s.safeWarned = true; say('튜토리얼 안전장치: 압력이 한계(3 atm)에 닿아 멈췄습니다. 출항 뒤에는 터집니다!'); logEv(S, '안전장치', `튜토리얼 중 밥솥 압력이 ${C.PBURST} atm에 닿아 폭발하지 않고 제한됨(밸브 ${VALVE_NAME[s.valve]}, 열원 ${s.T}℃)`); }
-    } else if (cs.pIn > C.PBURST) {
+    if (cs.pIn > limit && tutorial(S)) {   // 튜토리얼 안전장치: 한계 압력에서 멈추고 터지지 않는다
+      cs.pIn = limit; cs.Teff = C.tb(limit, cs.xw);
+      if (!s.safeWarned) { s.safeWarned = true; say('튜토리얼 안전장치: 압력이 한계에 닿아 멈췄습니다. 출항 뒤에는 터집니다!'); logEv(S, '안전장치', `튜토리얼 중 밥솥 압력이 ${fmt(limit, 2)} atm에 닿아 폭발하지 않고 제한됨(밸브 ${VALVE_NAME[s.valve]}, 열원 ${s.T}℃)`); }
+    } else if (cs.pIn > limit) {
       s.broken = true; s.run = false; s.prog = 0;
       say('압력 밥솥이 터졌습니다! 재료를 잃었어요.');
-      logEv(S, '폭발', `압력 밥솥: 밸브 ${VALVE_NAME[s.valve]}, 열원 ${s.T}℃ → 내부 압력 ${fmt(cs.pIn, 2)} atm > ${C.PBURST} atm`);
+      logEv(S, '폭발', `압력 밥솥: 밸브 ${VALVE_NAME[s.valve]}, 열원 ${s.T}℃ → 내부 압력 ${fmt(cs.pIn, 2)} atm > 한계 ${fmt(limit, 2)} atm (${envOf(S).name}, 외기 ${P} atm)`);
       emit({ t: 'burst', d });
       return;
     }
@@ -231,7 +250,7 @@
     if (s.prog >= 18) {
       s.run = false; s.done = true; s.doneP = cs.pIn;
       say('라면이 완성되었습니다!');
-      logEv(S, '조리 완료', `내부 압력 ${fmt(cs.pIn, 2)} atm, 끓는점 ${fmt(cs.Teff, 1)}℃, 속도 x${fmt(cs.speed, 2)}`);
+      logEv(S, '조리 완료', `내부 압력 ${fmt(cs.pIn, 2)} atm, 끓는점 ${fmt(cs.Teff, 1)}℃, 속도 x${fmt(cs.speed, 2)} [${envOf(S).name}: 외기 ${P} atm]`);
     }
   }
 
@@ -324,7 +343,8 @@
     collect(S, d) {
       const w = d.s.outW, s = d.s.outS;
       S.inv.water += w; S.inv.salt += s; S.f.dW += w; S.f.dS += s;
-      if (w > 0 || s > 0) logEv(S, '증류 수거', `증류수 ${fmt(w, 1)} g, 소금 ${fmt(s, 1)} g`);
+      if (dockOf(S).island === 'alpine') S.f.alpineW += w;
+      if (w > 0 || s > 0) logEv(S, '증류 수거', `증류수 ${fmt(w, 1)} g, 소금 ${fmt(s, 1)} g [${envOf(S).name}: 외기 ${pAtm(S)} atm, 순수한 물의 끓는점 ${fmt(C.tb(pAtm(S)), 1)}℃]`);
       d.s.outW = 0; d.s.outS = 0;
     },
     cook(S, d, salt, valve) {
@@ -355,8 +375,10 @@
     cap(S) {
       if (S.inv.sand < 1) return say('모래가 필요합니다.');
       S.inv.sand--; advance(S, 10);
-      S.caps.push({ k: 'air', n: C.moles(1, 0.5, airTemp(S)) });
+      const n = C.moles(pAtm(S), 0.5, airTemp(S));   // 외기 압력이 낮은 섬에서는 같은 주사기에 모이는 기체가 적다   [#4 #6]
+      S.caps.push({ k: 'air', n });
       S.f.caps++;
+      logEv(S, '공기 캡슐', `n = ${fmt(n, 4)} mol [${envOf(S).name}: ${pAtm(S)} atm, ${fmt(airTemp(S), 1)}℃]`);
       say('공기 캡슐 1개를 만들었습니다.');
     },
     // 바닷가에서 바닷물 뜨기 / 자원 오브젝트 채집 (n: [아이템, 1회 양, 하루 횟수, 이름])
@@ -416,11 +438,14 @@
       if (!S.f.raft) return say('뗏목 파편을 먼저 고치세요.'), false;
       if (!DOCKS[dock]) return say('아직 갈 수 없는 곳입니다.'), false;
       if (dock === S.raft.dock) return say('이미 이 섬에 있습니다.'), false;
+      if (UNLOCK[dock] && S.qDone < UNLOCK[dock]) return say(`아직 갈 수 없습니다. (목표 ${UNLOCK[dock]}개를 달성하면 열립니다)`), false;
       const from = ISLANDS[dockOf(S).island].name;
       S.raft.dock = dock; syncRaft(S);
       const d = dockOf(S); S.px = (d.anchor + d.dir) * 16; S.py = RAFT.ROW * 16 - 18; S.vx = S.vy = 0;
-      advance(S, RAFT.SAIL_MIN);
-      say(`${ISLANDS[d.island].name}에 도착했습니다. (항해 ${RAFT.SAIL_MIN}분)`); logEv(S, '항해', `${from} → ${ISLANDS[d.island].name} (${RAFT.SAIL_MIN}분, 뗏목 ${S.raft.cells}칸·장치 ${S.placed.length}개)`);
+      const mins = SAIL_MIN[dock] || 30;
+      advance(S, mins);
+      say(`${ISLANDS[d.island].name}에 도착했습니다. (항해 ${mins}분)`); logEv(S, '항해', `${from} → ${ISLANDS[d.island].name} (${mins}분, 뗏목 ${S.raft.cells}칸·장치 ${S.placed.length}개)`);
+      const env = ENV[d.island]; if (env.P !== 1 || env.dT !== 0) logEv(S, '환경', `${env.name}: 외기 ${env.P} atm → 순수한 물의 끓는점 ${fmt(C.tb(env.P), 1)}℃, 기온 보정 ${env.dT} ℃`);
       emit({ t: 'moved' });
       return true;
     },
@@ -438,7 +463,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    WORLD, ISLANDS, DOCKS, HARBORS, RAFT, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, setRng(fn) { rngFn = fn || null; },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Sim;

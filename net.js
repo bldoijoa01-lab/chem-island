@@ -96,6 +96,27 @@ window.Net = (() => {
     pref = null; pOff = []; N.peers = {};
   };
   N.saveSave = (obj) => db.ref('saves/' + N.user.uid).set(obj);
+  // ---- 협동 보스(솥 골렘 3단계): 같은 탱크(/raid/golem)에 두 사람이 역할(O2 / N2)을 나눠 캡슐을 넣는다 ----
+  let rref = null, rHandler = null;
+  N.raidJoin = async (role, cb, init) => {
+    N.raidLeave();
+    rref = db.ref('raid/golem');
+    const me = rref.child('players/' + N.user.uid);
+    me.onDisconnect().remove();
+    await me.set({ nick: N.nick, role, t: firebase.database.ServerValue.TIMESTAMP });
+    await rref.child('n').transaction((v) => v || init);          // 처음 들어온 사람이 처음 탱크를 만든다
+    rHandler = (snap) => cb(snap.val() || {});
+    rref.on('value', rHandler);
+  };
+  N.raidAdd = (k, dn) => rref.child('n/' + k).transaction((v) => (v || 0) + dn);
+  N.raidVent = () => rref.child('n').transaction((v) => { if (!v) return v; const o = {}; for (const k in v) o[k] = v[k] * 0.9; return o; });
+  N.raidReset = (init, round) => rref.update({ n: init, round: round, doneRound: null });
+  N.raidDone = (round) => rref.update({ doneRound: round });
+  N.raidLeave = () => {
+    if (rref && rHandler) rref.off('value', rHandler);
+    if (rref && N.user) { const me = rref.child('players/' + N.user.uid); me.onDisconnect().cancel(); me.remove().catch(() => {}); }
+    rref = null; rHandler = null;
+  };
   // ---- 광장: 정박한 뗏목(남은 읽기만)과 유리병 편지 ----
   N.saveRaft = (sum) => db.ref('rafts/' + N.user.uid).set(Object.assign({ nick: N.nick }, sum));
   N.loadRafts = async (n) => {
