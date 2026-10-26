@@ -3,8 +3,8 @@
 (() => {
 'use strict';
 const C = Chem, Art = window.Art;
+let VW = 384, VH = 224;   // 창 크기에 맞춰 fit()이 정한다
 const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
-let VW = 384, VH = 224;   // 화면 크기에 맞춰 fit()이 정한다(정수 배율)
 const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
 const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
@@ -768,16 +768,17 @@ function draw(t) {
 // 시계: 1초 = 게임 2분 (x1)
 setInterval(() => { if (window.Raid && Raid.active) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(save, 5000);
-function fit() {   // 창을 꽉 채우되 정수 배율(k배)로 키워 픽셀이 뭉개지지 않게
-  const narrow = window.innerWidth < 900;
-  const availW = Math.max(300, $('left').clientWidth), availH = Math.max(240, narrow ? window.innerHeight * 0.58 : window.innerHeight - 96);
-  const k = Math.max(1, Math.min(Math.floor(availW / 460), Math.floor(availH / 260)));
-  VW = Math.floor(availW / k); VH = Math.floor(availH / k);
+function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
+  const W = window.innerWidth, H = window.innerHeight;
+  const k = Math.max(2, Math.round(Math.min(W / 560, H / 315)));
+  VW = Math.ceil(W / k); VH = Math.ceil(H / k);
   cv.width = VW; cv.height = VH; ctx.imageSmoothingEnabled = false;
   cv.style.width = VW * k + 'px'; cv.style.height = VH * k + 'px';
   makeStars();
 }
 window.addEventListener('resize', fit);
 document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed));
+$('b-panel').onclick = () => document.body.classList.toggle('hidepanel');
+if (window.innerWidth <= 900) document.body.classList.add('hidepanel');
 refresh(); fit(); requestAnimationFrame(frame);
 })();
