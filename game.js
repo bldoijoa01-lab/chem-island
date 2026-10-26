@@ -3,7 +3,8 @@
 (() => {
 'use strict';
 const C = Chem, Art = window.Art;
-const T = 16, WW = 120, WH = 56, VW = 384, VH = 224, KEY = 'chemisle_side_v1';
+let VW = 384, VH = 224;
+const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
 const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
 const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
@@ -622,7 +623,7 @@ function stepParts(dt) {
 
 // ---------- 그리기 ----------
 const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 - h) / 2 : 0;
-const stars = Array.from({ length: 40 }, (_, i) => [(i * 97) % VW, (i * 53) % 120]);
+const stars = Array.from({ length: 80 }, (_, i) => [(i * 97) % 960, (i * 53) % 120]);
 let last = performance.now(), tt = 0;
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now; tt += dt;
@@ -734,11 +735,16 @@ function draw(t) {
 // 시계: 1초 = 게임 2분 (x1)
 setInterval(() => { if (window.Raid && Raid.active) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(save, 5000);
-function fit() {   // 정수 배율로 크게(픽셀이 뭉개지지 않게)
-  const w = $('left').clientWidth, k = Math.max(1, Math.floor(w / VW));
-  cv.style.width = (w >= VW ? VW * k : w) + 'px';
+function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
+  const W = window.innerWidth, H = window.innerHeight;
+  const k = Math.max(2, Math.round(Math.min(W / 384, H / 224)));
+  VW = Math.ceil(W / k); VH = Math.ceil(H / k);
+  cv.width = VW; cv.height = VH; ctx.imageSmoothingEnabled = false;
+  cv.style.width = VW * k + 'px'; cv.style.height = VH * k + 'px';
 }
 window.addEventListener('resize', fit);
 document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed));
+$('b-panel').onclick = () => document.body.classList.toggle('hidepanel');
+if (window.innerWidth <= 900) document.body.classList.add('hidepanel');
 refresh(); fit(); requestAnimationFrame(frame);
 })();
