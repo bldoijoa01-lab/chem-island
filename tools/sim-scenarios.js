@@ -41,8 +41,8 @@ module.exports = {
     adv(20); const s = S.placed[1].s;
     return { broken: !!s.broken, done: s.done, doneP: s.doneP, Teff: Math.round(s.cs.Teff * 100) / 100 };
   },
-  H_still_end_boundary: (S, adv) => {   // 끝나기 직전 경계: 1분 가열하면 남은 물이 하한에 닿아 소금이 남고 가열이 끝난다
-    S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 4, fuel: 40 } }, { id: 'still', x: 50, y: 22, s: { w: 19.636 + 0.5, ns: 7 / 58.44, outW: 0, outS: 0, run: true, T: 25 } }];
+  H_still_end_boundary: (S, adv) => {   // 끝나기 직전 경계: 바닷물 1통(물 193 g)에서 남은 물이 끝 기준(10 % = 19.3 g)보다 0.5 g 많을 때 1분 가열하면 0.5 g만 증발해 끝나고 소금 7 g이 남는다
+    S.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 4, fuel: 40 } }, { id: 'still', x: 50, y: 22, s: { w: 19.3 + 0.5, w0: 193, ns: 7 / 58.44, outW: 0, outS: 0, run: true, T: 25 } }];
     adv(1); const s = S.placed[1].s;
     return { w: Math.round(s.w * 1000) / 1000, ns: s.ns, outW: Math.round(s.outW * 1000) / 1000, outS: Math.round(s.outS * 1000) / 1000, run: s.run };
   },

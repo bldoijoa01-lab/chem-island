@@ -43,7 +43,7 @@
     { t: '광장섬의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '광장섬의 제단. 소금·증류수·한제 팩·캡슐(광장 보급 상자)을 챙기세요' },
     { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 늑대가 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
     { t: '고산 섬에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '광장섬 동항에서 출항(라면 목표 뒤). 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
-    { t: '극지 섬에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '광장섬 북항(한제 목표 뒤). 공융점(−21.1 ℃) 아래에서는 소금이 듣지 않아요. 온도계로 재 보세요' },
+    { t: '극지 섬에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '광장섬 북항(한제 목표 뒤). 기온이 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
   ];
   // 월드: 한 줄로 이어진 바다 위에 섬들이 놓인다. 시작섬(0~119) → 건너편 광장섬 → (4단계) 탐험섬. 타일 크기 16 px, 높이 56줄.
   const WORLD = { WW: 380, WH: 56 };
@@ -58,8 +58,8 @@
   const ENV = {
     start: { name: '시작섬', P: 1.0, dT: 0 },
     plaza: { name: '광장섬', P: 1.0, dT: 0 },
-    alpine: { name: '고산 섬', P: 0.65, dT: -10 },   // 해발 약 3.6 km 고원 호수: 기압 ≈ exp(−h/8.4 km) = 0.65 atm, 기온은 약 10 ℃ 낮게   [#18 #19]
-    polar: { name: '극지 섬', P: 1.0, dT: -20 },       // 기온 20 ℃ 낮게: 밤에 공융점(−21.1 ℃) 아래까지 내려가 소금이 듣지 않는다   [#37 #39]
+    alpine: { name: '고산 섬', P: 0.65, dT: -10 },   // 높은 곳의 고원 호수 섬: 외기 압력이 낮다는 설정(0.65 atm, 가정), 기온은 10 ℃ 낮게   [#18 #19]
+    polar: { name: '극지 섬', P: 1.0, dT: -20 },       // 기온 20 ℃ 낮게: 밤 −35 ℃에서는 같은 얼음을 녹이는 데 소금이 크게 더 든다(m_eq = |T|/(i·Kf))   [#37 #39]
   };
   // 뗏목(개인 자산): 장치는 항상 뗏목 위에 짓는다. 위치는 뗏목의 해안 쪽 끝에서 떨어진 칸 수 u로 저장한다(뗏목이 옮겨 가도 유지).
   // 아래 값은 모두 가정(임의값): 시작 칸 수, 최대 칸 수, 확장 단위·재료, 항해 시간, 파편 수리 재료. DESIGN.md §4-6·§4-7에 근거와 조정 이력을 적는다.
@@ -95,6 +95,10 @@
   const bounds = (S) => { const isl = ISLANDS[dockOf(S).island], xs = raftXs(S); return { L: Math.min(isl.L, Math.min(...xs) - 1), R: Math.max(isl.R, Math.max(...xs) + 1) }; };
   // 뗏목이 옮겨 가거나 넓어진 뒤 장치의 세계 좌표를 u에서 다시 계산한다
   function syncRaft(S) { for (const d of S.placed) if (d.u !== undefined) { d.x = devX(S, d.u); d.y = RAFT.DEV_Y; } }
+  // 냉각 상자 게임 설정(가정(임의값)): 얼음 100 g에 넣을 수 있는 소금의 상한(g). 어는점 내림 식에는 하한이 없어서 투입량을 제한한다(30 g → 약 −19 ℃)
+  const COOLER = { SALT_PER_100G: 30 };
+  // 증류기 게임 설정(가정(임의값)): 증발 속도 계수(g/분 per atm)와 끝나는 기준(처음 물의 몇 %가 남으면 끝)
+  const STILL = { RATE: 12, END_FRAC: 0.10 };
   const VALVE = [1.0, 1.5, 2.0, 2.5, Infinity];
   const VALVE_NAME = ['1.0 atm (열림)', '1.5 atm', '2.0 atm', '2.5 atm', '잠금(막힘)'];
 
@@ -213,13 +217,15 @@
     const pv = C.pSol(s.T, xw);
     s.pv = pv;
     if (pv > P) {
-      const wmin = s.ns / C.NACL_SAT * 1000;   // 포화 몰랄농도에 이르면 결정 석출
-      const ev = Math.min(12 * (pv - P), s.w - wmin);
+      // 게임 설정(가정(임의값)): 처음 넣은 물의 STILL.END_FRAC만 남으면 증류가 끝나고 소금이 남는다(질량 보존). 물이 거의 없을 때 끓는점이 무한히 커지는 것도 막는다.
+      if (!s.w0) s.w0 = s.w;
+      const wmin = STILL.END_FRAC * s.w0;
+      const ev = Math.min(STILL.RATE * (pv - P), s.w - wmin);   // 증발 속도 ∝ (증기압 − 외부 압력): 게임 설정(경험칙, 가정)
       s.w -= ev; s.outW += ev;
       if (s.w - wmin < 1e-6) {
-        s.outS += s.ns * C.MW_NACL; s.ns = 0; s.w = 0; s.run = false;
-        say('증류기: 소금이 포화되어 결정으로 석출되었습니다.');
-        logEv(S, '증류 완료', `포화(${C.NACL_SAT} mol/kg)에서 NaCl 결정 석출`);
+        s.outS += s.ns * C.MW_NACL; s.ns = 0; s.w = 0; s.w0 = 0; s.run = false;
+        say('증류기: 물이 거의 다 증발해 소금이 남았습니다.');
+        logEv(S, '증류 완료', `남은 물이 처음의 ${STILL.END_FRAC * 100} %(게임 설정)가 되어 종료 — 소금이 남음(몰랄 농도 ${fmt(C.molality(s.outS / C.MW_NACL, wmin), 1)} mol/kg)`);
       }
     }
   }
@@ -311,7 +317,7 @@
   // 늑대에게 소금 s g을 뿌린다(모달·소금 뿌리개 공용). 늑대가 정화되면 true
   function saltOnWolf(S, m, s) {
     const T = airTemp(S), melt = C.iceMeltBySalt(T, s);
-    if (melt <= 0) { say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : '공융점 이하라 소금으로 녹일 수 없습니다.'); return false; }
+    if (melt <= 0) { say('기온이 0 ℃ 이상이라 소금이 필요 없어요.'); return false; }
     const used = melt >= m.M ? Math.min(s, C.saltForIce(T, m.M)) : s, done = Math.min(melt, m.M);
     S.inv.salt -= used; m.M -= done;
     logEv(S, '소금 뿌림', `기온 ${fmt(T, 1)}℃, 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg)`);
@@ -344,7 +350,8 @@
     load(S, d) {
       if (S.inv.sea < 1) return say('바닷물이 없습니다. 바닷가에서 E.');
       if (d.s.w + SEA_BUCKET.water > 650) return say('증류기가 가득 찼습니다.');
-      S.inv.sea--; d.s.w += SEA_BUCKET.water; d.s.ns += SEA_BUCKET.nacl / C.MW_NACL;
+      if (d.s.w <= 0) d.s.w0 = 0;   // 비었던 증류기에 새로 채우면 끝나는 기준도 새로
+      S.inv.sea--; d.s.w += SEA_BUCKET.water; d.s.w0 = (d.s.w0 || 0) + SEA_BUCKET.water; d.s.ns += SEA_BUCKET.nacl / C.MW_NACL;
     },
     toggle(S, d) { d.s.run = !d.s.run; },
     collect(S, d) {
@@ -370,6 +377,7 @@
       S.inv.stick -= 2; d.s.broken = false; logEv(S, '수리', `${DEV[d.id].name} 수리(나뭇가지 2개)`);
     },
     pack(S, iceN, salt) {
+      if (salt > iceN * COOLER.SALT_PER_100G) return say(`소금은 얼음 100 g당 ${COOLER.SALT_PER_100G} g까지 넣을 수 있어요. (게임 설정)`), false;
       if (S.inv.ice < iceN || S.inv.salt < salt) return say('얼음이나 소금이 부족합니다.');
       if (salt <= 0) return say('소금을 넣어야 0 ℃ 아래로 내려갑니다.');
       S.inv.ice -= iceN; S.inv.salt -= salt;
@@ -470,7 +478,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    STILL, COOLER, WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, setRng(fn) { rngFn = fn || null; },
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Sim;

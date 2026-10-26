@@ -173,7 +173,7 @@ window.Raid = (() => {
       <div class="bar"><i id="r-pbar"></i></div>
       <div class="kv"><span>골렘 체력</span><b id="r-hp"></b></div>
       <div class="bar bad"><i id="r-hbar"></i></div><div id="r-st" class="mut"></div></div></div>
-    <div class="warnbox">밀폐 용기의 전체 압력 = 공기 분압(온도에 비례, 게이뤼삭) + 수증기압(온도에 지수적으로 증가). 배기하면 공기부터 빠지고, 공기가 없어지면 증기를 내보내 열을 잃습니다. 증류수·얼음(융해열 334 J/g)은 열을 빼앗아 온도를 낮춥니다. 골렘의 불길이 주기적으로 온도를 올립니다. (게임 단순화: 2단계의 수증기압은 순수한 물 기준이며 1단계에 넣은 용질은 반영하지 않습니다.)</div>`;
+    <div class="warnbox">밀폐 용기의 전체 압력 = 공기 분압(부피·양이 일정하면 온도에 비례, 이상 기체 방정식) + 수증기압(온도가 오를수록 가파르게 증가). 배기하면 공기부터 빠지고, 공기가 없어지면 증기를 내보내 열을 잃습니다. 증류수·얼음(융해열 334 J/g)은 열을 빼앗아 온도를 낮춥니다. 골렘의 불길이 주기적으로 온도를 올립니다. (게임 단순화: 2단계의 수증기압은 순수한 물 기준이며 1단계에 넣은 용질은 반영하지 않습니다.)</div>`;
   }
   const pTotal = () => R.airN * (R.T + 273.15) / 298.15 + C.pStar(R.T);
   function p2In() { R.dial = +$('r-dial').value; R.valve = +$('r-valve').value; A.set('r-dv', R.dial); A.set('r-vv', R.valve); }
@@ -206,7 +206,7 @@ window.Raid = (() => {
     let pt = pTotal();
     if (R.valve > 0 && pt > 1.0) {
       if (R.airN > 0.002) R.airN *= 1 - 0.08 * R.valve * dt;
-      else R.T -= 0.6 * R.valve * dt;                 // 증기를 내보내며 증발열만큼 냉각
+      else R.T -= 0.6 * R.valve * dt;                 // 증기를 내보내며 열을 잃어 냉각
     }
     R.surgeIn -= dt;
     if (R.surgeIn <= 2 && R.warn === 0) R.warn = 2;

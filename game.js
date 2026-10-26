@@ -233,7 +233,7 @@ function useShaker() {
   if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 서리 늑대에게 뿌리세요.');
   if (!inReach(tx, ty)) return say('너무 멉니다.');
   const k = ty * WW + tx, had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T, s);
-  if (melt <= 0) return say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : `공융점(${C.EUTECTIC} ℃) 이하라 소금이 듣지 않습니다. 기온이 오를 때까지 기다리세요.`);
+  if (melt <= 0) return say('기온이 0 ℃ 이상이라 소금이 필요 없어요.');
   const used = melt >= left ? Math.min(s, C.saltForIce(T, left)) : s, done = Math.min(melt, left);
   S.inv.salt -= used; S.melt[k] = had + done;
   logEv('소금 뿌림(얼음 타일)', `기온 ${fmt(T, 1)}℃ (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg), 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (타일 ${fmt(had + done, 0)}/${ICE_TILE_G} g)`);
@@ -429,19 +429,19 @@ function uiWolf(m) {
       <div class="kv"><span>실제 쓰는 소금</span><b id="w-use"></b></div>
       <div class="row" style="margin-top:8px"><button class="primary" onclick="G.wolfSalt()">뿌리기</button></div>
       <div id="w-note" class="mut"></div></div></div>
-    <div class="warnbox">얼음에 소금이 닿으면 어는점이 내려가 (ΔTf = i·Kf·m, i=2, Kf=1.86) 기온에서 평형이 되는 농도까지 얼음이 녹습니다. 가정: 이상 용액, 녹는 데 필요한 열은 주위에서 충분히 공급됨(열수지 무시). 공융점 ${C.EUTECTIC} ℃ 이하이거나 0 ℃ 이상에서는 얼음-소금물 평형이 성립하지 않아 소금으로 녹일 수 없습니다. 켜진 화덕 근처의 늑대는 열로도 녹습니다(Q = m·융해열 334 J/g).</div>`,
+    <div class="warnbox">얼음에 소금이 닿으면 어는점이 내려가 (ΔTf = i·Kf·m, i=2, Kf=1.86) 기온 T에서 평형이 되는 몰랄농도 m_eq = |T|/(i·Kf)까지 얼음이 녹습니다. 기온이 낮을수록 같은 얼음을 녹이는 데 소금이 더 많이 필요합니다. 0 ℃ 이상에서는 소금이 필요 없어요. (화덕 열로도 녹일 수 있습니다: Q = m·융해열)</div>`,
   () => {
     if (!S.mobs.includes(m)) { closeModal(); return; }
     const T = airTemp(), sl = $('w-s'), s = Math.min(+sl.value, S.inv.salt);
     const melt = Math.min(C.iceMeltBySalt(T, s), m.M), need = C.saltForIce(T, m.M);
     const use = melt >= m.M ? Math.min(s, need) : s;
     set('w-m', fmt(m.M, 0) + ' g'); set('w-T', fmt(T, 1) + ' ℃');
-    set('w-eq', T < 0 && T > C.EUTECTIC ? fmt(-T / (2 * C.KF), 2) + ' mol/kg' : '—');
+    set('w-eq', T < 0 ? fmt(-T / (2 * C.KF), 2) + ' mol/kg' : '—');
     set('w-need', isFinite(need) ? fmt(need, 1) + ' g' : '불가');
     set('w-sv', fmt(s, 0)); set('w-have', fmt(S.inv.salt, 0));
     set('w-melt', fmt(melt, 0) + ' g'); set('w-use', fmt(use, 1) + ' g');
     setw('w-bar', m.M / m.M0 * 100, 'good');
-    set('w-note', T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요. 곧 녹습니다.' : T <= C.EUTECTIC ? '공융점 이하라 소금이 듣지 않습니다. 화덕으로 녹이세요.' : '');
+    set('w-note', T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요. 곧 녹습니다.' : '기온이 낮을수록 같은 얼음을 녹이는 데 소금이 더 듭니다.');
   });
 }
 function wolfSalt() {
@@ -490,7 +490,7 @@ function uiStill(d) {
       <div class="row" style="margin-top:6px"><button onclick="act('collect')">수거</button></div></div></div>
     <div class="row"><button onclick="act('load')">바닷물 1통 넣기</button>
       <button class="primary" onclick="act('toggle')" id="s-tg">가열 시작</button></div>
-    <div class="warnbox">용질(소금)이 녹으면 증기압이 내려가 끓는점이 오릅니다. 증발할수록 농도가 올라 점점 더 높은 열원이 필요하고, 포화 몰랄농도(6.1 mol/kg)에서 소금이 결정으로 남습니다. (비휘발성 용질, 라울의 법칙, NaCl 완전 해리 i=2 가정)</div>`,
+    <div class="warnbox">용질(소금)이 녹으면 증기압이 내려가 끓는점이 오릅니다. 증발할수록 용매(물)의 질량이 줄어 몰랄 농도가 올라가고 점점 더 높은 열원이 필요합니다. 처음 물의 10 %가 남으면 증류가 끝나고 소금이 남습니다(끝나는 기준과 증발 속도는 게임 설정(가정)). (비휘발성 용질, 라울의 법칙, NaCl 완전 해리 i=2 가정)</div>`,
   () => {
     const s = d.s, np = 2 * s.ns;
     set('s-T', fmt(heatOf(d), 0) + ' ℃');
@@ -544,13 +544,14 @@ function uiCooler(d) {
   openModal('냉각 상자', `
     <div class="box">
       <div class="row"><label>얼음 <input type="number" id="k-ice" min="1" max="5" value="2" style="width:56px"> 개(100 g)</label>
-      <label>소금 <input type="number" id="k-salt" min="0" max="120" value="0" style="width:64px"> g</label></div>
+      <label>소금 <input type="number" id="k-salt" min="0" max="60" value="0" style="width:64px"> g</label></div>
       <div class="kv"><span>몰랄농도 m</span><b id="k-m"></b></div>
       <div class="kv"><span>한제 온도</span><b id="k-T"></b></div>
       <div class="row" style="margin-top:8px"><button class="primary" onclick="act('pack')">한제 팩 만들기 (30분)</button></div>
       <div class="kv"><span>오늘의 팩</span><b id="k-n"></b></div></div>
-    <div class="warnbox">소금이 녹은 물은 어는점이 내려가 0 ℃ 이하에서도 얼음과 평형을 이룹니다: ΔTf = i·Kf·m (Kf=1.86, NaCl i=2). 공융점 −21.1 ℃보다 낮아지지 않으며, 팩은 당일에 녹습니다. (얼음 전체 질량 기준 근사)</div>`,
+    <div class="warnbox">소금이 녹은 물은 어는점이 내려가 0 ℃ 이하에서도 얼음과 함께 있을 수 있습니다: ΔTf = i·Kf·m (Kf=1.86, NaCl i=2). 소금은 얼음 100 g당 30 g까지만 넣을 수 있게 했고(게임 설정, 가정(임의값)), 팩은 당일에 녹습니다. (얼음 전체 질량 기준)</div>`,
   () => {
+    $('k-salt').max = +$('k-ice').value * Sim.COOLER.SALT_PER_100G;   // 게임 설정(가정): 얼음 100 g당 소금 상한
     const ice = +$('k-ice').value * 100, salt = +$('k-salt').value;
     set('k-m', fmt(salt / C.MW_NACL / (ice / 1000), 2) + ' mol/kg'); set('k-T', fmt(C.coolTemp(ice, salt), 1) + ' ℃');
     set('k-n', S.packs.map(p => fmt(p.T, 1) + '℃').join(', ') || '없음');
