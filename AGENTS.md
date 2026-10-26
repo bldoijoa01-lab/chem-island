@@ -16,7 +16,9 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `style.css` | All styling (modal, auth, HUD, touch pad). |
 | `chem.js` | `window.Chem`: **the only place chemistry formulas/constants live** (`pStar`, `xw`, `pSol`, `tb`, `molality`, `coolTemp`, `moles`, `partial`, `mixT`, `packMix`, `AIR`...). Item numbers from class appear as `[#n]` comments. |
 | `sim.js` | `window.Sim` (also `require`-able in Node): state + save migration, time, device/wolf simulation, quests, action rules, raft/islands/docks (`DOCKS`, `ENV` per-island pressure/temperature, `bounds`). **No window/DOM/canvas.** Screen effects leave as events (`Sim.drain()`). Check with `node tools/sim-check.js` (baseline) and `node tools/sim-compare.js` (same devices per island). |
-| `game.js` | IIFE, ~1,200 lines (380-tile world: start island, plaza, alpine, polar; raft, sailing, plaza rafts/bottle board): save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
+| `store.js` · `world.js` · `ui.js` | 2D·3D가 같이 쓰는 모듈: 상태·저장 / 지형·땅 규칙·이동(`stepPlayer`) / 모달·패널·접속(`UI.init(host)` 훅). `game.js`에서 나눈 것 |
+| `3d/` | 3D 시험판(Three.js 0.160.0, CDN importmap). `index.html`·`main.js`·`style3d.css`. 계산은 `sim.js`·`chem.js` 그대로, `S`를 읽어 그리기만 한다. 시험: `node tools/smoke3d.js`(CDN이 막히면 `THREE_MODULE=`) |
+| `game.js` | (2D 입력·그리기·HUD만 남음. 아래 설명 중 UI·저장·땅 규칙은 위 모듈로 옮겨짐) IIFE, ~1,200 lines (380-tile world: start island, plaza, alpine, polar; raft, sailing, plaza rafts/bottle board): save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
 | `raid.js` | `window.Raid`: 3-phase "솥 골렘" boss puzzle (P1 Raoult, P2 pressure/heat balance, P3 Dalton partial pressure). Opened via `Raid.open(api)`. |
 | `notes.js` | `window.Notes`: research-note modal — concept-link table (`LINKS`, with lesson item numbers and implemented ✔/✘) and live calculators. |
 | `sprites.js` | `window.Art`: all pixel art drawn procedurally onto canvases (tiles, player, devices, icons, golem, sky/parallax). 16×16 tiles, auto 1px outline. |
@@ -28,7 +30,7 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `.claude/settings.json` | Enables the oh-my-claudecode plugin. `.omc/` is git-ignored. |
 
 ## Script load order (index.html)
-Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sim.js` → `sprites.js` → `notes.js` → `raid.js` → `game.js`. Modules attach to `window.*`; `game.js` runs last and consumes the others. Adding a script means adding a `<script>` tag in the right position.
+Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sim.js` → `store.js` → `world.js` → `sprites.js` → `ui.js` → `notes.js` → `raid.js` → `game.js` (3D는 마지막에 `3d/main.js`). Modules attach to `window.*`; `game.js` runs last and consumes the others. Adding a script means adding a `<script>` tag in the right position.
 
 ## Conventions for AI agents
 - **Chemistry only in `chem.js`.** Game files call `Chem.*`; do not inline formulas, constants or magic chemistry numbers elsewhere. If you change a formula or constant, update `DESIGN.md` (tables and verification cases) and the `LINKS` table in `notes.js` to match.

@@ -91,7 +91,7 @@ function buildTerrain(cx) {
   }
   scene.add(terrain);
 }
-const mapSum = () => { let s = 0; for (let i = 0; i < World.MAP.length; i += 7) s = (s * 31 + World.MAP[i] + i) | 0; return s; };   // 땅·뗏목 칸이 바뀌었는지 가볍게 확인
+const mapSum = () => { let s = 0; const M = World.MAP; for (let i = 0; i < M.length; i++) s = (s * 31 + M[i]) | 0; return s; };   // 땅·뗏목 칸이 바뀌었는지 확인(21,280칸 합)
 function syncTerrain() { const s = mapSum(), cx = Math.floor((S.px + PW / 2) / T); if (s !== mapSig || Math.abs(cx - winCx) > REBUILD) { mapSig = s; buildTerrain(cx); } }
 
 // ---------- 자원·제단 ----------
@@ -110,7 +110,10 @@ function buildObjects() {
     putSprite(m, o.x * T - dx, o.y * T - dy); scene.add(m); objMeshes.push(m);
   }
 }
+const altarGlow = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xffc878, transparent: true })); altarGlow.visible = false; scene.add(altarGlow);
 function updateObjects() {
+  const al = OBJS.find(o => o.type === 'altar');
+  if (al) { altarGlow.visible = !S.f.boss; altarGlow.position.set(al.x + 0.75, -(al.y - 1.3), Z_MID + 0.3); altarGlow.material.opacity = 0.45 + 0.35 * Math.sin(tNow * 3); }   // 골렘이 남아 있으면 제단이 깜빡인다(2D와 같음)
   for (const m of objMeshes) {
     const o = m.userData.o, n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
     m.material.opacity = spent ? 0.4 : 1;

@@ -55,6 +55,22 @@ const PORT = 8123 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     if (placed < 1) errors.push('건설되지 않았습니다 (' + await page.evaluate(() => document.getElementById('msg').textContent) + ')');
     // 상호작용: E → 모달 또는 말풍선
     await page.keyboard.press('e'); await page.waitForTimeout(400);
+    // 공용 패널: 메뉴 5개가 모두 열리고 닫힌다(건설·제작·연구 노트·기록·저장)
+    for (let i = 0; i < 5; i++) {
+      await page.click(`#menu3 button:nth-child(${i + 1})`); await page.waitForTimeout(200);
+      if (!(await page.evaluate(() => !document.getElementById('modal').hidden))) errors.push(`메뉴 ${i + 1}번이 열리지 않았습니다`);
+      await page.click('#mclose'); await page.waitForTimeout(100);
+    }
+    // 항해: 뗏목을 고친 상태에서 광장섬으로 → 뗏목 칸이 새 해안으로 옮겨지고 플레이어가 그 위에 선다
+    const sailed = await page.evaluate(() => { const S = G.debug(); S.f.raft = true; G.sail('plaza'); return [S.raft.dock, Math.round(S.px / 16)]; });
+    await page.waitForTimeout(800);
+    const raftTiles = await page.evaluate(() => { let n = 0; for (let x = 0; x < World.WW; x++) if (World.MAP[Sim.RAFT.ROW * World.WW + x] === World.RAFT) n++; return [n, G.debug().raft.cells, Sim.raftXs(G.debug())[0]]; });
+    if (sailed[0] !== 'plaza' || raftTiles[0] !== raftTiles[1]) errors.push('항해/뗏목 표시가 맞지 않습니다 ' + JSON.stringify([sailed, raftTiles]));
+    // 보스: 광장섬 제단 앞에서 E → 골렘 모달(Raid)이 열린다
+    await page.evaluate(() => { const S = G.debug(), al = World.OBJS.find(o => o.type === 'altar'); S.px = al.x * 16 + 6; S.py = (al.y - 2) * 16; S.vy = 0; }); await page.waitForTimeout(1200);
+    await page.keyboard.press('e'); await page.waitForTimeout(600);
+    if (!(await page.evaluate(() => !!document.getElementById('golem')))) errors.push('제단에서 골렘 화면이 열리지 않았습니다');
+    await page.click('#mclose'); await page.waitForTimeout(200);
     const shot = process.env.SHOT; if (shot) await page.screenshot({ path: shot });
     // 화면이 비어 있지 않은지: 캔버스를 읽어 색 종류를 센다
     const kinds = await page.evaluate(() => { const q = window.__chem3d; q.renderer.render(q.scene, q.camera); const c = document.querySelector('#gl canvas'), t = document.createElement('canvas'); t.width = 64; t.height = 36; const x = t.getContext('2d'); x.drawImage(c, 0, 0, 64, 36); const d = x.getImageData(0, 0, 64, 36).data, s = new Set(); for (let i = 0; i < d.length; i += 4) s.add((d[i] >> 5) + ',' + (d[i + 1] >> 5) + ',' + (d[i + 2] >> 5)); return s.size; });
