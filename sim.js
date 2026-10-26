@@ -94,7 +94,7 @@
   const raftU = (S, tx) => { const { anchor, dir } = dockOf(S); return dir > 0 ? tx - anchor : anchor - tx - 1; };   // 위의 역
   const bounds = (S) => { const isl = ISLANDS[dockOf(S).island], xs = raftXs(S); return { L: Math.min(isl.L, Math.min(...xs) - 1), R: Math.max(isl.R, Math.max(...xs) + 1) }; };
   // 뗏목이 옮겨 가거나 넓어진 뒤 장치의 세계 좌표를 u에서 다시 계산한다
-  function syncRaft(S) { for (const d of S.placed) if (d.u !== undefined) { d.x = devX(S, d.u); d.y = RAFT.DEV_Y; } }
+  function syncRaft(S) { if (S.fp) return; for (const d of S.placed) if (d.u !== undefined) { d.x = devX(S, d.u); d.y = RAFT.DEV_Y; } }
   // 냉각 상자 게임 설정(가정(임의값)): 얼음 100 g에 넣을 수 있는 소금의 상한(g). 어는점 내림 식에는 하한이 없어서 투입량을 제한한다(30 g → 약 −19 ℃)
   const COOLER = { SALT_PER_100G: 30 };
   // 증류기 게임 설정(가정(임의값)): 증발 속도 계수(g/분 per atm)와 끝나는 기준(처음 물의 몇 %가 남으면 끝)
@@ -147,6 +147,7 @@
   // 예전 세이브(장치가 땅 위, u 없음) → 뗏목 위로 옮긴다: 왼쪽에서부터 순서와 붙어 있던 관계를 지키며 해안 쪽부터 놓는다.
   // 옛 세이브는 칸 수 제한을 넘을 수 있으므로 필요한 만큼 뗏목을 넓혀 준다(제한은 새로 넓힐 때만 적용).
   function migrateRaft(S) {
+    if (S.fp) return;   // 1인칭 세이브: 장치 위치는 격자 칸(x, y)이라 2D 뗏목(u)으로 옮기지 않는다
     const old = S.placed.filter(d => d.u === undefined);
     if (!old.length) return;
     const dir = dockOf(S).dir;
@@ -184,7 +185,10 @@
   }
 
   // ---------- 장치 시뮬레이션 (1분 단위) ----------
-  const adjacentTo = (a, b) => a !== b && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1;   // 2x2 장치끼리 한 칸 이내
+  // 교체 고리: "두 장치가 붙어 있는가"만 위치 모델에 따라 다르다. 기본은 2D(뗏목 한 줄: 2x2 장치끼리 한 칸 이내).
+  // 1인칭(fp/)은 격자 바닥이라 fp/main.js가 geo.adjacent를 격자 간격 판정으로 바꿔 끼운다(x, y = 격자 칸). 화학 계산은 그대로다.
+  const geo = { adjacent: (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1 };
+  const adjacentTo = (a, b) => a !== b && geo.adjacent(a, b);
   const fireNear = (S, d) => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
   function stepDevices(S) {
     for (const d of S.placed) {
@@ -420,18 +424,21 @@
       pay(S, r.cost); S.inv[r.out] += r.n; advance(S, 10); return r;
     },
     // 장치 건설: 위치 검사는 화면(지형)이 하고, 재료·상태 생성은 여기서 한다
-    build(S, id, u) {
-      const def = DEV[id], tx = devX(S, u), ty = RAFT.DEV_Y;
+    build(S, id, u) { return act.place(S, id, devX(S, u), RAFT.DEV_Y, u, `뗏목 ${u}번 칸`); },
+    // 위치와 무관한 장치 생성(재료·상태). 2D는 build가, 1인칭은 격자 칸 (x, y)로 직접 부른다. u가 없으면 뗏목 좌표를 쓰지 않는다
+    place(S, id, tx, ty, u, where) {
+      const def = DEV[id];
       if (!has(S, def.cost)) return say('재료가 부족합니다.'), false;
       pay(S, def.cost);
       const s = { fire: { level: 0, fuel: 0 },
         still: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 },
         cooker: { run: false, prog: 0, valve: 2, saltG: 0, water: 300, T: 25 },
         cooler: {}, collector: {} }[id];
-      S.placed.push({ id, x: tx, y: ty, u, s });
+      const dev = { id, x: tx, y: ty, s }; if (u !== undefined) dev.u = u;
+      S.placed.push(dev);
       if (id === 'fire') S.f.fire = true;
       say(`${def.name}을(를) 지었습니다.`);
-      logEv(S, '건설', `${def.name} (뗏목 ${u}번 칸)`);
+      logEv(S, '건설', `${def.name} (${where})`);
       return true;
     },
     demolish(S, d) {
@@ -478,7 +485,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    STILL, COOLER, WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    STILL, COOLER, WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, emit, say, logEv, clockText,   // 화면 모듈(world.js·ui.js)이 같은 이벤트·기록 통로를 쓰도록 노출(계산은 바뀌지 않음)
     setRng(fn) { rngFn = fn || null; },
   };
