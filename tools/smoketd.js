@@ -50,6 +50,11 @@ const PORT = 9000 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     ok('지도 가장자리에서 막힘', edge <= 88.01, String(edge));
     // 행성이 바뀌어도 그려진다: 광장섬 -> 화면 색 확인
     await ev(() => { const t = __td, S = t.S; S.f.raft = true; Sim.act.sail ? 0 : 0; });
+    // 13-c: 모든 자원·시설에 스프라이트가 있고(없으면 안 그려짐), 장치·늑대·사람·허브 시설이 그려진다
+    const spr = await ev(() => { const t = __td, miss = []; for (const n of ['start', 'plaza', 'alpine', 'polar']) { t.show(n); for (const o of t.island().objs) if (!(o.type === 'altar' ? Art.dev.altar : Art.obj[o.type === 'tree' ? 'tree' : o.type])) miss.push(n + ':' + o.type); } t.show('start'); return { miss, person: ['down', 'up', 'side'].every(d => Art.person('#4a7bd8')[d].length === 2), wolf: !!Art.mob.wolf }; });
+    ok('스프라이트: 모든 자원·시설 종류가 있다', spr.miss.length === 0 && spr.person && spr.wolf, JSON.stringify(spr));
+    const dr = await ev(async () => { const t = __td, S = t.S; t.show('start'); for (const k of ['stick', 'sand', 'bottle', 'stone']) S.inv[k] = 50; S.raft.cells = 8; S.min = 720; Sim.act.place(S, 'fire', 0, 0); Sim.act.place(S, 'still', 2, 0); S.placed.forEach((d, i) => { d.uid = d.uid || 'u' + i; }); S.placed[0].s.level = 2; S.placed[0].s.fuel = 5; S.mobs.push({ id: 1, dx: S.placed[0].x, dy: S.placed[0].y, M: 400, M0: 600 }); t.p.x = 56; t.p.z = 33; t.p.y = 10; await new Promise(r => setTimeout(r, 400)); const c = document.getElementById('c'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let flame = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 70 && d[i + 1] < 160 && d[i + 2] < 90) flame++; S.mobs.length = 0; S.placed.length = 0; return { placed: 2, flame }; });
+    ok('장치·불꽃이 그려진다(주황 픽셀)', dr.flame > 3, JSON.stringify(dr));
     ok('콘솔 에러 없음(여기까지)', errors.length === 0, errors.join(' | '));
   } finally { await browser.close(); srv.kill(); }
   console.log(checks.join(' · '));

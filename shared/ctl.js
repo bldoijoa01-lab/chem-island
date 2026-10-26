@@ -22,6 +22,8 @@ export function makeCtx(S) {
     for (const d of S.placed) { if (!c.visible(d)) continue; const [wx, wy, wz] = c.devWorld(d); if (Math.abs(x - wx) < 1 + HALF && Math.abs(z - wz) < 1 + HALF && y < wy + 1.8) return true; }
     return false;
   };
+  c.wolfDev = (m) => S.placed.find(x => x.x === m.dx && x.y === m.dy);   // 서리 늑대(얼음 생물)가 노리는 장치
+  c.wolfWorld = (m) => { const d = c.wolfDev(m); const [x, y, z] = d && c.visible(d) ? c.devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
   c.findFree = () => {   // 뗏목 위에서 장치와 겹치지 않는 자리
     const { cx, cz } = c.raftDims();
     for (let r = 0; r < Math.max(cx, cz); r++) for (let gx = 0; gx < cx; gx++) for (let gz = 0; gz < cz; gz++) { const x = RX0 + gx + 0.5, z = RZ0 + gz + 0.5; if (!c.blocked(x, SEA, z)) return [x, z]; }

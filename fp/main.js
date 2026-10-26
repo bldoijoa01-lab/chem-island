@@ -36,7 +36,7 @@ const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 
 
 // ---------- 상태 ----------
 const ctx = makeCtx(S);
-const { ensureFp, nextUid, ensureUids, raftDims, raftCell, groundAt, visible, devWorld, melted, blocked, findFree, islandName } = ctx;   // 월드 질의는 shared/ctl.js (td/와 공용)
+const { ensureFp, nextUid, ensureUids, raftDims, raftCell, groundAt, visible, devWorld, melted, blocked, findFree, islandName, wolfDev, wolfWorld } = ctx;   // 월드 질의는 shared/ctl.js (td/와 공용)
 ensureFp();
 const p = { x: S.fp.x, y: S.fp.y, z: S.fp.z, vx: 0, vy: 0, vz: 0, onGround: false, inW: false };
 let yaw = S.fp.yaw, pitch = S.fp.pitch;
@@ -97,8 +97,6 @@ function updateObjects(t) {
   }
 }
 const devBob = (d) => d.plot ? 0 : bobNow;   // 탐사정 위 장치만 출렁인다
-const wolfDev = (m) => S.placed.find(x => x.x === m.dx && x.y === m.dy);
-const wolfWorld = (m) => { const d = wolfDev(m); const [x, y, z] = d && visible(d) ? devWorld(d) : [RX0, SEA, RZ0]; return [x + (m.id % 2 ? 2.2 : -2.2), y, z]; };
 const topMat = new THREE.MeshLambertMaterial({ color: 0x6b6f78 });
 function devModel(id) { const root = makeDevice(id); return { root, parts: root.userData.parts }; }
 function animDevice(g, d, t) {   // 장치 상태를 모양에 반영(보이기만)
