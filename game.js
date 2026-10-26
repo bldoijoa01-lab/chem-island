@@ -3,7 +3,7 @@
 (() => {
 'use strict';
 const C = Chem, Art = window.Art;
-let VW = 384, VH = 224;   // 창 크기에 맞춰 fit()이 정한다
+let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
 const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
 const PW = 10, PH = 18, REACH = 40;
 const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
@@ -571,7 +571,7 @@ window.G = {
   craft(id) { const r = RECIPES.find(x => x.id === id); if (!has(r.cost)) return; pay(r.cost); S.inv[r.out] += r.n; advance(10); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
-  showAuth,
+  showAuth, openSave,
   async upgrade() {
     const pw = $('up-pw').value;
     if (pw.length < 6) { say('비밀번호는 6자 이상이어야 합니다.'); return; }
@@ -587,13 +587,8 @@ window.G = {
   reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); save(true); closeModal(); refresh(); } },
 };
 
-// ---------- HUD (DOM) ----------
+// ---------- 목표 텍스트(DOM 오버레이) ----------
 function refresh() {
-  $('clock').textContent = clockText() + ` · ${fmt(airTemp(), 0)}℃`;
-  const slot = (icon, name, n) => `<div class="slot" title="${name}"><i class="ic" style="background-image:url(${Art.iconURL[icon]})"></i><b>${n}</b></div>`;
-  $('inv').innerHTML = Object.entries(S.inv).filter(([, v]) => v >= 1)
-    .map(([k, v]) => slot(ITEM[k][0], ITEM[k][1], Math.floor(v))).join('')
-    + (S.caps.length ? slot('cap', '기체 캡슐 (' + capText() + ')', S.caps.length) : '') + (S.packs.length ? slot('pack', '한제 팩', S.packs.length) : '');
   checkQuests();
   const q = QUESTS[S.qDone];
   $('quest').innerHTML = QUESTS.slice(0, S.qDone).map(x => `<div class="q done">${x.t}</div>`).join('')
@@ -619,6 +614,8 @@ cv.addEventListener('mousemove', e => Object.assign(mouse, canvasPos(e)));
 cv.addEventListener('click', e => {
   Object.assign(mouse, canvasPos(e));
   if (!$('modal').hidden) return;
+  const hit = HUD.hits.find(h => mouse.x >= h.x && mouse.x < h.x + h.w && mouse.y >= h.y && mouse.y < h.y + h.h);
+  if (hit) return hit.fn();
   if (mode) return placeAtMouse();
   const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
   const t = targets().filter(o => Math.hypot(o.x - wx, o.y - wy) < 26).sort((a, b) => Math.hypot(a.x - wx, a.y - wy) - Math.hypot(b.x - wx, b.y - wy))[0];
@@ -631,11 +628,6 @@ document.querySelectorAll('#pad button').forEach(b => {
   const off = e => { e.preventDefault(); if (k !== 'e') keys[k] = false; };
   b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointerleave', off); b.addEventListener('pointercancel', off);
 });
-document.querySelectorAll('.speed button').forEach(b => b.onclick = () => {
-  S.speed = +b.dataset.sp; document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', x === b));
-});
-$('b-build').onclick = openBuild; $('b-craft').onclick = openCraft; $('b-log').onclick = openLog; $('b-save').onclick = openSave;
-$('b-notes').onclick = () => window.Notes && Notes.open(api);
 
 // ---------- 물리 ----------
 let onGround = false;
@@ -803,13 +795,14 @@ function draw(t) {
   // 가장자리 어둡게(비네트)
   const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.45, VW / 2, VH / 2, Math.max(VW, VH) * 0.75);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.32)'); ctx.fillStyle = vg; ctx.fillRect(0, 0, VW, VH);
+  drawHUD(t);
   // 상호작용 표시(픽셀 화살표)
   if (tg && $('modal').hidden) {
     const ax = Math.round(tg.x - cam.x), ay = Math.round(tg.y - cam.y) - 24 + Math.round(Math.sin(t * 6) * 2);
     ctx.fillStyle = '#000'; ctx.fillRect(ax - 4, ay - 1, 9, 3); ctx.fillRect(ax - 3, ay + 2, 7, 2); ctx.fillRect(ax - 1, ay + 4, 3, 2);
     ctx.fillStyle = '#ffd84a'; ctx.fillRect(ax - 3, ay, 7, 1); ctx.fillRect(ax - 2, ay + 2, 5, 1); ctx.fillRect(ax, ay + 4, 1, 1);
   }
-  const lbl = $('target'); const want = mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
+  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
@@ -820,6 +813,73 @@ function draw(t) {
   }
 }
 
+// ---------- 인게임 HUD (게임 화면 안에 그린다) ----------
+const GLYPH = {
+  0: '111101101101111', 1: '010110010010111', 2: '111001111100111', 3: '111001111001111', 4: '101101111001001',
+  5: '111100111001111', 6: '111100111101111', 7: '111001001001001', 8: '111101111101111', 9: '111101111001111',
+  ':': '000010000010000', x: '000101010101000', D: '110101101101110', '.': '000000000000010', '-': '000000111000000', C: '111100100100111', ' ': '000000000000000',
+};
+const textW = s => s.length * 4 - 1;
+function drawText(s, x, y, col = '#ffffff') {
+  for (const [pass, c] of [[1, '#000000'], [0, col]]) {
+    ctx.fillStyle = c; let cx = x;
+    for (const ch of s) {
+      const g = GLYPH[ch];
+      if (g) for (let i = 0; i < 15; i++) if (g[i] === '1') ctx.fillRect(cx + (i % 3) + pass, y + Math.floor(i / 3) + pass, 1, 1);
+      cx += 4;
+    }
+  }
+}
+function hudBox(x, y, w, h, on) {
+  ctx.fillStyle = '#0a0f1d'; ctx.fillRect(x - 1, y - 1, w + 2, h + 2);
+  ctx.fillStyle = on ? '#6a5a18' : 'rgba(22,34,66,.88)'; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = on ? '#ffd84a' : '#4a68b4'; ctx.fillRect(x, y, w, 1); ctx.fillRect(x, y, 1, h);
+  ctx.fillStyle = 'rgba(0,0,0,.4)'; ctx.fillRect(x, y + h - 1, w, 1); ctx.fillRect(x + w - 1, y, 1, h);
+}
+const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
+const hudMenu = [
+  ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
+  ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()],
+];
+function drawHUD(t) {
+  HUD.hits = []; HUD.tip = '';
+  const over = (x, y, w, h) => mouse.x >= x && mouse.x < x + w && mouse.y >= y && mouse.y < y + h;
+  // 가방: 칸마다 아이콘 + 개수
+  const items = Object.entries(S.inv).filter(([, v]) => v >= 1).map(([k, v]) => ({ icon: ITEM[k][0], name: ITEM[k][1], n: Math.floor(v) }));
+  if (S.caps.length) items.push({ icon: 'cap', name: '기체 캡슐 (' + capText() + ')', n: S.caps.length });
+  if (S.packs.length) items.push({ icon: 'pack', name: '한제 팩', n: S.packs.length });
+  const SL = 17, per = Math.max(4, Math.floor((VW - 118) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
+  items.forEach((it, i) => {
+    const x = 4 + (i % per) * SL, y = 4 + Math.floor(i / per) * SL, hov = over(x, y, 16, 16);
+    hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);
+    const s = String(it.n); drawText(s, x + 15 - textW(s), y + 10);
+    if (hov) HUD.tip = `${it.name} ${it.n}`;
+  });
+  HUD.bottom = 4 + rows * SL;
+  // 시계(해/달 아이콘 + 일차 + 시각)
+  const hh = String(Math.floor(S.min / 60)).padStart(2, '0'), mm = String(Math.floor(S.min % 60)).padStart(2, '0');
+  const ts = `D${S.day} ${hh}:${mm}`, pw = textW(ts) + 20, px = VW - 4 - pw;
+  hudBox(px, 4, pw, 14); ctx.drawImage(S.min >= 360 && S.min < 1080 ? Art.sun : Art.moon, px + 3, 6, 9, 9); drawText(ts, px + 16, 9);
+  const tempS = Math.round(airTemp()) + 'C';
+  if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · 외기 ${Math.round(airTemp())}℃`;
+  // 메뉴 버튼
+  hudMenu.forEach(([icon, label, fn], i) => {
+    const x = VW - 4 - (5 - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);
+    hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[icon], x + 3, y + 3);
+    HUD.hits.push({ x, y, w: 16, h: 16, fn }); if (hov) HUD.tip = label;
+  });
+  // 시간 배속
+  let sx = VW - 4;
+  for (const sp of [10, 3, 1]) {
+    const s = 'x' + sp, w = textW(s) + 6; sx -= w; const on = S.speed === sp;
+    hudBox(sx, 40, w, 11, on); drawText(s, sx + 3, 43, on ? '#ffd84a' : '#ffffff'); sx -= 2;
+    HUD.hits.push({ x: sx + 2, y: 40, w, h: 11, fn: () => { S.speed = sp; } }); if (over(sx + 2, 40, w, 11)) HUD.tip = `시간 속도 x${sp}`;
+  }
+  // 목표 텍스트는 화면 왼쪽 위(가방 아래)에 겹쳐 놓는다
+  const qk = HUD.bottom * 1000 + S.qDone;
+  if (HUD.quest !== qk) { HUD.quest = qk; const q = $('quest'); q.style.top = (HUD.bottom * K + 8) + 'px'; q.style.left = (4 * K) + 'px'; }
+}
+
 // 시계: 1초 = 게임 2분 (x1)
 setInterval(() => { if (paused || (window.Raid && Raid.active)) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
 setInterval(() => save(), 5000);
@@ -827,15 +887,12 @@ window.addEventListener('pagehide', () => save(true));
 function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
   const W = window.innerWidth, H = window.innerHeight;
   const k = Math.max(2, Math.round(Math.min(W / 560, H / 315)));
-  VW = Math.ceil(W / k); VH = Math.ceil(H / k);
+  K = k; VW = Math.ceil(W / k); VH = Math.ceil(H / k);
   cv.width = VW; cv.height = VH; ctx.imageSmoothingEnabled = false;
   cv.style.width = VW * k + 'px'; cv.style.height = VH * k + 'px';
   makeStars();
 }
 window.addEventListener('resize', fit);
-document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed));
-$('b-panel').onclick = () => document.body.classList.toggle('hidepanel');
-if (window.innerWidth <= 900) document.body.classList.add('hidepanel');
 refresh(); fit(); requestAnimationFrame(frame);
 boot();
 })();

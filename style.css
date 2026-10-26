@@ -9,16 +9,17 @@ body { margin: 0; overflow: hidden; background: var(--bg); color: var(--text); f
 #app { position: fixed; inset: 0; }
 #left { position: absolute; inset: 0; overflow: hidden; }
 #cv { display: block; image-rendering: pixelated; image-rendering: crisp-edges; background: #4aa8e8; cursor: crosshair; }
-#msg, #target { position: absolute; left: 12px; right: 330px; text-shadow: 2px 2px 0 #000, -1px -1px 0 #000; pointer-events: none; }
+#msg, #target { position: absolute; left: 12px; right: 12px; text-shadow: 2px 2px 0 #000, -1px -1px 0 #000; pointer-events: none; }
 #msg { bottom: 34px; min-height: 22px; color: var(--warn); font-weight: 700; }
 #target { bottom: 12px; color: var(--accent); min-height: 20px; }
+#quest { position: absolute; left: 12px; top: 90px; width: min(420px, 60vw); padding: 6px 10px; background: rgba(10,16,36,.55); text-shadow: 1px 1px 0 #000, -1px -1px 0 #000; pointer-events: none; }
+#quest .q { margin-bottom: 2px; }
+#quest .done { color: var(--good); }
+#quest .done::before { content: "■ "; }
+#quest .q:not(.done)::before { content: "▶ "; color: var(--accent); }
+#quest small { color: var(--muted); display: block; margin-left: 16px; }
 #pad { display: none; gap: 8px; position: absolute; left: 12px; bottom: 70px; }
 #pad button { width: 56px; height: 56px; font-size: 20px; touch-action: none; user-select: none; }
-#side { position: absolute; top: 48px; right: 10px; width: 290px; max-height: calc(100vh - 60px); overflow: auto; display: flex; flex-direction: column; gap: 10px; z-index: 5; }
-#side section { background: #1d2c4dee; }
-#b-panel { position: fixed; top: 8px; right: 10px; z-index: 6; }
-body.hidepanel #msg, body.hidepanel #target { right: 12px; }
-body.hidepanel #side { display: none; }
 section, .box { background: var(--panel); border: 4px solid var(--edge); box-shadow: inset 0 0 0 2px var(--hi), 4px 4px 0 #0007; padding: 10px 12px; }
 h3 { margin: 0 0 6px; font-size: 12px; color: var(--accent); letter-spacing: .08em; }
 h2 { margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
@@ -34,20 +35,9 @@ button.on { background: var(--accent); color: #2a2000; }
 button.primary { background: #2f9e44; }
 button.primary:hover:not(:disabled) { background: #3cbc55; }
 button.danger { background: #a63a30; }
-.btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.speed button { padding: 1px 8px; }
-#inv { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
-.slot { position: relative; height: 44px; background: #0e1730; border: 2px solid #3a5190; display: flex; align-items: center; justify-content: center; }
-.slot b { position: absolute; right: 2px; bottom: 0; font-size: 11px; text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000; }
 .ic { display: inline-block; width: 24px; height: 24px; background-size: 100% 100%; background-repeat: no-repeat; image-rendering: pixelated; vertical-align: middle; flex: none; }
-.slot .ic { width: 28px; height: 28px; }
 h2 .ic { width: 32px; height: 32px; }
 b .ic, .mut .ic { width: 16px; height: 16px; }
-#quest .q { margin-bottom: 4px; }
-#quest .done { color: var(--good); }
-#quest .done::before { content: "■ "; }
-#quest .q:not(.done)::before { content: "▶ "; color: var(--accent); }
-#quest small { color: var(--muted); display: block; margin-left: 16px; }
 
 #modal { position: fixed; inset: 0; background: rgba(2, 6, 16, .75); display: flex; align-items: center; justify-content: center; padding: 12px; z-index: 10; }
 #modal[hidden] { display: none; }
@@ -75,7 +65,6 @@ th { background: var(--panel2); }
 textarea { width: 100%; min-height: 60px; background: #0a0f1d; color: var(--text); border: 2px solid #4a68b4; border-radius: 0; padding: 6px; font: inherit; }
 
 @media (max-width: 900px) {
-  #side { width: min(290px, 92vw); }
   #msg, #target { right: 12px; }
   .grid2 { grid-template-columns: 1fr; }
   #pad { display: flex; }
