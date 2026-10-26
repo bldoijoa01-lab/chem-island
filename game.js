@@ -6,27 +6,7 @@ const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
 const T = 16, WW = 120, WH = 56, KEY = 'chemisle_side_v1';
 const PW = 10, PH = 18, REACH = 40;
-const FIRE_T = [25, 105, 115, 130, 145];       // 화덕 세기별 열원 온도(℃)
-const FIRE_BURN = [0, 0.5, 1, 2, 3];           // 세기별 나뭇가지 소모(개/시간)
-const FIRE_NAME = ['꺼짐', '약불', '중불', '강불', '최강'];
-// 서리 늑대(얼음 몸): 질량 M(g)이 곧 체력. 아래 값은 모두 가정(임의값) — 플레이 테스트로 조정하고 DESIGN.md에 이력을 남긴다
-const WOLF = {
-  MIN_M: 100, MAX_M: 300,   // 가정(임의값) 출현 질량 범위(g)
-  SPAWN_P: 0.02,            // 가정(임의값) 영하의 밤 동안 1분마다 출현할 확률
-  MAX: 3,                   // 가정(임의값) 동시에 있을 수 있는 늑대 수(장치 수도 넘지 않음)
-  ATTACK_MIN: 60,           // 가정(임의값) 한 장치에 붙어 있다가 파손시키는 데 걸리는 시간(분)
-  K_FIRE: 7,                // 가정(임의값) 켜진 화덕이 늑대에게 전하는 열: K_FIRE·(열원 온도) J/분
-  K_AIR: 40,                // 가정(임의값) 0 ℃ 이상의 공기가 늑대에게 전하는 열: K_AIR·(기온) J/분
-};
-const NIGHT_FROM = 20, NIGHT_TO = 5;   // 몬스터가 나오는 밤(시)
-const SEA_BUCKET = { water: 193, nacl: 7 };    // 바닷물 1통 = 200 g (NaCl 3.5 %)
-const DEV = {
-  fire:      { name: '화덕',        cost: { stick: 6, sand: 4 },              unlock: 0, needFire: false },
-  still:     { name: '증류기',      cost: { bottle: 2, stick: 4 },             unlock: 0, needFire: true },
-  cooker:    { name: '압력 밥솥',   cost: { bottle: 3, stick: 4, sand: 2 },    unlock: 3, needFire: true },
-  cooler:    { name: '냉각 상자',   cost: { ice: 3, salt: 20 },                unlock: 4, needFire: false },
-  collector: { name: '기체 포집기', cost: { bottle: 2, syringe: 1 },           unlock: 5, needFire: false },
-};
+const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;   // 데이터와 계산은 sim.js
 // 아이템: [아이콘 키, 이름, 단위]
 const ITEM = {
   stick: ['stick', '나뭇가지', '개'], sand: ['sand', '모래', '개'], sea: ['sea', '바닷물(200 g)', '통'],
@@ -36,39 +16,12 @@ const ITEM = {
   dirt: ['dirt', '흙', '개'], stone: ['stone', '돌', '개'],
   pickaxe: ['pickaxe', '곡괭이', '개'], shaker: ['shaker', '소금 뿌리개', '개'], thermo: ['thermo', '온도계', '개'],
 };
-const RECIPES = [
-  { id: 'bottle', out: 'bottle', n: 1, cost: { sand: 3, stick: 1 }, note: '모래를 가열해 유리로' },
-  { id: 'syringe', out: 'syringe', n: 1, cost: { bottle: 1, stick: 2 }, note: '피스톤으로 기체의 양을 조절 [#8]' },
-  { id: 'pickaxe', out: 'pickaxe', n: 1, cost: { stick: 2, stone: 2 }, note: '돌을 팔 수 있다 (광장 보급 상자에서 처음 돌을 얻는다)' },
-  { id: 'shaker', out: 'shaker', n: 1, cost: { bottle: 1, stick: 1 }, note: '소금을 얼음·늑대에 뿌린다 — 어는점 내림 [#37 #39]' },
-  { id: 'thermo', out: 'thermo', n: 1, cost: { bottle: 1, sand: 2 }, note: '장치·땅·공기의 온도를 읽는다' },
-];
 const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량(g) = 얼음 아이템 1개
 const SHAKE_G = 10;       // 가정(임의값) 소금 뿌리개로 한 번에 뿌리는 소금(g)
 const UNDER_T = 12;       // 가정(임의값) 지하 온도(℃): 깊이와 상관없이 일정하다고 가정
-const QUESTS = [
-  { t: '바닷물 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕. 바닷가에서 E로 바닷물 뜨기' },
-  { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 바닷물을 넣고 가열 시작' },
-  { t: '증류에서 소금 20 g을 모으세요', ok: f => f.dS >= 20, hint: '바닷물이 농축되면 NaCl 결정이 남아요' },
-  { t: '압력 밥솥으로 2기압 이상에서 라면을 끓이세요', ok: f => f.ramenP >= 2, hint: '면 1개 + 증류수 300 g. 화덕 세기를 올려야 할 수도 있어요' },
-  { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 오른쪽 설원에서. 소금을 섞으면 어는점이 내려가요' },
-  { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
-  { t: '언덕 위 제단의 솥 골렘을 정화하세요', ok: f => f.boss, hint: '소금·증류수·한제 팩·캡슐을 챙기세요' },
-  { t: '서리 늑대 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 늑대가 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
-];
-
 // ---------- 상태 ----------
-function newState() {
-  return {
-    day: 1, min: 360, px: 48 * T, py: 24 * T - PH, vx: 0, vy: 0, face: 1, speed: 1,
-    inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
-    caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
-    f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0 },
-    qDone: 0, log: [], memo: '',
-  };
-}
+const newState = Sim.newState, merge = Sim.merge;
 let S = load() || newState();
-function merge(j) { const d = newState(); return Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f) }); }
 function load() {
   try {
     const j = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -146,152 +99,21 @@ const airTemp = () => C.airTemp(S.min);   // ℃, 오후 3시 최고(28) · 새�
 let msgTimer;
 function say(t) { $('msg').textContent = pix(t); clearTimeout(msgTimer); msgTimer = setTimeout(() => $('msg').textContent = '', 6000); }
 function logEv(type, text) { S.log.push({ day: S.day, t: clockText(), type, text: pix(text) }); if (S.log.length > 300) S.log.shift(); }
-const has = cost => Object.entries(cost).every(([k, v]) => (S.inv[k] || 0) >= v);
-const pay = cost => { for (const k in cost) S.inv[k] -= cost[k]; };
+const has = cost => Sim.has(S, cost);
+const pay = cost => Sim.pay(S, cost);
 const costText = cost => Object.entries(cost).map(([k, v]) => `${ic(ITEM[k][0])}${ITEM[k][1]} ${v}`).join(' · ');
-const unlocked = id => S.qDone >= DEV[id].unlock;
-
-// ---------- 시간 ----------
-function advance(dm) {
-  for (let i = 0; i < dm; i++) {
-    S.min += 1;
-    stepDevices();
-    stepMobs();
-    if (S.min === 19 * 60 && S.dusk !== S.day && S.placed.length) { S.dusk = S.day; say('해가 지고 있습니다. 밤에는 기온이 영하로 내려가 서리 늑대가 나타나요.'); }
-    if (S.min >= 1440) { S.min -= 1440; S.day += 1; newDay(); }
+const unlocked = id => Sim.unlocked(S, id);
+// 계산(sim.js)이 쌓은 이벤트를 화면에 반영한다: 말풍선·폭발 연기·늑대 효과·목표 갱신
+function flush() {
+  for (const e of Sim.drain()) {
+    if (e.t === 'say') say(e.text);
+    else if (e.t === 'burst') burst(e.d);
+    else if (e.t === 'puffWolf') puff(...wolfPos(e.m), '#d8f3ff', 10);
+    else if (e.t === 'refresh') refresh();
   }
 }
-function newDay() {
-  S.nodes = {};
-  const before = S.packs.length;
-  S.packs = S.packs.filter(p => p.day >= S.day);
-  if (before > S.packs.length) { say('한제 팩이 밤새 녹았습니다. 팩은 당일에만 쓸 수 있어요.'); logEv('팩 녹음', '한제 팩이 하루가 지나 녹음(얼음의 융해).'); }
-  else say(`${S.day}일차 — 자원이 다시 자랐습니다.`);
-}
-
-// ---------- 장치 시뮬레이션 (1분 단위) ----------
-const adjacentTo = (a, b) => a !== b && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1;   // 2x2 장치끼리 한 칸 이내
-const fireNear = d => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
-function stepDevices() {
-  for (const d of S.placed) {
-    const s = d.s;
-    if (s.broken && d.id !== 'cooker') { if (d.id === 'fire') s.level = 0; continue; }   // 파손: 수리 전에는 작동하지 않음
-    if (d.id === 'fire') {
-      if (s.level > 0) {
-        s.fuel -= FIRE_BURN[s.level] / 60;
-        if (s.fuel <= 0) { s.fuel = 0; s.level = 0; say('화덕의 연료가 떨어졌습니다.'); }
-      }
-    } else if (d.id === 'still') stepStill(d);
-    else if (d.id === 'cooker') stepCooker(d);
-  }
-}
-function heatOf(d) {
-  let t = 25;
-  for (const f of fireNear(d)) if (!f.s.broken && f.s.level > 0 && f.s.fuel > 0) t = Math.max(t, FIRE_T[f.s.level]);
-  return t;
-}
-
-// ---------- 서리 늑대 ----------
-const devAt = m => S.placed.find(d => d.x === m.dx && d.y === m.dy);
-const isNightHour = h => h >= NIGHT_FROM || h < NIGHT_TO;
-function wolfHeat(d) {   // 이 장치 자리의 늑대가 받는 열(J/분): 켜진 화덕(자기 자신 또는 이웃). Q = K·T(열원)
-  const fires = d.id === 'fire' ? [d] : fireNear(d);
-  let q = 0;
-  for (const f of fires) if (!f.s.broken && f.s.level > 0 && f.s.fuel > 0) q += WOLF.K_FIRE * FIRE_T[f.s.level];
-  return q;
-}
-function spawnWolf(T) {
-  const d = S.placed[Math.floor(Math.random() * S.placed.length)];
-  const M = Math.round(WOLF.MIN_M + Math.random() * (WOLF.MAX_M - WOLF.MIN_M));
-  S.mobs.push({ id: ++S.mobId, k: 'wolf', M, M0: M, dx: d.x, dy: d.y, att: 0 });
-  say('서리 늑대가 나타났습니다!');
-  logEv('서리 늑대 출현', `기온 ${fmt(T, 1)}℃, 질량 ${M} g, 위치: ${DEV[d.id].name}(${d.x})`);
-}
-function removeWolf(m, how, extra) {
-  S.mobs.splice(S.mobs.indexOf(m), 1);
-  if (how === 'ambient') { logEv('서리 늑대 융해', `기온 ${fmt(airTemp(), 1)}℃ 공기의 열로 모두 녹음`); return; }
-  if (how === 'gone') { logEv('서리 늑대 이탈', '장치가 철거되어 늑대가 흩어짐'); return; }
-  S.f.wolf++; say('서리 늑대를 정화했습니다!');
-  logEv('서리 늑대 정화', `${how === 'salt' ? '소금으로' : '화덕 열로'} ${fmt(m.M0, 0)} g 모두 녹임${extra ? ' · ' + extra : ''}`);
-  refresh();
-}
-function stepMobs() {
-  const T = airTemp(), h = S.min / 60;
-  if (T < 0 && isNightHour(h) && S.placed.length && S.mobs.length < Math.min(WOLF.MAX, S.placed.length) && Math.random() < WOLF.SPAWN_P) spawnWolf(T);
-  for (const m of S.mobs.slice()) {
-    let d = devAt(m);
-    if (!d || (d.s.broken && S.placed.some(x => !x.s.broken))) {   // 철거됐거나 이미 부서진 장치 → 다른 장치로
-      d = S.placed.find(x => !x.s.broken && !S.mobs.some(o => o !== m && o.dx === x.x && o.dy === x.y)) || S.placed.find(x => !x.s.broken);
-      if (!d) { if (!devAt(m)) { removeWolf(m, 'gone'); } continue; }
-      m.dx = d.x; m.dy = d.y; m.att = 0;
-    }
-    // 열: 공기(0 ℃ 이상일 때) + 켜진 화덕.  녹는 얼음 = Q / 융해열 [#21]
-    const qAir = T > 0 ? WOLF.K_AIR * T : 0, qFire = wolfHeat(d);
-    m.M -= C.iceMeltByHeat(qAir + qFire);
-    if (m.M <= 0) { removeWolf(m, qFire > 0 ? 'fire' : 'ambient'); continue; }
-    // 공격: 붙어 있는 동안 시간이 쌓여 장치를 파손
-    if (!d.s.broken && ++m.att >= WOLF.ATTACK_MIN) {
-      m.att = 0; d.s.broken = true; d.s.run = false;
-      say(`서리 늑대가 ${DEV[d.id].name}을(를) 부쉈습니다! 수리가 필요해요.`);
-      logEv('장치 파손', `${DEV[d.id].name}: 서리 늑대(남은 ${fmt(m.M, 0)} g)가 ${WOLF.ATTACK_MIN}분 붙어 파손`);
-    }
-  }
-}
-
-// 증류기: 증발 속도 ∝ (용액 증기압 − 외부 압력)   [#19 #30 #34]
-function stepStill(d) {
-  const s = d.s;
-  s.T = heatOf(d);
-  if (s.broken || !s.run || s.w <= 0) return;
-  const np = 2 * s.ns;                       // NaCl → Na⁺ + Cl⁻ (i = 2 가정)
-  const xw = C.xw(s.w, np);
-  s.xw = xw; s.tb = C.tb(1, xw);
-  const pv = C.pSol(s.T, xw);
-  s.pv = pv;
-  if (pv > 1) {
-    const wmin = s.ns / C.NACL_SAT * 1000;   // 포화 몰랄농도에 이르면 결정 석출
-    const ev = Math.min(12 * (pv - 1), s.w - wmin);
-    s.w -= ev; s.outW += ev;
-    if (s.w - wmin < 1e-6) {
-      s.outS += s.ns * C.MW_NACL; s.ns = 0; s.w = 0; s.run = false;
-      say('증류기: 소금이 포화되어 결정으로 석출되었습니다.');
-      logEv('증류 완료', `포화(${C.NACL_SAT} mol/kg)에서 NaCl 결정 석출`);
-    }
-  }
-}
-
-// 압력 밥솥: 압력 P → 끓는점 Tb(P) → 조리 속도 2^((T−100)/10)   [#5 #18 #34]
-const VALVE = [1.0, 1.5, 2.0, 2.5, Infinity];
-const VALVE_NAME = ['1.0 atm (열림)', '1.5 atm', '2.0 atm', '2.5 atm', '잠금(막힘)'];
-function cookerState(s, Theat) {
-  const np = 2 * s.saltG / C.MW_NACL;
-  const xw = C.xw(s.water || 300, np);
-  const pHeat = C.pSol(Theat, xw);
-  const cap = VALVE[s.valve];
-  const pIn = Math.min(cap, pHeat);
-  const Teff = pIn === cap ? C.tb(cap, xw) : Theat;
-  return { xw, pHeat, pIn, Teff, speed: Math.pow(2, (Math.min(Teff, Theat) - 100) / 10) };
-}
-function stepCooker(d) {
-  const s = d.s;
-  s.T = heatOf(d);
-  if (s.broken || !s.run) return;
-  const cs = cookerState(s, s.T);
-  s.cs = cs;
-  if (cs.pIn > C.PBURST) {
-    s.broken = true; s.run = false; s.prog = 0;
-    say('압력 밥솥이 터졌습니다! 재료를 잃었어요.');
-    logEv('폭발', `압력 밥솥: 밸브 ${VALVE_NAME[s.valve]}, 열원 ${s.T}℃ → 내부 압력 ${fmt(cs.pIn, 2)} atm > ${C.PBURST} atm`);
-    burst(d);
-    return;
-  }
-  s.prog += cs.speed;
-  if (s.prog >= 18) {
-    s.run = false; s.done = true; s.doneP = cs.pIn;
-    say('라면이 완성되었습니다!');
-    logEv('조리 완료', `내부 압력 ${fmt(cs.pIn, 2)} atm, 끓는점 ${fmt(cs.Teff, 1)}℃, 속도 x${fmt(cs.speed, 2)}`);
-  }
-}
+const advance = dm => { Sim.advance(S, dm); flush(); };
+const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cookerState = Sim.cookerState;
 
 // ---------- 땅 파기 · 블록 놓기 ----------
 // 타일별 [얻는 아이템, 파는 데 걸리는 시간(초, 마우스 꾹 누르기)]. 시간은 모두 가정(임의값): 흙·모래 짧게, 눈·얼음 중간, 돌은 곡괭이가 필요(2단계)하고 오래
@@ -393,16 +215,7 @@ function useShaker() {
 }
 
 // ---------- 퀘스트 ----------
-function checkQuests() {
-  while (S.qDone < QUESTS.length && QUESTS[S.qDone].ok(S.f)) {
-    say(`목표 달성! ${QUESTS[S.qDone].t}`);
-    logEv('목표', QUESTS[S.qDone].t);
-    S.qDone++;
-    if (S.qDone === 3) say('압력 밥솥을 건설할 수 있게 되었습니다.');
-    if (S.qDone === 4) say('냉각 상자를 건설할 수 있게 되었습니다.');
-    if (S.qDone === 5) say('기체 포집기를 건설할 수 있게 되었습니다.');
-  }
-}
+function checkQuests() { Sim.checkQuests(S); flush(); }
 
 // ---------- 상호작용 대상 ----------
 const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : 8)];
@@ -428,26 +241,14 @@ function interact(t) {
   if (!t) return;
   if (t.kind === 'wolf') return uiWolf(t.ref);
   if (t.kind === 'dev') return openDevice(t.ref);
-  if (t.kind === 'water') { S.inv.sea++; S.f.sea = true; advance(5); say('바닷물 1통(200 g)을 떴습니다.'); return refresh(); }
+  if (t.kind === 'water') { Sim.act.scoop(S); flush(); return refresh(); }
   if (t.kind === 'box') return openBox();
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
-  const n = NODE[t.kind], o = t.ref, used = S.nodes[o.id] || 0;
-  if (used >= n[2]) return say('오늘은 더 얻을 수 없습니다. (내일 다시 자랍니다)');
-  S.nodes[o.id] = used + 1; S.inv[n[0]] += n[1]; advance(5);
-  say(`${ITEM[n[0]][1]} +${n[1]}`);
-  puff(t.x, t.y, '#ffffff', 5);
-  refresh();
+  const n = NODE[t.kind], ok = Sim.act.gather(S, t.ref, n, ITEM[n[0]][1]);
+  flush();
+  if (ok) { puff(t.x, t.y, '#ffffff', 5); refresh(); }
 }
-function openBox() {
-  if (S.boxDay === S.day) return say('오늘의 보급품은 이미 받았습니다.');
-  S.boxDay = S.day;
-  const nAir = C.moles(1, 0.5, 25);
-  for (const k of ['N2', 'N2', 'N2', 'O2', 'O2', 'O2', 'He']) S.caps.push({ k, n: nAir });
-  S.inv.sugar += 100; S.inv.salt += 10;
-  const gift = !S.stoneGift; if (gift) { S.stoneGift = true; S.inv.stone += 3; }
-  say('광장 보급품: 질소·산소 캡슐 3개씩, 헬륨 캡슐 1개, 설탕 100 g, 소금 10 g' + (gift ? ', 돌 3개(곡괭이 재료, 처음 한 번)' : ''));
-  refresh();
-}
+function openBox() { Sim.act.box(S); flush(); refresh(); }
 
 // ---------- 건설 (평평한 땅에 2x2 장치) ----------
 let mode = null;   // 'build:<id>' | 'demolish'
@@ -473,24 +274,13 @@ function placeAtMouse() {
     const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
     const d = S.placed.find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
     if (!d) return say('철거할 장치를 클릭하세요.');
-    for (const k in DEV[d.id].cost) S.inv[k] += DEV[d.id].cost[k];
-    S.placed.splice(S.placed.indexOf(d), 1);
-    say(`${DEV[d.id].name}을(를) 철거하고 재료를 돌려받았습니다.`);
+    Sim.act.demolish(S, d); flush();
     mode = null; return refresh();
   }
-  const id = mode.slice(6), def = DEV[id], g = ghostCheck(id);
+  const id = mode.slice(6), g = ghostCheck(id);
   if (!g.ok) return say(g.msg);
-  if (!has(def.cost)) return say('재료가 부족합니다.');
-  pay(def.cost);
-  const s = { fire: { level: 0, fuel: 0 },
-    still: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 },
-    cooker: { run: false, prog: 0, valve: 2, saltG: 0, water: 300, T: 25 },
-    cooler: {}, collector: {} }[id];
-  S.placed.push({ id, x: g.tx, y: g.ty, s });
-  if (id === 'fire') S.f.fire = true;
-  say(`${def.name}을(를) 지었습니다.`);
-  logEv('건설', `${def.name} (${g.tx})`);
-  mode = null; refresh();
+  if (Sim.act.build(S, id, g.tx, g.ty)) mode = null;
+  flush(); refresh();
 }
 
 // ---------- 모달 ----------
@@ -567,17 +357,7 @@ function wolfSalt() {
   if (saltOnWolf(m, s)) closeModal(); else uiWolf(m);
 }
 // 늑대에게 소금 s g을 뿌린다(모달·소금 뿌리개 공용). 늑대가 정화되면 true
-function saltOnWolf(m, s) {
-  const T = airTemp(), melt = C.iceMeltBySalt(T, s);
-  if (melt <= 0) { say(T >= 0 ? '기온이 0 ℃ 이상이라 소금이 필요 없어요.' : '공융점 이하라 소금으로 녹일 수 없습니다.'); return false; }
-  const used = melt >= m.M ? Math.min(s, C.saltForIce(T, m.M)) : s, done = Math.min(melt, m.M);
-  S.inv.salt -= used; m.M -= done;
-  logEv('소금 뿌림', `기온 ${fmt(T, 1)}℃, 소금 ${fmt(used, 1)} g → 얼음 ${fmt(done, 0)} g 융해 (m_eq=${fmt(-T / (2 * C.KF), 2)} mol/kg)`);
-  puff(...wolfPos(m), '#d8f3ff', 10);
-  if (m.M <= 1e-6) { removeWolf(m, 'salt', `소금 ${fmt(used, 1)} g, 기온 ${fmt(T, 1)}℃`); return true; }
-  say(`얼음 ${fmt(done, 0)} g가 녹았습니다. 남은 질량 ${fmt(m.M, 0)} g`);
-  return false;
-}
+function saltOnWolf(m, s) { const r = Sim.act.saltOnWolf(S, m, s); flush(); return r; }
 
 function uiFire(d) {
   curDev = d;
@@ -595,8 +375,8 @@ function uiFire(d) {
     $('f-btns').innerHTML = FIRE_NAME.map((n, i) => `<button class="${i === d.s.level ? 'on' : ''}" onclick="act('level',${i})">${n}</button>`).join('');
   });
 }
-ACT.fuel = (d, n) => { n = Math.min(n, S.inv.stick); if (n <= 0) return say('나뭇가지가 없습니다.'); S.inv.stick -= n; d.s.fuel += n; };
-ACT.level = (d, i) => { if (i > 0 && d.s.fuel <= 0) return say('연료를 먼저 넣으세요.'); d.s.level = i; };
+ACT.fuel = (d, n) => { Sim.act.fuel(S, d, n); flush(); };
+ACT.level = (d, i) => { Sim.act.level(S, d, i); flush(); };
 
 function uiStill(d) {
   curDev = d;
@@ -630,18 +410,9 @@ function uiStill(d) {
     set('s-st', !s.run ? '대기 중' : (s.w > 0 && C.pSol(heatOf(d), C.xw(s.w, np)) > 1 ? '끓는 중 — 증기가 응축되어 증류수가 됩니다' : '열원 온도가 용액의 끓는점보다 낮아 끓지 않습니다 (화덕 세기를 올리세요)'));
   });
 }
-ACT.load = d => {
-  if (S.inv.sea < 1) return say('바닷물이 없습니다. 바닷가에서 E.');
-  if (d.s.w + SEA_BUCKET.water > 650) return say('증류기가 가득 찼습니다.');
-  S.inv.sea--; d.s.w += SEA_BUCKET.water; d.s.ns += SEA_BUCKET.nacl / C.MW_NACL;
-};
-ACT.toggle = d => { d.s.run = !d.s.run; };
-ACT.collect = d => {
-  const w = d.s.outW, s = d.s.outS;
-  S.inv.water += w; S.inv.salt += s; S.f.dW += w; S.f.dS += s;
-  if (w > 0 || s > 0) logEv('증류 수거', `증류수 ${fmt(w, 1)} g, 소금 ${fmt(s, 1)} g`);
-  d.s.outW = 0; d.s.outS = 0;
-};
+ACT.load = d => { Sim.act.load(S, d); flush(); };
+ACT.toggle = d => { Sim.act.toggle(S, d); };
+ACT.collect = d => { Sim.act.collect(S, d); flush(); };
 
 function uiCooker(d) {
   curDev = d;
@@ -669,18 +440,9 @@ function uiCooker(d) {
     set('c-st', s.broken ? '파손됨 — 수리가 필요합니다' : s.done ? '완성! 꺼내세요' : s.run ? `조리 중 (${fmt(s.prog / 18 * 100, 0)} %)` : '대기 중');
   });
 }
-ACT.cook = d => {
-  const s = d.s;
-  if (s.broken) return say('먼저 수리하세요.');
-  if (s.run || s.done) return say('이미 사용 중입니다.');
-  if (S.inv.water < 300 || S.inv.noodle < 1) return say('증류수 300 g과 면 1개가 필요합니다.');
-  const salt = +$('c-salt').value;
-  if (salt > S.inv.salt) return say('소금이 부족합니다.');
-  S.inv.water -= 300; S.inv.noodle--; S.inv.salt -= salt;
-  s.saltG = salt; s.valve = +$('c-valve').value; s.prog = 0; s.run = true;
-};
-ACT.take = d => { if (!d.s.done) return say('아직 완성되지 않았습니다.'); d.s.done = false; S.inv.ramen++; S.f.ramenP = Math.max(S.f.ramenP, d.s.doneP); say('라면 1개를 얻었습니다.'); };
-ACT.repair = d => { if (!d.s.broken) return; if (S.inv.stick < 2) return say('나뭇가지 2개가 필요합니다.'); S.inv.stick -= 2; d.s.broken = false; };
+ACT.cook = d => { Sim.act.cook(S, d, +$('c-salt').value, +$('c-valve').value); flush(); };
+ACT.take = d => { Sim.act.take(S, d); flush(); };
+ACT.repair = d => { Sim.act.repair(S, d); flush(); };
 
 function uiCooler(d) {
   curDev = d;
@@ -699,17 +461,7 @@ function uiCooler(d) {
     set('k-n', S.packs.map(p => fmt(p.T, 1) + '℃').join(', ') || '없음');
   });
 }
-ACT.pack = () => {
-  const iceN = +$('k-ice').value, salt = +$('k-salt').value;
-  if (S.inv.ice < iceN || S.inv.salt < salt) return say('얼음이나 소금이 부족합니다.');
-  if (salt <= 0) return say('소금을 넣어야 0 ℃ 아래로 내려갑니다.');
-  S.inv.ice -= iceN; S.inv.salt -= salt;
-  const t = C.coolTemp(iceN * 100, salt);
-  S.packs.push({ T: t, M: iceN * 100, day: S.day });
-  S.f.packT = Math.min(S.f.packT, t);
-  logEv('한제 팩', `얼음 ${iceN * 100} g + 소금 ${salt} g → ${fmt(t, 1)} ℃`);
-  advance(30); say(`${fmt(t, 1)} ℃ 한제 팩을 만들었습니다.`);
-};
+ACT.pack = () => { Sim.act.pack(S, +$('k-ice').value, +$('k-salt').value); flush(); };
 
 function uiCollector(d) {
   curDev = d;
@@ -732,13 +484,7 @@ function uiCollector(d) {
 }
 const capCount = k => S.caps.filter(c => c.k === k).length;
 const capText = () => ['air', 'N2', 'O2', 'He'].map(k => `${k === 'air' ? '공기' : k} ${capCount(k)}`).join(' · ');
-ACT.cap = () => {
-  if (S.inv.sand < 1) return say('모래가 필요합니다.');
-  S.inv.sand--; advance(10);
-  S.caps.push({ k: 'air', n: C.moles(1, 0.5, airTemp()) });
-  S.f.caps++;
-  say('공기 캡슐 1개를 만들었습니다.');
-};
+ACT.cap = () => { Sim.act.cap(S); flush(); };
 
 // ---------- 메뉴 ----------
 function openBuild() {
@@ -824,7 +570,7 @@ const api = {
 window.G = {
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
-  craft(id) { const r = RECIPES.find(x => x.id === id); if (!has(r.cost)) return; pay(r.cost); S.inv[r.out] += r.n; advance(10); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
+  craft(id) { const r = Sim.act.craft(S, id); if (!r) return; flush(); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
   wolfSalt, closeModal: () => closeModal(),

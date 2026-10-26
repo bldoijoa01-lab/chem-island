@@ -15,7 +15,8 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `index.html` | DOM shell: `#cv` canvas, HUD overlays, `#modal`, `#auth`. **Script load order matters** (see below). |
 | `style.css` | All styling (modal, auth, HUD, touch pad). |
 | `chem.js` | `window.Chem`: **the only place chemistry formulas/constants live** (`pStar`, `xw`, `pSol`, `tb`, `molality`, `coolTemp`, `moles`, `partial`, `mixT`, `packMix`, `AIR`...). Item numbers from class appear as `[#n]` comments. |
-| `game.js` | IIFE, ~900 lines: state/save, tile world, time, device simulation (`stepStill`, `stepCooker`), quests, build/craft, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Exposes an `api` object to `raid.js`/`notes.js`. |
+| `sim.js` | `window.Sim` (also `require`-able in Node): state, time, device/wolf simulation, quests, action rules. **No window/DOM/canvas.** Screen effects leave as events (`Sim.drain()`). Check with `node tools/sim-check.js`. |
+| `game.js` | IIFE, ~1,000 lines: save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
 | `raid.js` | `window.Raid`: 3-phase "솥 골렘" boss puzzle (P1 Raoult, P2 pressure/heat balance, P3 Dalton partial pressure). Opened via `Raid.open(api)`. |
 | `notes.js` | `window.Notes`: research-note modal — concept-link table (`LINKS`, with lesson item numbers and implemented ✔/✘) and live calculators. |
 | `sprites.js` | `window.Art`: all pixel art drawn procedurally onto canvases (tiles, player, devices, icons, golem, sky/parallax). 16×16 tiles, auto 1px outline. |
@@ -27,7 +28,7 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `.claude/settings.json` | Enables the oh-my-claudecode plugin. `.omc/` is git-ignored. |
 
 ## Script load order (index.html)
-Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sprites.js` → `notes.js` → `raid.js` → `game.js`. Modules attach to `window.*`; `game.js` runs last and consumes the others. Adding a script means adding a `<script>` tag in the right position.
+Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sim.js` → `sprites.js` → `notes.js` → `raid.js` → `game.js`. Modules attach to `window.*`; `game.js` runs last and consumes the others. Adding a script means adding a `<script>` tag in the right position.
 
 ## Conventions for AI agents
 - **Chemistry only in `chem.js`.** Game files call `Chem.*`; do not inline formulas, constants or magic chemistry numbers elsewhere. If you change a formula or constant, update `DESIGN.md` (tables and verification cases) and the `LINKS` table in `notes.js` to match.

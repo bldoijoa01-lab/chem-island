@@ -6,7 +6,7 @@
 - 처음 시작하는 사람을 위한 플레이 가이드(조작·처음 10분·장치별 수업 개념↔게임 규칙): [GUIDE.md](GUIDE.md)
 - 설계·화학 규칙·수업 아이템 번호: [DESIGN.md](DESIGN.md)
 - 멀티플레이 설계(Firebase): [MULTIPLAYER.md](MULTIPLAYER.md)
-- 모든 화학 식: [chem.js](chem.js) · 게임: [game.js](game.js) · 보스: [raid.js](raid.js) · 연구 노트: [notes.js](notes.js)
+- 모든 화학 식: [chem.js](chem.js) · 계산(상태·장치·늑대): [sim.js](sim.js) · 게임 화면: [game.js](game.js) · 보스: [raid.js](raid.js) · 연구 노트: [notes.js](notes.js)
 
 테라리아처럼 **옆에서 본 2D 픽셀 월드**를 걸어 다니며 진행합니다. 모든 그림(타일·캐릭터·장치·아이콘·골렘)은 코드로 직접 그린 픽셀 아트라서 외부 이미지가 없습니다 ([sprites.js](sprites.js)).
 
