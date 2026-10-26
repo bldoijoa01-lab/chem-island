@@ -7,6 +7,7 @@ import { buildIslandGeometry, STEP_NEAR, STEP_FAR } from './terrain.js';
 import { makeObject, makeDevice, makeWolf, makePlayerModel, makeRaft } from './models.js';
 import { installTheme, themed, GAME_TITLE } from '../shared/theme.js';
 import { Party } from '../shared/party.js';
+import { stepBody, blockedByObjs, HALF, BODY, COLL, COLL_H } from '../shared/move.js';
 import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from '../shared/hub.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
@@ -25,16 +26,11 @@ Sim.RECIPES.find(r => r.id === 'pickaxe').note = '바위·암염을 캘 수 있�
 Sim.RECIPES.find(r => r.id === 'thermo').note = '장치와 공기의 온도를 읽는다';
 
 // ---------- 1인칭 전용 상수: 모두 "가정(임의값)" (DESIGN.md §4-15) ----------
-const WALK = 72 / 16, SWIM = 42 / 16, JUMP = 270 / 16, GRAV = 900 / 16, GRAV_W = 300 / 16, FALL_MAX = 400 / 16, FALL_W = 70 / 16;   // 2D의 px/s를 16 px = 1 m로 바꾼 값
-const SURF_JUMP = 16.5;         // 수면에서 뛰어오르는 속도(m/s) → 약 2.4 m: 수면에 떠서 뗏목 바닥(수면과 같은 높이)에 오를 수 있게(2D는 15 m/s)
-const SLOPE_TAN = Math.tan(40 * Math.PI / 180);   // 걸어서 오를 수 있는 기울기 한계 40°(가정). 지형은 26.6° 이하로 만들어 어디든 오르고, 더 가파른 턱은 점프로만 넘는다
-const SNAP_DOWN = 0.5;          // 내리막에서 발이 땅을 따라가는 최대 높이 차(m, 가정). 더 큰 낭떠러지는 떨어진다
-const HALF = 0.3, BODY = 1.8, EYE = 1.6;   // 몸 폭 0.6 m, 키 1.8 m, 눈높이 1.6 m
+// 이동·충돌 상수(WALK·JUMP·SLOPE_TAN·COLL 등)는 shared/move.js (td/와 공용)
+const EYE = 1.6;   // 눈높이 1.6 m
 const REACH = 5;                // 손이 닿는 거리(m)
 const SENS = 0.0022;            // 마우스 감도(rad/px)
 const FOV = 70, VIEW = 220;     // 시야각(°), 안개가 끝나는 거리(m)
-const COLL = { tree: 0.45, rock: 0.9, iceblock: 0.8, rocksalt: 0.6, icecrystal: 0.45, box: 0.6, board: 0.5, harbor: 0.4, altar: 1.0 };   // 가정(임의값) 자원·시설 충돌 반지름(m). 높이 2.2 m 넘게 뛰면 위로 지나간다
-const COLL_H = 2.2;
 const nightOf = h => h >= 21 || h < 5 ? 1 : h >= 18 ? (h - 18) / 3 : h < 7 ? (7 - h) / 2 : 0;
 
 // ---------- 상태 ----------
@@ -314,35 +310,16 @@ const fxPos = () => lastTarget ? [lastTarget.wx, lastTarget.wy, lastTarget.wz] :
 // ---------- 충돌·이동 ----------
 // 몸(반지름 HALF)이 자원·시설·장치에 막히는가. 자원은 원기둥(COLL), 장치는 2×2 상자. 높이를 넘으면 위로 지나간다
 function blocked(x, y, z) {
-  for (const o of isl.objs) { const r = COLL[o.type]; if (r && !(o.type === 'fragment') && !(melted(o)) && Math.hypot(x - o.x, z - o.z) < r + HALF && y < o.y + COLL_H) return true; }
+  if (blockedByObjs(isl.objs, x, y, z, melted)) return true;
   for (const d of S.placed) { if (!visible(d)) continue; const [wx, wy, wz] = devWorld(d); if (Math.abs(x - wx) < 1 + HALF && Math.abs(z - wz) < 1 + HALF && y < wy + 1.8) return true; }
   return false;
 }
 let seaHintAt = 0;
-// 한 걸음: 발 아래 높이가 낮아지면 따라가고(SNAP_DOWN까지), 높아지면 기울기가 SLOPE_TAN 이하일 때만 오른다. 자동 오르기(계단)는 없다
-function tryMove(nx, nz) {
-  if (blocked(nx, p.y, nz) && !blocked(p.x, p.y, p.z)) return false;
-  const g = groundAt(nx, nz);
-  if (g <= p.y + 1e-4) { if (p.onGround && p.y - g <= SNAP_DOWN) p.y = g; p.x = nx; p.z = nz; return true; }
-  if (p.onGround) { const d = Math.hypot(nx - p.x, nz - p.z); if (g - p.y <= SLOPE_TAN * d + 1e-4) { p.y = g; p.x = nx; p.z = nz; return true; } }
-  return false;
-}
+// 한 걸음·한 틱은 shared/move.js(td/와 공용). 여기서는 시선 방향(yaw)을 세계 방향으로 바꾸고 월드 질의(groundAt·blocked)를 넘긴다
+const moveWorld = { groundAt: (x, z) => groundAt(x, z), blocked, onEdge() { const t = performance.now(); if (t - seaHintAt > 5000) { seaHintAt = t; say('더 멀리 갈 수 없어요. 탐사정으로 궤도 이동하세요 (궤도 이동 단말).'); } } };
 function stepPlayer(dt, ax, az, jump) {
-  p.inW = p.y + BODY / 2 < SEA - 0.05;
-  const sp = p.inW ? SWIM : WALK, fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
-  let mx = fx * az + rx * ax, mz = fz * az + rz * ax; const l = Math.hypot(mx, mz); if (l > 1) { mx /= l; mz /= l; }
-  p.vx = mx * sp; p.vz = mz * sp;
-  if (jump) {
-    if (p.onGround) { p.vy = JUMP; p.onGround = false; }   // 바닥을 딛고 있으면 물속에서도 뛴다(2D와 같은 규칙)
-    else if (p.inW) { const surface = p.y + BODY >= SEA - 0.05; p.vy = surface ? SURF_JUMP : Math.min(p.vy + 700 / 16 * dt, 60 / 16); }
-  }
-  p.vy = Math.max(p.vy - (p.inW ? GRAV_W : GRAV) * dt, -(p.inW ? FALL_W : FALL_MAX));
-  if (!tryMove(p.x + p.vx * dt, p.z)) { /* x 막힘 */ }
-  if (!tryMove(p.x, p.z + p.vz * dt)) { /* z 막힘 */ }
-  { const lo = -12, hi = N + 24; if (p.x < lo || p.x > hi || p.z < -12 || p.z > N + 12) { p.x = Math.max(lo, Math.min(hi, p.x)); p.z = Math.max(-12, Math.min(N + 12, p.z)); const t = performance.now(); if (t - seaHintAt > 5000) { seaHintAt = t; say('더 멀리 갈 수 없어요. 탐사정으로 궤도 이동하세요 (궤도 이동 단말).'); } } }
-  const g = groundAt(p.x, p.z), ny = p.y + p.vy * dt;
-  if (ny <= g && p.vy <= 0) { p.y = g; p.vy = 0; p.onGround = true; }
-  else { p.y = Math.max(ny, g); if (ny < g) p.vy = 0; p.onGround = p.y <= g + 1e-4 && p.vy <= 0; }
+  const fx = -Math.sin(yaw), fz = -Math.cos(yaw), rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  stepBody(p, dt, fx * az + rx * ax, fz * az + rz * ax, jump, moveWorld);
 }
 
 // ---------- 시선: 지형 가림 + 대상 ----------

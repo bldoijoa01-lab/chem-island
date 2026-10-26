@@ -645,6 +645,8 @@
 
 **구현 기록(11단계).** 코드는 `fp/hub.js`(창·주기·예측)와 `net.js`·`database.rules.json`(경로 `/partyPub`·`/trades`·`/world/project`·`/reports`·`/boards`), 시설 모형은 `fp/models.js`다. 설계와 달라진 점: 공동 프로젝트는 제단 옆 별도 단말 (36, 34)에서 열고(제단은 그대로), 예측 점수는 팀 필드 `team.predictScore`(중복 방지 `team.predicted`)에 쌓는다. 허브 탐사정 구경(①)은 `loadPubs`가 60초마다 다른 팀 요약 3개까지 읽어 허브에 도킹한 것만 그린다. 교역은 창고에 있는 16종 아이템만 올릴 수 있다. 시험: `tools/smokeinter.js`(두 팀 + 가짜 서버, 23개 점검: 에스크로·이중 수락 방지·취소 회수·프로젝트 상한/완료·보고서 자동 첨부·자기 팀 표시 금지·점수 줄지 않음/상한/남의 칸 금지). 예측 정확도의 점수식은 화면 시험이 아니라 코드 리뷰(ARGON.md 11단계)로 확인한다. 화학 계산은 바꾸지 않았다(`Chem.tb`·`Chem.xw` 호출만).
 
+**13-a 공용 코드 분리 기록.** `fp/gen.js`·`theme.js`·`party.js`·`hub.js`는 `git mv`로 `shared/`에 옮겼고(내용 불변, fp의 import 경로만 변경), 이동·충돌 물리(걷기·헤엄·점프·경사 한계 40°·충돌 반지름)는 `fp/main.js`에서 `shared/move.js`(`stepBody`, `tryMove`, `blockedByObjs`)로 뺐다. 숫자는 하나도 바꾸지 않았고(`WALK` 4.5, `JUMP` 16.875 m/s, `SLOPE_TAN` tan 40° 등), `fp/main.js`는 시선(yaw)을 세계 방향으로 바꿔 넘기는 얇은 층만 남았다. 시험: `smokefp`·`smokeparty`·`smokeinter`·`move-check`·`sim-check` 통과. 이전 상태는 태그 `fp-before-shared`.
+
 ## 5. 아이템 보관함에서 다시 확인하면 좋을 기록 (정확성 점검 제안)
 
 삭제하지 말고 '수정 필요' + 수정 이유로 남기는 규칙(보관함 규칙 4)에 맞춰 검토해 보세요.

@@ -143,3 +143,9 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 같이 붙일 파일: `database.rules.json`(partyPub·trades·world/project·reports·boards), `net.js`(pubSet~boardLoad), `fp/hub.js`, `tools/fakenet.js`, `tools/smokeinter.js`, `DESIGN.md` §4-19, `MULTIPLAYER.md`
 - 질문: (1) 에스크로 흐름(올림 → 수락 → 찾아감)에서 두 팀이 동시에 수락하거나, 수락 직후 올린 팀이 취소해 물품이 복제·소실되는 순서가 있는지, (2) 규칙의 상태 전이(open → taken/cancelled, taken → done)를 우회하는 쓰기, (3) 리더보드 점수를 규칙 안에서 부풀리는 길(상한만큼 반복 게시)과 완화책, (4) 예측 점수 `max(0, 10 - 5 x |오차|)`가 `Chem.tb(P, x_w)`(라울의 법칙, 증기압력 곡선, #36 #40 범위)와 같은 조건에서 계산되는지
 - 사람이 확인할 방법: Firebase 콘솔 규칙 시뮬레이터(다른 팀 uid로 `trades/{id}` 상태 변경, `boards/*/{pid}` 점수 감소·상한 초과, `reports/*/votes`에 남의 칸 쓰기), 브라우저 두 개를 서로 다른 팀으로 만들어 교역·프로젝트 기여 후 새로고침해 일치하는지 확인
+
+### [2026-10-27] 13-a: shared/ 이동 diff와 이동 물리 추출 리뷰
+- 맡길 일: `fp/main.js`에서 `shared/move.js`로 뺀 이동·충돌 물리가 동작을 바꾸지 않았는지 줄 단위로 대조
+- 같이 붙일 파일: `git diff fp-before-shared -- fp/main.js shared/move.js`, `tools/move-check.js`, `tools/smokefp.js`(경사·턱·점프 점검)
+- 질문: (1) `stepBody`가 원래 `stepPlayer`와 계산 순서(입력 정규화 → 점프 → 중력 → x축 이동 → z축 이동 → 경계 → 바닥 처리)가 같은지, (2) `blockedByObjs`의 `skip`(녹은 얼음) 조건이 원래 `blocked`와 같은지, (3) 경계에서 `onEdge`가 한 틱에 한 번만 불리는지
+- 사람이 확인할 방법: `fp/`에서 경사 30°·35° 오르기, 45° 못 오름, 1.5 m 턱은 점프로만, 물에서 헤엄·수면 점프로 뗏목 오르기가 이전과 같은지
