@@ -31,7 +31,7 @@
       <button id="b-craft">제작</button>
       <button id="b-notes">연구 노트</button>
       <button id="b-log">기록</button>
-      <button id="b-save">저장/초기화</button>
+      <button id="b-save">저장/계정</button>
     </section>
   </aside>
 </div>
@@ -44,6 +44,25 @@
   </div>
 </div>
 
+<div id="auth" hidden>
+  <div id="abox">
+    <h2>화학 섬 이야기</h2>
+    <p class="mut">닉네임만 정하면 바로 시작! 친구들과 같은 섬에서 만날 수 있어요.</p>
+    <div class="row"><input id="a-nick" maxlength="8" placeholder="닉네임 (2~8자)" autocomplete="off"><button id="a-start" class="primary">시작하기</button></div>
+    <small class="mut">한글·영문·숫자. 나중에 메뉴에서 비밀번호를 설정하면 다른 기기에서도 이어서 할 수 있어요.</small>
+    <details id="a-login"><summary>이미 캐릭터가 있어요 (로그인)</summary>
+      <div class="row"><input id="a-lnick" maxlength="8" placeholder="닉네임" autocomplete="username"><input id="a-lpw" type="password" placeholder="비밀번호" autocomplete="current-password"><button id="a-lgo">로그인</button></div>
+    </details>
+    <div id="a-err"></div>
+    <button id="a-off">혼자 하기 (이 브라우저에만 저장)</button>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script src="net.js"></script>
 <script src="chem.js"></script>
 <script src="sprites.js"></script>
 <script src="notes.js"></script>

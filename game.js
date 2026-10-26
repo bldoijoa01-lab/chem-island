@@ -49,15 +49,24 @@ function newState() {
   };
 }
 let S = load() || newState();
+function merge(j) { const d = newState(); return Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f) }); }
 function load() {
   try {
     const j = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (!j) return null;
-    const d = newState();
-    return Object.assign(d, j, { inv: Object.assign(d.inv, j.inv), f: Object.assign(d.f, j.f) });
+    return j ? merge(j) : null;
   } catch { return null; }
 }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* 저장 불가 */ } }
+let lastRemote = 0, remoteWarned = false;
+function save(force) {
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* 저장 불가 */ }
+  if (!(window.Net && Net.user) || paused) return;
+  const now = Date.now();
+  if (!force && now - lastRemote < 4000) return;      // 서버 쓰기는 4초에 한 번만
+  lastRemote = now;
+  const snap = JSON.parse(JSON.stringify(S)); snap.log = snap.log.slice(-60);   // undefined/NaN 제거, 기록은 최근 것만
+  Net.saveSave(snap).catch(() => { if (!remoteWarned) { remoteWarned = true; say('서버 저장에 실패했습니다. 인터넷 연결을 확인하세요.'); } });
+}
+let paused = false;   // 접속 화면이 떠 있는 동안 시간이 흐르지 않게
 
 // ---------- 월드 (단면 타일맵) ----------
 const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7;
@@ -513,8 +522,42 @@ function openLog() {
     <div class="log">${rows}</div>`, null, () => { const m = $('memo'); if (m) S.memo = m.value; });
 }
 function openSave() {
-  openModal('저장/초기화', `<p>진행 상황은 이 브라우저에 자동 저장됩니다.</p>
-    <div class="row"><button onclick="G.save()">지금 저장</button><button class="danger" onclick="G.reset()">처음부터 다시 시작</button></div>`);
+  const on = window.Net && Net.user;
+  const acct = on
+    ? `<p>접속 중: <b>${Net.nick}</b> (${Net.guest ? '게스트' : '계정'}) · 진행 상황은 서버에 자동 저장됩니다.</p>` + (Net.guest
+      ? `<div class="warnbox">비밀번호를 설정하면 다른 기기에서도 이 캐릭터로 로그인할 수 있어요. 설정하지 않으면 브라우저 데이터를 지울 때 캐릭터를 잃습니다. 비밀번호를 잊으면 복구할 수 없어요.</div>
+         <div class="row"><input id="up-pw" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="new-password"><button class="primary" onclick="G.upgrade()">내 캐릭터 지키기</button></div>` : '')
+      + `<div class="row"><button onclick="G.logout()">로그아웃</button></div>`
+    : `<p>혼자 하기 모드: 진행 상황은 이 브라우저에만 저장됩니다.</p>` + (window.Net && Net.ok ? `<div class="row"><button class="primary" onclick="G.showAuth()">온라인으로 접속</button></div>` : '');
+  openModal('저장/계정', acct + `<hr><div class="row"><button onclick="G.save()">지금 저장</button><button class="danger" onclick="G.reset()">처음부터 다시 시작</button></div>`);
+}
+
+// ---------- 접속(게스트 입장 / 로그인) ----------
+const authErr = (t) => { $('a-err').textContent = t || ''; };
+function showAuth() { $('modal').hidden = true; authErr(''); $('auth').hidden = false; paused = true; clearKeys(); }
+function applyRemote(r) { S = merge(r); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
+// 신원이 확정된 뒤: 서버 세이브가 있으면 그것으로, 없으면 지금 진행 상황을 서버에 올린다
+async function enterWorld() {
+  try {
+    const r = await Net.loadSave();
+    if (r) applyRemote(r);
+  } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
+  $('auth').hidden = true; paused = false; lastRemote = 0; save(true); refresh();
+  say(`${Net.nick}님, 환영합니다!`);
+}
+async function busy(fn) {
+  const btns = [...document.querySelectorAll('#abox button')]; btns.forEach(b => b.disabled = true); authErr('');
+  try { await fn(); } catch (e) { authErr(e.message); } finally { btns.forEach(b => b.disabled = false); }
+}
+$('a-start').onclick = () => busy(async () => { await Net.register($('a-nick').value); await enterWorld(); });
+$('a-lgo').onclick = () => busy(async () => { await Net.login($('a-lnick').value, $('a-lpw').value); await enterWorld(); });
+$('a-off').onclick = () => { $('auth').hidden = true; paused = false; };
+for (const id of ['a-nick', 'a-lnick', 'a-lpw']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $(id === 'a-nick' ? 'a-start' : 'a-lgo').click(); });
+async function boot() {
+  if (!window.Net || !Net.init()) return;     // Firebase를 쓸 수 없으면 혼자 하기
+  paused = true;
+  const nick = await Net.restore();
+  if (nick) await enterWorld(); else showAuth();
 }
 
 // ---------- 공개 API (raid.js, notes.js) ----------
@@ -527,9 +570,21 @@ window.G = {
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
   craft(id) { const r = RECIPES.find(x => x.id === id); if (!has(r.cost)) return; pay(r.cost); S.inv[r.out] += r.n; advance(10); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
-  save() { save(); say('저장했습니다.'); },
+  save() { save(true); say('저장했습니다.'); },
+  showAuth,
+  async upgrade() {
+    const pw = $('up-pw').value;
+    if (pw.length < 6) { say('비밀번호는 6자 이상이어야 합니다.'); return; }
+    try { await Net.upgrade(pw); say('캐릭터를 지켰습니다! 이제 다른 기기에서도 로그인할 수 있어요.'); openSave(); } catch (e) { say(e.message); }
+  },
+  async logout() {
+    if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
+    save(true); await Net.logout();
+    try { localStorage.removeItem(KEY); } catch { /* 무시 */ }
+    S = newState(); closeModal(); showAuth();
+  },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
-  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); save(); closeModal(); refresh(); } },
+  reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { S = newState(); save(true); closeModal(); refresh(); } },
 };
 
 // ---------- HUD (DOM) ----------
@@ -766,8 +821,9 @@ function draw(t) {
 }
 
 // 시계: 1초 = 게임 2분 (x1)
-setInterval(() => { if (window.Raid && Raid.active) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
-setInterval(save, 5000);
+setInterval(() => { if (paused || (window.Raid && Raid.active)) return; advance(S.speed); if (modalTick && !$('modal').hidden) modalTick(); refresh(); }, 500);
+setInterval(() => save(), 5000);
+window.addEventListener('pagehide', () => save(true));
 function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
   const W = window.innerWidth, H = window.innerHeight;
   const k = Math.max(2, Math.round(Math.min(W / 560, H / 315)));
@@ -781,4 +837,5 @@ document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on',
 $('b-panel').onclick = () => document.body.classList.toggle('hidepanel');
 if (window.innerWidth <= 900) document.body.classList.add('hidepanel');
 refresh(); fit(); requestAnimationFrame(frame);
+boot();
 })();
