@@ -71,8 +71,30 @@ window.Net = (() => {
       if (!(await loadProfile(cred.user))) throw new Error('캐릭터 정보를 찾을 수 없습니다.');
     } catch (e) { throw new Error(e.code ? errText(e) : e.message); }
   };
-  N.logout = async () => { await auth.signOut(); N.user = null; N.nick = null; N.guest = true; };
+  N.logout = async () => { N.leaveMap(); await auth.signOut(); N.user = null; N.nick = null; N.guest = true; };
   N.loadSave = async () => (await db.ref('saves/' + N.user.uid).once('value')).val();
+  // ---- presence: 같은 맵의 다른 플레이어 ----
+  let pref = null, pOff = [];
+  N.peers = {};   // uid -> { nick, x, y, vx, face, anim, t }
+  N.joinMap = (map, first) => {
+    N.leaveMap();
+    pref = db.ref('presence/' + map);
+    const me = pref.child(N.user.uid);
+    me.onDisconnect().remove();
+    me.set(Object.assign({ nick: N.nick }, first));
+    const put = (s) => { if (s.key !== N.user.uid) N.peers[s.key] = s.val(); };
+    const del = (s) => { delete N.peers[s.key]; };
+    pref.on('child_added', put); pref.on('child_changed', put); pref.on('child_removed', del);
+    pOff = [['child_added', put], ['child_changed', put], ['child_removed', del]];
+  };
+  N.sendPos = (p) => { if (pref && N.user) pref.child(N.user.uid).update(p).catch(() => {}); };
+  N.leaveMap = () => {
+    if (pref) {
+      pOff.forEach(([ev, fn]) => pref.off(ev, fn));
+      if (N.user) { const me = pref.child(N.user.uid); me.onDisconnect().cancel(); me.remove().catch(() => {}); }
+    }
+    pref = null; pOff = []; N.peers = {};
+  };
   N.saveSave = (obj) => db.ref('saves/' + N.user.uid).set(obj);
   return N;
 })();
