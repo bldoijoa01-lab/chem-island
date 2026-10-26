@@ -21,27 +21,23 @@ async function handle(page, uid, nick, method, a) {
     case 'beat': { const p = P(a[0]); if (p && p.members[uid]) p.members[uid].t = Date.now(); return null; }
   }
 }
-const initScriptParty = ({ uid, nick }) => {
-  const watchers = {}, logw = {};
-  const rpc = (m, a) => window.__rpc(m, a);
-  const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap() {}, sendPos() {}, leaveMap() {}, loadRafts: async () => [], loadBottles: async () => [],
-    partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
-    partyWatch: (pid, cb) => { watchers[pid] = cb; rpc('watch', [pid]); return () => { delete watchers[pid]; rpc('unwatch', [pid]); }; },
-    partyWatchLog: (pid, cb) => { logw[pid] = cb; rpc('watchlog', [pid]); return () => {}; },
-    partyLease: (pid, active, ms) => rpc('lease', [pid, active, ms]), partyPublish: (pid, base, st) => rpc('publish', [pid, base, st]), partyLog: (pid, e) => rpc('log', [pid, e]), partyBeat: (pid) => rpc('beat', [pid]) };
-  window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
-  window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);
-  Object.defineProperty(window, 'Net', { get: () => fake, set: () => {} });
-};
 
 // ---- 팀 간 교류(11단계) ----
 server.pubs = {}; server.trades = {}; server.project = { have: {}, byTeam: {} }; server.reports = {}; server.boards = {};
 const PROJECT_NEED = { water: 3000, salt: 300, ice: 20 }, BOARD_CAP = { env: 3, core: 60, water: 2000, predict: 30 };
 const memberOf = (pid, uid) => server.parties[pid] && server.parties[pid].members[uid];
 async function emitProject() { for (const [page, w] of server.pages) if (w.has('__project')) await page.evaluate((p) => window.__fakeEmitProject && window.__fakeEmitProject(p), JSON.parse(JSON.stringify(server.project))).catch(() => {}); }
+server.maps = {}; server.info = new Map();
+async function pushPeers(map) {   // 같은 지도에 있는 모든 화면에 나를 뺀 사람들의 위치를 보낸다(접속 표시, 10단계의 presence 흉내)
+  for (const [page, inf] of server.info) if (inf.map === map) { const peers = {}; for (const [id, q] of Object.entries(server.maps[map] || {})) if (id !== inf.uid) peers[id] = q; await page.evaluate((pp) => window.__fakePeers && window.__fakePeers(pp), peers).catch(() => {}); }
+}
 const handle0 = handle;
 async function handle2(page, uid, nick, method, a) {
+  const inf = server.info.get(page) || (server.info.set(page, { uid, nick, map: null }), server.info.get(page));
   switch (method) {
+    case 'joinMap': { inf.map = a[0]; (server.maps[a[0]] = server.maps[a[0]] || {})[uid] = Object.assign({ nick }, clean(a[1])); await pushPeers(a[0]); return null; }
+    case 'sendPos': { if (inf.map) { server.maps[inf.map][uid] = Object.assign({ nick }, clean(a[0])); await pushPeers(inf.map); } return null; }
+    case 'leaveMap': { if (inf.map) { const m = inf.map; delete server.maps[m][uid]; inf.map = null; await pushPeers(m); } return null; }
     case 'pubSet': { const [pid, obj] = a; if (!memberOf(pid, uid)) throw new Error('권한 없음'); server.pubs[pid] = Object.assign(server.pubs[pid] || {}, clean(obj), { t: Date.now() }); return null; }
     case 'pubLoad': return Object.entries(server.pubs).map(([pid, v]) => Object.assign({ pid }, v)).sort((x, y) => y.t - x.t).slice(0, a[0] || 8);
     case 'tradePost': { const [t] = a; if (!memberOf(t.fromPid, uid)) throw new Error('권한 없음'); const tid = 't' + (++server.n); server.trades[tid] = Object.assign({ t: Date.now(), status: 'open' }, t); return tid; }
@@ -69,7 +65,7 @@ module.exports = { server, handle: handle2, clean, initScript: null };
 module.exports.initScript = ({ uid, nick }) => {
   const watchers = {}, logw = {}; let projectCb = null;
   const rpc = (m, a) => window.__rpc(m, a);
-  const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap() {}, sendPos() {}, leaveMap() {}, loadRafts: async () => [], loadBottles: async () => [],
+  const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap: (m, pk) => rpc('joinMap', [m, pk]), sendPos: (pk) => rpc('sendPos', [pk]), leaveMap: () => rpc('leaveMap', []), loadRafts: async () => [], loadBottles: async () => [],
     partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
     partyWatch: (pid, cb) => { watchers[pid] = cb; rpc('watch', [pid]); return () => { delete watchers[pid]; rpc('unwatch', [pid]); }; },
     partyWatchLog: (pid, cb) => { logw[pid] = cb; rpc('watchlog', [pid]); return () => {}; },
@@ -79,6 +75,7 @@ module.exports.initScript = ({ uid, nick }) => {
     projectWatch: (cb) => { projectCb = cb; rpc('projectWatch', []); return () => { projectCb = null; }; }, projectAdd: (pid, name, color, item, n, need) => rpc('projectAdd', [pid, name, color, item, n, need]), projectTeam: (pid, o) => rpc('projectTeam', [pid, o]), projectDone: () => rpc('projectDone', []),
     reportPost: (r) => rpc('reportPost', [r]), reportsLoad: (n) => rpc('reportsLoad', [n]), reportVote: (rid, pid, v) => rpc('reportVote', [rid, pid, v]),
     boardSet: (b, pid, o) => rpc('boardSet', [b, pid, o]), boardLoad: (b, n) => rpc('boardLoad', [b, n]) };
+  window.__fakePeers = (pp) => { for (const k of Object.keys(fake.peers)) delete fake.peers[k]; Object.assign(fake.peers, pp); };
   window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
   window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);
   window.__fakeEmitProject = (p) => projectCb && projectCb(p);

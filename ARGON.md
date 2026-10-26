@@ -149,3 +149,9 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 같이 붙일 파일: `git diff fp-before-shared -- fp/main.js shared/move.js`, `tools/move-check.js`, `tools/smokefp.js`(경사·턱·점프 점검)
 - 질문: (1) `stepBody`가 원래 `stepPlayer`와 계산 순서(입력 정규화 → 점프 → 중력 → x축 이동 → z축 이동 → 경계 → 바닥 처리)가 같은지, (2) `blockedByObjs`의 `skip`(녹은 얼음) 조건이 원래 `blocked`와 같은지, (3) 경계에서 `onEdge`가 한 틱에 한 번만 불리는지
 - 사람이 확인할 방법: `fp/`에서 경사 30°·35° 오르기, 45° 못 오름, 1.5 m 턱은 점프로만, 물에서 헤엄·수면 점프로 뗏목 오르기가 이전과 같은지
+
+### [2026-10-27] 13단계: shared/ 추출 전체 diff와 td/ 입력·대상 판정 리뷰
+- 맡길 일: `fp/main.js`에서 `shared/`로 옮긴 모든 조각(이동 물리 `move.js`, 월드 질의 `ctl.js`, 플레이 규칙 `play.js`, HUD·팀 창 `hud.js`, 접속 `presence.js`)이 옮기기 전과 같은 동작인지, `td/`의 대상 판정·건설 칸·꾹 캐기가 fp와 같은 규칙(닿는 거리, 겹침, 열선 거리)을 지키는지 대조
+- 같이 붙일 파일: `git diff fp-before-shared -- fp/main.js shared/ td/main.js`, `tools/smokefp.js`, `tools/smoketd.js`, `tools/smokemix.js`, `DESIGN.md` §4-20
+- 질문: (1) `play.js`의 `pl.ghostCheck`·`useAction`·`doInteract`가 옛 fp 함수와 같은 분기·같은 문구인가, (2) `td/`에서 클릭 한 번이 두 번 동작하거나(좌클릭 + E) 팀 쓰기 권한(`Party.guard`)을 건너뛰는 길이 있는가, (3) 스프라이트 상자 판정이 겹친 대상(장치 뒤의 나무)에서 엉뚱한 대상을 고르는 경우가 있는가
+- 사람이 확인할 방법: `td/`와 `fp/`로 같은 계정에서 같은 장치를 짓고 철거해 보고(재료 환불·연결선 삭제 동일), 같은 팀에서 한 명은 `td/`, 한 명은 `fp/`로 교역·프로젝트 기여를 해 서로 같은 숫자가 보이는지 확인

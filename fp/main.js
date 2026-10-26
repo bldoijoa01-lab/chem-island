@@ -11,6 +11,7 @@ import { stepBody, HALF, BODY } from '../shared/move.js';
 import { makeCtx, PLOT_OFF } from '../shared/ctl.js';
 import { makePlay, collectTargets as collectTargetsS, HOLD, REACH, LINK_MAX } from '../shared/play.js';
 import { initHud, wrapActions } from '../shared/hud.js';
+import { makePresence } from '../shared/presence.js';
 import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from '../shared/hub.js';
 
 const C = Chem, Art = window.Art, S = Store.S;
@@ -145,30 +146,21 @@ function loadIsland(name) {
 }
 
 // ---------- 광장: 다른 플레이어(presence)와 정박한 남의 뗏목(읽기 전용) ----------
-const PRES_HZ = 100;   // 위치를 서버에 보내는 간격(ms) = 10 Hz
-let presMap = null, lastPos = '', lastPosAt = 0;
 const peerMeshes = {};
 const posPacket = () => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, z: Math.round(p.z * 100) / 100, yaw: Math.round(yaw * 100) / 100, air: !p.onGround });
-function joinPresence() {   // 광장섬에서만 서로 보인다(시작섬은 내 섬)
-  if (!(window.Net && Net.user)) return;
-  const want = islName === 'plaza' ? 'fp-plaza' : null;
-  if (want === presMap) return;
-  presMap = want; for (const id in peerMeshes) dropPeer(id);
-  if (want) Net.joinMap(want, posPacket()); else Net.leaveMap();
-}
+const pres = makePresence(ctx, posPacket);   // 위치 보내기·받기는 shared/presence.js (td/와 공용)
+const joinPresence = () => { pres.join(); for (const id in peerMeshes) if (!pres.peers[id]) dropPeer(id); };
 function dropPeer(id) { scene.remove(peerMeshes[id].m); peerMeshes[id].label.remove(); delete peerMeshes[id]; }
 function netStep(dt, now) {
-  if (!(window.Net && Net.user) || !presMap || Store.paused) return;
-  if (now - lastPosAt >= PRES_HZ) { const pk = posPacket(), k = JSON.stringify(pk); if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(pk); } }
-  const a = 1 - Math.exp(-dt * 14);
-  for (const id in Net.peers) {
-    const q = Net.peers[id]; if (typeof q.x !== 'number' || typeof q.z !== 'number') continue;
+  pres.step(dt, now);
+  for (const id in pres.peers) {
+    const q = pres.peers[id];
     let g = peerMeshes[id];
     if (!g) { const label = document.createElement('div'); label.className = 'nick3'; document.body.appendChild(label); let hue = 0; for (const ch of id) hue = (hue * 31 + ch.charCodeAt(0)) % 360; const mm = makePlayerModel(hue / 360); scene.add(mm); g = peerMeshes[id] = { m: mm, label, x: q.x, y: q.y, z: q.z }; }
-    g.x += (q.x - g.x) * a; g.y += (q.y - g.y) * a; g.z += (q.z - g.z) * a;
-    g.m.position.set(g.x, g.y, g.z); g.m.rotation.y = q.yaw !== undefined ? q.yaw : 0; g.label.textContent = q.nick || '';
+    g.x = q.x; g.y = q.y; g.z = q.z;
+    g.m.position.set(g.x, g.y, g.z); g.m.rotation.y = q.yaw; g.label.textContent = q.nick;
   }
-  for (const id in peerMeshes) if (!Net.peers[id]) dropPeer(id);
+  for (const id in peerMeshes) if (!pres.peers[id]) dropPeer(id);
 }
 const lv = new THREE.Vector3();
 function placeLabels() {
@@ -490,4 +482,4 @@ function startGame() {
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => fpHelp();
 installTheme(document.body);   // 우주 테마: 화면의 이름·문구를 치환표(theme.js)로 덮어쓴다
-window.__fp = { party: Party, targets: collectTargets, scene, camera, S, p, groundAt, terrainHit, aimedTarget, getMode: () => pl.mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig: pl.dig, ghostCell, stepPlayer, setSel(k) { pl.sel = k; } };   // 시험(tools/smokefp.js)용 통로
+window.__fp = { party: Party, pres, targets: collectTargets, scene, camera, S, p, groundAt, terrainHit, aimedTarget, getMode: () => pl.mode, setLook(y, pt) { yaw = y; pitch = pt; }, island: () => isl, islName: () => islName, dig: pl.dig, ghostCell, stepPlayer, setSel(k) { pl.sel = k; } };   // 시험(tools/smokefp.js)용 통로

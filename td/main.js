@@ -9,6 +9,7 @@ import { Party } from '../shared/party.js';
 import { HubUI, tick as hubTick, startWatch, loadPubs, hubShips } from '../shared/hub.js';
 import { makePlay, collectTargets, HOLD, REACH } from '../shared/play.js';
 import { initHud, TeamUI, wrapActions } from '../shared/hud.js';
+import { makePresence } from '../shared/presence.js';
 import { bakeGround, PX, MAP } from './ground.js';
 
 const Art = window.Art, S = Store.S;
@@ -208,6 +209,19 @@ function pushWolves() {
 const playerSprites = {};
 const sprPlayer = (col) => playerSprites[col] || (playerSprites[col] = Art.person(col));
 let stepAcc = 0;
+// 접속한 다른 사람(허브에서만 서로 보임): 위치 패킷은 fp와 같고, 사람마다 정해진 색(아이디로 정한 색상)
+const posPacket = () => ({ x: Math.round(p.x * 100) / 100, y: Math.round(p.y * 100) / 100, z: Math.round(p.z * 100) / 100, yaw: Math.round(yaw * 100) / 100, air: !p.onGround });
+const pres = makePresence(ctx, posPacket);
+const hueOf = (id) => { let h = 0; for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360; return Math.round(h / 30) * 30; };
+const peerWalk = {};
+function pushPeers() {
+  for (const id in pres.peers) {
+    const q = pres.peers[id], fx = -Math.sin(q.yaw), fz = -Math.cos(q.yaw), spr_ = sprPlayer(`hsl(${hueOf(id)},60%,50%)`);
+    peerWalk[id] = (peerWalk[id] || 0) + (q.moving ? 0.1 : 0);
+    const lift = q.air ? Math.max(0, Math.min(3, q.y - Math.max(groundAt(q.x, q.z), SEA))) * PX * 0.9 : 0;
+    drawList.push({ z: q.z, draw() { drawPerson(spr_, q.x, q.z, lift, fx, fz, !!q.moving, peerWalk[id]); labelAt('peer' + id, q.nick, q.x, q.z - 0.2); } });
+  }
+}
 function drawPerson(S_, x, z, lift, fx, fz, moving, flipAcc) {
   const dir = Math.abs(fx) > Math.abs(fz) ? 'side' : fz < 0 ? 'up' : 'down', fr = moving ? ((flipAcc * 1.6) | 0) % 2 : 0;
   shadow(x, z, 5, 2.2); spr(S_[dir][fr], x, z, lift, dir === 'side' && fx < 0);
@@ -291,7 +305,7 @@ function render(dt) {
   drawWater();
   g.drawImage(ground, sx(MAP.x0), sz(MAP.z0));
   drawRaftCells();
-  drawList.length = 0; pushPlazaShips(); pushObjects(); pushDevices(); pushWolves(); pushPlayer();
+  drawList.length = 0; pushPlazaShips(); pushObjects(); pushDevices(); pushWolves(); pushPeers(); pushPlayer();
   drawList.sort((a, b) => (b.bottom ? 1 : 0) - (a.bottom ? 1 : 0) || a.z - b.z);   // 바닥 그림은 먼저, 나머지는 발밑 z가 작은(뒤쪽) 것부터
   for (const e of drawList) e.draw();
   drawLinks(); drawParts(dt); drawAim(); endLabels();
@@ -310,7 +324,7 @@ let fpRef = S.fp;
 function resetFromState() {
   p.x = S.fp.x; p.y = S.fp.y; p.z = S.fp.z; p.vx = p.vy = p.vz = 0; yaw = S.fp.yaw; face = [-Math.sin(yaw), -Math.cos(yaw)];
   loadIsland(islandName()); if (blocked(p.x, p.y, p.z)) { const f = findFree(); if (f) { p.x = f[0]; p.z = f[1]; p.y = SEA; } }
-  loadPlaza(); if (islName === 'plaza') loadPubs();
+  loadPlaza(); pres.join(); if (islName === 'plaza') loadPubs();
 }
 let warping = false;
 function onMoved() {
@@ -321,7 +335,7 @@ function arrive() {   // 새 행성에 도착: 탐사정 위에 선다
   loadIsland(islandName()); const { cx, cz } = raftDims();
   p.x = RX0 + cx / 2; p.z = RZ0 + cz / 2 + (S.placed.length ? cz / 2 - 0.5 : 0); p.y = SEA; p.vx = p.vy = p.vz = 0; face = [0, 1]; yaw = 0;
   const free = findFree(); if (free) { p.x = free[0]; p.z = free[1]; }
-  loadPlaza(); if (islName === 'plaza') loadPubs();
+  loadPlaza(); pres.join(); if (islName === 'plaza') loadPubs();
 }
 Party.init({ say, isModalOpen: () => UI.isModalOpen(), onApplied() { ctx.ensureUids(); if (islName && islandName() !== islName) onMoved(); refresh(); } });
 UI.init({
@@ -334,7 +348,7 @@ UI.init({
     else if (islandName() !== islName) onMoved();              // 궤도 이동
   },
   startBuild: (id) => pl.startBuild(id), startDemolish: () => pl.startDemolish(),
-  joinMap() { Party.start(); startWatch(); },
+  joinMap() { pres.join(); Party.start(); startWatch(); },
 });
 
 // ---------- HUD ----------
@@ -351,7 +365,7 @@ function frame(now) {
   const ax = act ? (keys.right ? 1 : 0) - (keys.left ? 1 : 0) : 0, az = act ? (keys.down ? 1 : 0) - (keys.up ? 1 : 0) : 0;
   if (!Store.paused || TEST) stepPlayer(dt, ax, az, act && keys.jump); else { p.vx = p.vz = 0; }
   if (!UI.isModalOpen()) Sim.setDev(null);
-  pl.stepGather(dt);
+  pl.stepGather(dt); pres.step(dt, now);
   stepAcc += Math.hypot(p.vx, p.vz) * dt; render(dt); drawHud(); hint();
   requestAnimationFrame(frame);
 }
@@ -390,4 +404,4 @@ function startGame() {
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => tdHelp();
 installTheme(document.body);   // 우주 테마: 화면의 이름·문구를 치환표(shared/theme.js)로 덮어쓴다
-window.__td = { S, p, ctx, cam, pl, stepPlayer, mouse, hoverTarget, nearTarget, cellUnderMouse, setMouseWorld(x, z) { mouse.x = x; mouse.z = z; mouse.in = true; },  island: () => isl, islName: () => islName, show(n) { loadIsland(n); }, view: () => ({ Z, VW, VH }), warping: () => warping };   // 시험(tools/smoketd.js)용 통로
+window.__td = { S, p, ctx, cam, pl, pres, party: Party, stepPlayer, mouse, hoverTarget, nearTarget, cellUnderMouse, setMouseWorld(x, z) { mouse.x = x; mouse.z = z; mouse.in = true; },  island: () => isl, islName: () => islName, show(n) { loadIsland(n); }, view: () => ({ Z, VW, VH }), warping: () => warping };   // 시험(tools/smoketd.js)용 통로

@@ -107,6 +107,9 @@ const PORT = 9000 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     await page.keyboard.press('e'); await sleep(400);
     ok('E로 가까운 장치 패널이 열린다', await ev(() => !document.getElementById('modal').hidden));
     await page.click('#mclose');
+    // 목표 1(바닷물 1통 + 화덕)이 클릭 조작만으로 달성된다
+    await ev(() => Sim.refresh && Sim.refresh(__td.S)); await sleep(1200);
+    ok('목표 1 달성(바닷물 + 화덕, 클릭 조작)', await ev(() => __td.S.qDone) >= 1, String(await ev(() => __td.S.qDone)));
     // (5) 연결 모드: 먼 증류기에 열선을 잇는다
     await ev(() => { const S = __td.S; __td.pl.startBuild('still'); });
     await moveTo(55, 36);
