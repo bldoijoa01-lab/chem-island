@@ -7,33 +7,16 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<button id="b-panel" title="메뉴 열기/닫기">메뉴</button>
 <div id="app">
   <div id="left">
     <canvas id="cv" width="384" height="224"></canvas>
+    <div id="quest"></div>
     <div id="msg"></div>
     <div id="target"></div>
     <div id="pad">
       <button data-k="left">◀</button><button data-k="right">▶</button><button data-k="jump">▲</button><button data-k="e">E</button>
     </div>
   </div>
-  <aside id="side">
-    <div class="row between">
-      <b id="clock"></b>
-      <span class="speed">
-        <button data-sp="1" class="on">x1</button><button data-sp="3">x3</button><button data-sp="10">x10</button>
-      </span>
-    </div>
-    <section><h3>목표</h3><div id="quest"></div></section>
-    <section><h3>가방</h3><div id="inv"></div></section>
-    <section class="btns">
-      <button id="b-build">건설</button>
-      <button id="b-craft">제작</button>
-      <button id="b-notes">연구 노트</button>
-      <button id="b-log">기록</button>
-      <button id="b-save">저장/초기화</button>
-    </section>
-  </aside>
 </div>
 
 <div id="modal" hidden>

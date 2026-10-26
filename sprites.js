@@ -170,6 +170,11 @@ window.Art = (() => {
   A.icon.ramen = I(['.s..s...', '..s..s..', 'yyyyyyyy', 'yYyEyyYy', 'rrrrrrrr', '.rrrrrr.', '..rrrr..', '...rr...'], { s: '#e4ecf2', y: '#f0cc62', Y: '#c19330', E: '#ffffff', r: '#d24a3a' });
   A.icon.cap = I(['...ww...', '..wWWw..', '.wWWWWw.', '.wppppw.', '.wppppw.', '.wPPPPw.', '..wPPw..', '...ww...'], { w: '#ccd4dc', W: '#eef6fc', p: '#ff6a58', P: '#d24a3a' });
   A.icon.pack = I(['..bbbb..', '.bCCCCb.', 'bCwCCCCb', 'bCCCwCCb', 'bCCCCCCb', 'bCwCCCCb', '.bCCCCb.', '..bbbb..'], { b: '#2f7bc0', C: '#9ad8f8', w: '#ffffff' });
+  A.icon.hammer = I(['.hhhh...', 'hHHHHh..', 'hHHHHh.b', '.hhhhbB.', '....bB..', '...bB...', '..bB....', '..B.....'], { h: '#8f949e', H: '#d0d6e0', b: '#b9834a', B: '#7a4f25' });
+  A.icon.gear = I(['...gg...', '.g.gg.g.', '..gGGg..', 'ggGggGgg', 'ggGggGgg', '..gGGg..', '.g.gg.g.', '...gg...'], { g: '#9aa3b0', G: '#dde3ec' });
+  A.icon.book = I(['.bbbbbb.', 'bBBBBBBb', 'bBwwwwBb', 'bBwkkwBb', 'bBwwwwBb', 'bBwkkwBb', 'bBBBBBBb', '.bbbbbb.'], { b: '#2f5ea8', B: '#4a82d6', w: '#f4f6fa', k: '#8a94a8' });
+  A.icon.scroll = I(['.wwwwww.', 'wWWWWWWw', 'wWkkkkWw', 'wWWWWWWw', 'wWkkkWWw', 'wWWWWWWw', 'wWkkkkWw', '.wwwwww.'], { w: '#c9b98a', W: '#efe3bd', k: '#6a5a3a' });
+  A.icon.disk = I(['bbbbbbbb', 'bsssssbb', 'bsssssbb', 'bbbbbbbb', 'bwwwwwwb', 'bwkkkkwb', 'bwwwwwwb', 'bbbbbbbb'], { b: '#3a4a7a', s: '#c9d4e8', w: '#e8ecf4', k: '#3a4a7a' });
   A.icon.still = A.dev.still; A.icon.cooker = A.dev.cooker; A.icon.cooler = A.dev.cooler; A.icon.collector = A.dev.collector; A.icon.fire = A.dev.fire;
   for (const k in A.icon) A.iconURL[k] = A.icon[k].toDataURL();
 
