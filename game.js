@@ -110,29 +110,15 @@ document.querySelectorAll('#pad button').forEach(b => {
 });
 
 // ---------- 물리 ----------
-let onGround = false, seaHintAt = 0;
+const pst = { onGround: false, bound: false };   // 이동 상태(world.js stepPlayer가 갱신)
+let seaHintAt = 0;
 function hintSea() { const n = performance.now(); if (n - seaHintAt > 5000) { seaHintAt = n; say('바다가 거칠어서 헤엄쳐 건널 수 없어요. 뗏목으로 항해하세요 (항구 표지판).'); } }
 const collides = World.collides;
 function physics(dt) {
   const modalOpen = !$('modal').hidden;
-  const inW = tileAt(Math.floor((S.px + PW / 2) / T), Math.floor((S.py + PH / 2) / T)) === WATER;
   const ax = modalOpen ? 0 : (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-  S.vx = ax * (inW ? 42 : 72);
-  if (ax) S.face = ax;
-  if (!modalOpen && keys.jump) {
-    if (inW) S.vy = Math.max(S.vy - 700 * dt, -60);
-    else if (onGround) { S.vy = -270; onGround = false; }
-  }
-  S.vy = Math.min(S.vy + (inW ? 300 : 900) * dt, inW ? 70 : 400);
-  const nx = S.px + S.vx * dt;
-  if (!collides(nx, S.py)) S.px = nx;
-  else if (onGround && ax && !collides(nx, S.py - T)) { S.px = nx; S.py -= T; }   // 한 칸 턱은 자동으로 오름
-  { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 섬 사이는 뗏목으로만 건넌다
-    if (S.px < lo || S.px > hi) { S.px = Math.max(lo, Math.min(hi, S.px)); hintSea(); } }
-  const ny = S.py + S.vy * dt;
-  if (!collides(S.px, ny)) S.py = ny;
-  else { if (S.vy > 0) S.py = Math.floor((ny + PH) / T) * T - PH; else S.py = (Math.floor(ny / T) + 1) * T; S.vy = 0; }
-  onGround = collides(S.px, S.py + 1);
+  World.stepPlayer(S, dt, { ax, jump: !modalOpen && keys.jump }, pst);
+  if (pst.bound) hintSea();
 }
 
 // ---------- 파티클·환경 ----------
@@ -155,7 +141,7 @@ const makeStars = () => { stars = Array.from({ length: Math.max(30, Math.floor(V
 let last = performance.now(), tt = 0;
 // ---------- 다른 플레이어(presence) ----------
 const MAPID = 'main';
-const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !onGround });
+const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !pst.onGround });
 let lastPos = '', lastPosAt = 0;
 const ghosts = {};   // uid -> { x, y, face, vx, air, nick, seen } (보간되는 화면 위치)
 function netStep(dt, now) {
@@ -287,9 +273,9 @@ function draw(t) {
     if (Math.random() < 0.05) puff(wx, wy - 4, '#d8f3ff', 1);
   }
   // 플레이어
-  const moving = Math.abs(S.vx) > 1, fr = !onGround ? 3 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;
+  const moving = Math.abs(S.vx) > 1, fr = !pst.onGround ? 3 : moving ? 1 + (Math.floor(t * 8) % 2) : 0;
   const px = S.px - 3, py = S.py + PH - 22 - cam.y;
-  ctx.fillStyle = 'rgba(0,0,0,.2)'; if (onGround) ctx.fillRect(Math.round(S.px - cam.x - 1), Math.round(S.py + PH - cam.y), PW + 2, 1);
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; if (pst.onGround) ctx.fillRect(Math.round(S.px - cam.x - 1), Math.round(S.py + PH - cam.y), PW + 2, 1);
   ctx.save();
   if (S.face < 0) { ctx.translate(Math.round(px - cam.x) + 16, 0); ctx.scale(-1, 1); blit(Art.playerFrames[fr], 0, py); } else blit(Art.playerFrames[fr], px - cam.x, py);
   ctx.restore();

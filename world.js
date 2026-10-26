@@ -226,10 +226,33 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     return false;
   };
 
+  // 한 프레임 이동(2D·3D 공용: x·y는 단면 규칙 그대로, 3D의 z는 보이기만 한다). input = { ax: -1|0|1, jump }, st = { onGround, bound }
+  function stepPlayer(S, dt, input, st) {
+    const { ax, jump } = input;
+    const inW = tileAt(Math.floor((S.px + PW / 2) / T), Math.floor((S.py + PH / 2) / T)) === WATER;
+    S.vx = ax * (inW ? 42 : 72);
+    if (ax) S.face = ax;
+    if (jump) {
+      if (inW) S.vy = Math.max(S.vy - 700 * dt, -60);
+      else if (st.onGround) { S.vy = -270; st.onGround = false; }
+    }
+    S.vy = Math.min(S.vy + (inW ? 300 : 900) * dt, inW ? 70 : 400);
+    const nx = S.px + S.vx * dt;
+    st.bound = false;
+    if (!collides(nx, S.py)) S.px = nx;
+    else if (st.onGround && ax && !collides(nx, S.py - T)) { S.px = nx; S.py -= T; }   // 한 칸 턱은 자동으로 오름
+    { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 섬 사이는 뗏목으로만 건넌다
+      if (S.px < lo || S.px > hi) { S.px = Math.max(lo, Math.min(hi, S.px)); st.bound = true; } }
+    const ny = S.py + S.vy * dt;
+    if (!collides(S.px, ny)) S.py = ny;
+    else { if (S.vy > 0) S.py = Math.floor((ny + PH) / T) * T - PH; else S.py = (Math.floor(ny / T) + 1) * T; S.vy = 0; }
+    st.onGround = collides(S.px, S.py + 1);
+  }
+
   return {
     T, WW, WH, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T,
     AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, SOLID, MAP, GY, OBJS, NODE,
     tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock,
-    tileTemp, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides,
+    tileTemp, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
   };
 })();
