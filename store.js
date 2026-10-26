@@ -1,5 +1,5 @@
 // 상태 보관·저장: 게임 상태 S(sim.js `newState` 형식)를 localStorage와 서버(Firebase)에 저장·불러온다.
-// 2D(index.html)와 3D(3d/index.html)가 같은 키와 형식을 쓰므로 2D에서 한 저장을 3D에서 이어서 할 수 있다.
+// 옆면 2D(index.html)와 1인칭 3D(fp/)·탑다운(td/)은 키가 다르다(fp/·td/는 chemisle_fp_v2).
 // S 객체의 자리는 바뀌지 않는다(다른 모듈이 `const S = Store.S`로 잡고 있다): 서버 세이브·초기화는 내용만 갈아 끼운다.
 window.Store = (() => {
   const FP = !!window.CHEM_FP;                                   // 1인칭(fp/)은 2D와 다른 키·다른 서버 경로(6-e)를 쓴다

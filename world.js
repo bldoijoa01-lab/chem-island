@@ -1,5 +1,5 @@
 // 월드 모듈: 지형(타일맵)·자원 오브젝트·땅 파기/블록/도구 규칙·상호작용 대상. window의 DOM·캔버스를 쓰지 않는다.
-// 2D(game.js)와 3D(3d/)가 같이 쓴다. 좌표는 2D 단면 타일맵의 (x, y)와 픽셀(타일 16 px) 그대로이고, 3D의 z는 보이기만 한다.
+// 2D(game.js)가 쓴다. 좌표는 2D 단면 타일맵의 (x, y)와 픽셀(타일 16 px) 그대로이고, 3D의 z는 보이기만 한다.
 // 화면에 보여 줄 말·효과는 sim.js의 이벤트 통로(Sim.say / Sim.emit)로 내보낸다.
 window.World = (() => {
   const T = 16, WW = Sim.WORLD.WW, WH = Sim.WORLD.WH, PW = 10, PH = 18, REACH = 40;

@@ -482,6 +482,8 @@
 
 ## 4-13. 3D 시험판 (`3d/`) — 같은 계산, 다른 화면
 
+*(14-a에서 `3d/`·`tools/smoke3d.js`를 삭제했다. 태그 `island-3d-diorama-final`. 아래는 당시 설계·검증 기록으로 남긴다.)*
+
 **원칙.** 3D는 화면만 다르다. `sim.js`·`chem.js`·`raid.js`·`notes.js`·`net.js`는 한 줄도 바꾸지 않았고, 3D의 `main.js`는 상태 `S`를 읽어 그리기만 한다(식을 새로 만들지 않는다). 그래서 3D에서 한 행동도 2D와 **같은 저장 키(`chemisle_side_v1`)·같은 형식**으로 저장되어 서로 이어서 할 수 있다. 땅 규칙·이동은 `world.js`, 말풍선·모달·패널·접속은 `ui.js`를 2D와 같이 쓴다(연구 노트·기록의 성립 조건·가정 문구 포함).
 
 **공유 구조(5-a).** `game.js` 한 파일이던 것을 `store.js`(상태·저장), `world.js`(지형·땅 규칙·이동 `stepPlayer`), `ui.js`(모달·패널), `game.js`(2D 입력·그리기)로 나눴다. 화학 계산은 이전과 같다(`node tools/sim-check.js` 10개 시나리오 불변, `tools/ui-check.js` 20/20). `sim.js`에는 계산 변경 없이 `emit, say, logEv, clockText`를 내보내는 줄만 더했다.

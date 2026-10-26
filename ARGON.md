@@ -90,7 +90,7 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 질문: 위의 "C. 변경 전후 diff 리뷰"를 쓰되, 분리 전 `game.js`와 현재 `store.js`+`world.js`+`ui.js`+`game.js`를 비교해서 (1) 분리 때 빠진 상태 필드나 계산, (2) `UI.init(host)` 훅(`puff`, `burst`, `startBuild` 등)이 호출되지 않는 경로, (3) `Store.set`이 객체 내용을 바꿔치기할 때 `game.js`가 옛 참조를 잡고 있을 곳을 알려 줘.
 - 사람이 확인할 방법: `node tools/sim-check.js`(전부 통과), `node tools/ui-check.js`(20/20), 2D를 직접 플레이해 모달·건설·땅 파기가 전과 같은지 확인
 
-### [2026-10-26] 5단계: 3D 시험판 (3d/)
+### [2026-10-26] 5단계: 3D 시험판 (3d/ — 14-a에서 삭제됨, 태그 island-3d-diorama-final)
 - 맡길 일: 3D 시험판이 2D와 같은 상태·규칙을 쓰는지(동등성) 리뷰, 두께 z가 규칙에 새어 들어가지 않았는지 점검
 - 같이 붙일 파일: `3d/main.js`, `world.js`(`stepPlayer`), `game.js`, `ui.js`, `store.js`, `tools/smoke3d.js`, `DESIGN.md` §4-13
 - 질문: (1) `3d/main.js`에서 `S`를 **쓰는**(대입·`Sim.act.*` 호출 아닌 직접 변경) 코드가 있는지, 있다면 2D(`game.js`)에는 없는 변경인지, (2) 마우스 클릭을 칸으로 바꾸는 방식(지형 앞면 평면 z=5 교점)이 카메라가 비스듬해서 2D의 "커서 아래 칸"과 다르게 집히는 경계(절벽 가장자리·물 위)를 알려 줘, (3) `World.stepPlayer`로 옮긴 이동이 옛 `physics`와 달라진 입력 조합(점프+벽, 물속 점프)이 있는지 diff로 확인해 줘.

@@ -1,5 +1,5 @@
 // 공용 UI 모듈: 말풍선·기록·모달·장치 패널·메뉴·접속(로그인)·목표 표시·항구·게시판. DOM을 다루고, 계산은 sim.js, 상태는 store.js, 지형은 world.js에 있다.
-// 2D(game.js)와 3D(3d/)가 같이 쓴다. 화면마다 다른 것(연기 효과, 건설 모드, 키 초기화, 접속 뒤 처리)은 `UI.init(host)`로 받는다.
+// 2D(game.js)와 fp/·td/가 같이 쓴다. 화면마다 다른 것(연기 효과, 건설 모드, 키 초기화, 접속 뒤 처리)은 `UI.init(host)`로 받는다.
 window.UI = (() => {
 'use strict';
 const C = Chem, Art = window.Art, S = Store.S;
