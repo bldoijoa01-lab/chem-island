@@ -4,6 +4,7 @@
 허기·죽음 없이 **채집 → 장치 건설 → 물질 생산 → 보스 도전**으로 성장합니다. 화학 개념(끓는점 오름, 압력과 끓는점, 어는점 내림, 비열, 이상 기체, 돌턴 분압)이 모두 실제 식으로 계산됩니다.
 
 - 설계·화학 규칙·수업 아이템 번호: [DESIGN.md](DESIGN.md)
+- 멀티플레이 설계(Firebase): [MULTIPLAYER.md](MULTIPLAYER.md)
 - 모든 화학 식: [chem.js](chem.js) · 게임: [game.js](game.js) · 보스: [raid.js](raid.js) · 연구 노트: [notes.js](notes.js)
 
 테라리아처럼 **옆에서 본 2D 픽셀 월드**를 걸어 다니며 진행합니다. 모든 그림(타일·캐릭터·장치·아이콘·골렘)은 코드로 직접 그린 픽셀 아트라서 외부 이미지가 없습니다 ([sprites.js](sprites.js)).
