@@ -42,7 +42,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   chk('공기 캡슐 4개(목표 6)', await ev(() => G.debug().f.caps >= 4 && G.debug().qDone >= 7));
   // 5) 골렘 1~3
   await ev(() => { const s = G.debug(); s.inv.salt = 80; s.inv.water = 900; s.min = 600; s.packs = [{ T: -10.2, M: 200, day: s.day }]; const n = 0.5 / (0.082 * 298.15);
-    s.caps = [...Array(4).fill(0).map(() => ({ k: 'O2', n })), ...Array(4).fill(0).map(() => ({ k: 'N2', n }))]; s.raft.dock = 'plaza'; s.px = 140 * 16 + 8; s.py = 24 * 16 - 18; s.vy = 0; });
+    s.caps = [...Array(4).fill(0).map(() => ({ k: 'O2', n })), ...Array(4).fill(0).map(() => ({ k: 'N2', n }))]; s.raft.dock = 'plaza'; World.applyDug(s); s.px = 34 * 16 + 8; s.py = 24 * 16 - 18; s.vy = 0; });
   await pg.waitForTimeout(400); await E();
   await ev(() => { document.getElementById('r-salt').value = 43; Raid.p1Update(); Raid.p1Add(); });
   chk('골렘 P1 소금 43 g → 2단계', await ev(() => /2단계/.test(document.getElementById('mtitle').textContent)));
@@ -51,7 +51,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   chk('골렘 P3 O₂4+N₂4 → 정화', await ev(() => G.debug().f.boss === true));
   await pg.click('#mclose');
   // 6) 파기·블록·도구
-  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; s.px = 48 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.placed = []; s.min = 180; s.inv.salt = 100; s.inv.shaker = 1; s.inv.thermo = 1; s.inv.stone = 2; s.inv.stick = 5; }); await pg.waitForTimeout(400);
+  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.px = 48 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.placed = []; s.min = 180; s.inv.salt = 100; s.inv.shaker = 1; s.inv.thermo = 1; s.inv.stone = 2; s.inv.stick = 5; }); await pg.waitForTimeout(400);
   const cam = await ev(() => { const s = G.debug(); return [Math.max(0, Math.round(s.px + 5 - 250)), Math.round(s.py + 9 - 180)]; });
   const sc = (tx, ty) => [(tx * 16 + 8 - cam[0]) * 2, (ty * 16 + 8 - cam[1]) * 2];
   await pg.mouse.move(...sc(49, 24)); await pg.mouse.down(); await pg.waitForTimeout(150); await pg.mouse.up();
@@ -64,7 +64,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   await near(91); const c2 = await ev(() => { const s = G.debug(); return [Math.max(0, Math.round(s.px + 5 - 250)), Math.round(s.py + 9 - 180)]; });
   const i = await ev(() => Object.entries(G.debug().inv).filter(([, v]) => v >= 1).map(([k]) => k).indexOf('shaker')); await pg.mouse.click((4 + i * 17 + 8) * 2, 24);
   for (let k = 0; k < 3; k++) { await pg.mouse.click((92 * 16 + 8 - c2[0]) * 2, (24 * 16 + 8 - c2[1]) * 2); await pg.waitForTimeout(80); }
-  chk('소금 뿌리개: 얼음 타일 3번에 물로', await ev(() => G.debug().dug[24 * 380 + 92] === 7), await ev(() => Math.round(G.debug().inv.salt * 10) / 10 + ' g left'));
+  chk('소금 뿌리개: 얼음 타일 3번에 물로', await ev(() => G.debug().dug['start:' + (24 * 120 + 92)] === 7), await ev(() => Math.round(G.debug().inv.salt * 10) / 10 + ' g left'));
   // 7) 늑대(밤, 영하)
   await ev(() => { const s = G.debug(); s.min = 1380; s.speed = 10; s.f.raft = true; s.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }, { id: 'still', x: 50, y: 22, s: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 } }]; s.px = 49 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.mobs = []; });
   let m = null; for (let k = 0; k < 40 && !m; k++) { await pg.waitForTimeout(300); m = await ev(() => G.debug().mobs[0] || null); }
@@ -73,7 +73,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   // 8) 메뉴·섬 모달이 열린다(공용 UI를 옮겨도 같아야 한다)
   const title = () => ev(() => (document.getElementById('modal').hidden ? '' : document.getElementById('mtitle').textContent));
   const closeM = () => ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
-  await closeM(); await ev(() => { const s = G.debug(); s.raft.dock = 'start'; s.f.raft = false; s.placed = []; s.mobs = []; s.px = 104 * 16; s.py = 18 * 16; s.vy = 0; s.min = 600; }); await pg.waitForTimeout(1500);
+  await closeM(); await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.f.raft = false; s.placed = []; s.mobs = []; s.px = 104 * 16; s.py = 18 * 16; s.vy = 0; s.min = 600; }); await pg.waitForTimeout(1500);
   const names = []; const vw = await ev(() => Math.ceil(window.innerWidth / 2));
   for (let k = 0; k < 5; k++) { await pg.mouse.click((vw - 4 - (5 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
   chk('메뉴 5개(건설·제작·연구 노트·기록·저장)가 열림', ['건설', '제작', '연구 노트', '기록', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
@@ -81,10 +81,10 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   chk('뗏목 파편 모달', (await title()).includes('뗏목 파편'), await title()); await closeM();
   await ev(() => { const s = G.debug(); s.px = 102 * 16; s.py = 25 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
   chk('항구 모달', (await title()).includes('항구'), await title()); await closeM();
-  await ev(() => { const s = G.debug(); s.f.raft = true; s.raft.dock = 'plaza'; s.px = 137 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
+  await ev(() => { const s = G.debug(); s.f.raft = true; s.raft.dock = 'plaza'; World.applyDug(s); s.px = 31 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
   chk('유리병 편지 게시판 모달', (await title()).includes('유리병'), await title()); await closeM();
   // 늑대: 짝수 번호는 장치 왼쪽에 서므로 장치보다 늑대가 가장 가깝게 서 본다
-  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; s.placed = [{ id: 'fire', x: 103, y: 22, s: { level: 0, fuel: 0 } }]; s.mobs = [{ id: 2, k: 'wolf', M: 100, M0: 100, dx: 103, dy: 22, att: 0 }]; s.mobId = 2; s.px = 103 * 16 - 12 - 4; s.py = 18 * 16; s.vy = 0; s.min = 1400; }); await pg.waitForTimeout(1500); await E();
+  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.placed = [{ id: 'fire', x: 103, y: 22, s: { level: 0, fuel: 0 } }]; s.mobs = [{ id: 2, k: 'wolf', M: 100, M0: 100, dx: 103, dy: 22, att: 0 }]; s.mobId = 2; s.px = 103 * 16 - 12 - 4; s.py = 18 * 16; s.vy = 0; s.min = 1400; }); await pg.waitForTimeout(1500); await E();
   const tw = await title(); chk('서리 늑대 모달이 열림', tw.includes('늑대'), tw); await closeM();
   await b.close();
   chk('콘솔 에러 없음', errs.length === 0, errs.join(' | '));

@@ -113,7 +113,7 @@ const PORT = 8700 + Math.floor(Math.random() * 500), ROOT = path.resolve(__dirna
     const harborText = await ev(() => document.getElementById('modal').hidden ? '' : document.getElementById('mbody').textContent + document.getElementById('mtitle').textContent);
     ok('테마: 궤도 이동 단말 창', /궤도|이륙/.test(harborText) && !/출항|뗏목|시작섬|광장섬|항구/.test(harborText), harborText.slice(0, 160));
     ok('테마: 조준 이름표', /궤도 이동 단말/.test(shownLabel), shownLabel);
-    ok('테마: 내부 id 유지', await ev(() => ['start', 'plaza', 'alpine', 'polar'].includes(__fp.islName()) && Sim.ISLANDS.start.name === '시작섬' && Sim.QUESTS.length === 11));
+    ok('테마: 내부 id 유지', await ev(() => ['start', 'plaza', 'alpine', 'polar'].includes(__fp.islName()) && Sim.ISLANDS.start.name === '불시착 행성' && Sim.QUESTS.length === 11));
     await ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
     // 지표 기지 부지와 연결선(10단계): 평평한 부지에 화덕·증류기·밥솥을 짓고, 열선·배관을 잇고, 환경은 그 행성의 것을 쓴다
     await ev(() => { const S = __fp.S; S.f.raft = true; S.qDone = 11; if (S.raft.dock !== 'start') G.sail('start'); }); await page.waitForTimeout(1500);

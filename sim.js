@@ -45,21 +45,22 @@
     { t: '고산 섬에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '광장섬 동항에서 출항(라면 목표 뒤). 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
     { t: '극지 섬에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '광장섬 북항(한제 목표 뒤). 기온이 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
   ];
-  // 월드: 한 줄로 이어진 바다 위에 섬들이 놓인다. 시작섬(0~119) → 건너편 광장섬 → (4단계) 탐험섬. 타일 크기 16 px, 높이 56줄.
-  const WORLD = { WW: 380, WH: 56 };
-  // 섬의 걸을 수 있는 범위(타일 x, 바다 쪽 여유 포함). 뗏목이 더 멀리 뻗으면 그만큼 넓어진다. 섬 사이는 헤엄쳐 건널 수 없고 뗏목으로만 간다.
+  // 월드(16단계): 행성마다 단면 맵 하나. W × H는 칸 수(타일 16 px), off는 옛 한 줄 월드(폭 380)에서 이 행성 창이 시작하던 x(세이브 이전과 지형 생성에 쓴다).
+  // 맵 크기는 가정(임의값)이고 17단계에서 불시착 행성을 800 × 110으로 키운다(DESIGN.md §4-22). L..R은 걸을 수 있는 범위(맵 안 타일 x, 접안 쪽 여유 포함).
+  // 탐사정이 더 멀리 뻗으면 그만큼 넓어진다. 행성 사이는 걸어서 건널 수 없고 궤도 이동으로만 간다.
   const ISLANDS = {
-    start: { name: '시작섬', L: 13, R: 112 },
-    plaza: { name: '광장섬', L: 118, R: 202 },
-    alpine: { name: '고산 섬', L: 213, R: 287 },
-    polar: { name: '극지 섬', L: 303, R: 377 },
+    start: { name: '불시착 행성', W: 120, H: 56, off: 0, L: 13, R: 112 },
+    plaza: { name: '허브 정거장', W: 112, H: 56, off: 106, L: 12, R: 96 },
+    alpine: { name: '저기압 고원 행성', W: 102, H: 56, off: 201, L: 12, R: 86 },
+    polar: { name: '얼음 위성', W: 102, H: 56, off: 291, L: 12, R: 86 },
   };
+  const LEGACY_W = 380, LEGACY_CUT = [[116, 'start'], [208, 'plaza'], [297, 'alpine']];   // 옛 월드(폭 380)의 x를 행성으로 나누는 경계: < 116 불시착 · < 208 허브 · < 297 고원 · 그 이상 얼음 위성
   // 섬별 환경(가정(임의값)): 같은 장치를 다른 조건에서 돌려 비교한다. P = 외기 압력(atm), dT = 기온 보정(℃, C.airTemp에 더함)
   const ENV = {
-    start: { name: '시작섬', P: 1.0, dT: 0 },
-    plaza: { name: '광장섬', P: 1.0, dT: 0 },
-    alpine: { name: '고산 섬', P: 0.65, dT: -10 },   // 높은 곳의 고원 호수 섬: 외기 압력이 낮다는 설정(0.65 atm, 가정), 기온은 10 ℃ 낮게   [#18 #19]
-    polar: { name: '극지 섬', P: 1.0, dT: -20 },       // 기온 20 ℃ 낮게: 밤 −35 ℃에서는 같은 얼음을 녹이는 데 소금이 크게 더 든다(m_eq = |T|/(i·Kf))   [#37 #39]
+    start: { name: '불시착 행성', P: 1.0, dT: 0 },
+    plaza: { name: '허브 정거장', P: 1.0, dT: 0 },
+    alpine: { name: '저기압 고원 행성', P: 0.65, dT: -10 },   // 높은 곳의 고원 호수 섬: 외기 압력이 낮다는 설정(0.65 atm, 가정), 기온은 10 ℃ 낮게   [#18 #19]
+    polar: { name: '얼음 위성', P: 1.0, dT: -20 },       // 기온 20 ℃ 낮게: 밤 −35 ℃에서는 같은 얼음을 녹이는 데 소금이 크게 더 든다(m_eq = |T|/(i·Kf))   [#37 #39]
   };
   // 뗏목(개인 자산): 장치는 항상 뗏목 위에 짓는다. 위치는 뗏목의 해안 쪽 끝에서 떨어진 칸 수 u로 저장한다(뗏목이 옮겨 가도 유지).
   // 아래 값은 모두 가정(임의값): 시작 칸 수, 최대 칸 수, 확장 단위·재료, 항해 시간, 파편 수리 재료. DESIGN.md §4-6·§4-7에 근거와 조정 이력을 적는다.
@@ -74,10 +75,10 @@
   };
   // 섬별 뗏목 정박 자리: anchor = 해안 쪽 끝 타일 x, dir = 바다 쪽 방향(+1 오른쪽, −1 왼쪽)
   const DOCKS = {
-    start: { island: 'start', anchor: 107, dir: 1 },    // 시작섬 동쪽 해안. 건너편에 광장섬이 보인다
-    plaza: { island: 'plaza', anchor: 123, dir: -1 },   // 광장섬 서쪽 해안
-    alpine: { island: 'alpine', anchor: 218, dir: -1 }, // 고산 섬 서쪽 해안
-    polar: { island: 'polar', anchor: 308, dir: -1 },   // 극지 섬 서쪽 해안
+    start: { island: 'start', anchor: 107, dir: 1 },    // 불시착 행성 동쪽 접안 구역(맵 안 좌표)
+    plaza: { island: 'plaza', anchor: 17, dir: -1 },    // 허브 정거장 서쪽 접안 구역(옛 월드 x 123 − 오프셋 106)
+    alpine: { island: 'alpine', anchor: 17, dir: -1 },  // 저기압 고원 행성 서쪽 접안 구역(옛 218 − 201)
+    polar: { island: 'polar', anchor: 17, dir: -1 },    // 얼음 위성 서쪽 접안 구역(옛 308 − 291)
   };
   const SAIL_MIN = { start: 30, plaza: 30, alpine: 60, polar: 60 };   // 가정(임의값) 도착지별 항해 시간(게임 분)
   const UNLOCK = { alpine: 5, polar: 6 };                              // 가정(임의값) 해금 순서: 라면(목표 5) 뒤 고산 섬, 한제(목표 6) 뒤 극지 섬
@@ -123,7 +124,7 @@
       inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
       caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
       f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0, raft: false, alpineW: 0, polarMelt: false },
-      qDone: 0, log: [], memo: '', ver: 2,
+      qDone: 0, log: [], memo: '', ver: 3,
       raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
   }
@@ -136,14 +137,23 @@
     for (const k of ['nodes', 'dug', 'melt']) S[k] = asObject(S[k], {});
     migrateWorld(S, j); migrateRaft(S); return S;
   }
-  // 월드가 넓어지고(120 → 380칸) 목표가 하나 늘었다: 예전 세이브의 땅 파기 기록(타일 번호 y·WW+x)을 새 폭으로 다시 매기고,
-  // 튜토리얼(목표 1~3)을 넘긴 세이브는 뗏목 파편을 이미 고친 것으로 보며 목표 진행(qDone)을 새 목록에 맞춘다.
+  // 월드가 넓어지고(120 → 380칸) 목표가 하나 늘었고(ver 2), 월드가 행성별 맵으로 나뉘었다(ver 3, 16단계):
+  // ver < 2: 땅 파기 기록의 타일 번호(y·120+x)를 폭 380으로 다시 매기고, 튜토리얼(목표 1~3)을 넘긴 세이브는 뗏목 파편을 이미 고친 것으로 보며 qDone을 새 목록에 맞춘다.
+  // ver < 3: 땅 파기·얼음 녹임 키(y·380+x)를 행성별 키 `행성id:y·W+x'`로 옮기고, 플레이어 위치 S.px에서 행성 창의 오프셋을 뺀다. 그 밖의 필드는 그대로다.
   function migrateWorld(S, raw) {
-    if (!raw || raw.ver >= 2) return;
-    const OLD_W = 120, W = WORLD.WW, re = (m) => { const o = {}; for (const k in m) { const y = Math.floor(k / OLD_W), x = k % OLD_W; o[y * W + x] = m[k]; } return o; };
-    S.dug = re(S.dug || {}); S.melt = re(S.melt || {});
-    if (S.qDone >= 3) { S.f.raft = true; S.qDone += 1; }
-    S.ver = 2;
+    if (!raw || raw.ver >= 3) return;
+    if (raw.ver === undefined || raw.ver < 2) {
+      const OLD_W = 120, re = (m) => { const o = {}; for (const k in m) { const y = Math.floor(k / OLD_W), x = k % OLD_W; o[y * LEGACY_W + x] = m[k]; } return o; };
+      S.dug = re(S.dug || {}); S.melt = re(S.melt || {});
+      if (S.qDone >= 3) { S.f.raft = true; S.qDone += 1; }
+    }
+    if (!S.fp) {   // 1인칭·탑다운 저장은 이 필드를 쓰지 않는다
+      const planetOf = (gx) => { for (const [cut, id] of LEGACY_CUT) if (gx < cut) return id; return 'polar'; };
+      const conv = (m) => { const o = {}; for (const k in m) { if (!/^\d+$/.test(k)) { o[k] = m[k]; continue; } const y = Math.floor(k / LEGACY_W), gx = k % LEGACY_W, p = planetOf(gx), P = ISLANDS[p], x = gx - P.off; if (x >= 0 && x < P.W && y < P.H) o[p + ':' + (y * P.W + x)] = m[k]; } return o; };
+      S.dug = conv(S.dug || {}); S.melt = conv(S.melt || {});
+      const dk = S.raft && DOCKS[S.raft.dock] ? S.raft.dock : 'start'; S.px = (S.px || 0) - ISLANDS[dk].off * 16;
+    }
+    S.ver = 3;
   }
   // 예전 세이브(장치가 땅 위, u 없음) → 뗏목 위로 옮긴다: 왼쪽에서부터 순서와 붙어 있던 관계를 지키며 해안 쪽부터 놓는다.
   // 옛 세이브는 칸 수 제한을 넘을 수 있으므로 필요한 만큼 뗏목을 넓혀 준다(제한은 새로 넓힐 때만 적용).
@@ -505,7 +515,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    STILL, COOLER, WORLD, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    STILL, COOLER, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, emit, say, logEv, clockText,   // 화면 모듈(world.js·ui.js)이 같은 이벤트·기록 통로를 쓰도록 노출(계산은 바뀌지 않음)
     setRng(fn) { rngFn = fn || null; },
     setDev(d) { curDev = d || null; },   // 패널을 그릴 때 그 장치의 환경을 쓰게 한다(fp 10단계)

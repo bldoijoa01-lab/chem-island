@@ -5,7 +5,7 @@
 const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
 const S = Store.S;               // 상태는 store.js, 지형·땅 규칙은 world.js, 계산은 sim.js (2D와 3D가 같이 쓴다)
-const { T, WW, WH, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
+const { T, dim, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
 const save = Store.save;
 // 공용 UI(ui.js): 말풍선·모달·패널·메뉴·접속. 화면마다 다른 것은 맨 아래 UI.init(host)로 넘긴다
@@ -29,7 +29,8 @@ function useShaker() { const w = pickAt('wolf'), [tx, ty] = mouseTile(); World.u
 function drawPlazaRafts(t) {
   ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
   UI.plazaRafts().slice(0, 3).forEach((r, i) => {
-    const x0 = 153 + i * 13, cells = Math.max(2, Math.min(10, r.cells | 0));
+    const x0 = 47 + i * 13,   // 허브 정박 구역(옛 월드 x 153 − 오프셋 106)
+       cells = Math.max(2, Math.min(10, r.cells | 0));
     for (let c = 0; c < cells; c++) ctx.drawImage(Art.tiles.raft[c % 3], (x0 + c) * T - cam.x, Sim.RAFT.ROW * T - cam.y);
     for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cells) {
       const sx = (x0 + d.u) * T - cam.x, sy = Sim.RAFT.DEV_Y * T - cam.y;
@@ -131,7 +132,7 @@ function stepParts(dt) {
   for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
   if (parts.length > 200) parts.splice(0, 50);
-  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > WW * T + 40) b.x = -40; }
+  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > dim.W * T + 40) b.x = -40; }
 }
 
 // ---------- 그리기 ----------
@@ -183,8 +184,8 @@ const blit = (img, x, y) => { const p = img.pad || 0; ctx.drawImage(img, Math.ro
 const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
 function draw(t) {
   const hour = S.min / 60, night = nightOf(hour);
-  cam.x = Math.max(0, Math.min(WW * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
-  cam.y = Math.max(0, Math.min(WH * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
+  cam.x = Math.max(0, Math.min(dim.W * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
+  cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
   // 하늘(띠) + 별 + 해/달
   const bands = Art.sky(hour, 18);
   for (let i = 0; i < bands.length; i++) { ctx.fillStyle = bands[i]; ctx.fillRect(0, Math.floor(i * VH / bands.length), VW, Math.ceil(VH / bands.length) + 1); }
@@ -211,7 +212,7 @@ function draw(t) {
   const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
   for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
     const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
-    if (id === AIR) { if (tx >= 0 && tx < WW && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); } continue; }
+    if (id === AIR) { if (tx >= 0 && tx < dim.W && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); } continue; }
     if (id === WATER) {
       ctx.fillStyle = ty - 25 < 2 ? '#3f9be0' : ty - 25 < 4 ? '#2c7cc0' : '#1f66a4'; ctx.fillRect(sx, sy, T, T);
       drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
@@ -236,7 +237,7 @@ function draw(t) {
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit((o.x >= 83 && o.x <= 112) || o.x >= 213 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
+    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit((o.gx >= 83 && o.gx <= 112) || o.gx >= 213 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
     else if (o.type === 'cane') blit(Art.obj.cane, sx, sy - 32);
     else if (o.type === 'wheat') blit(Art.obj.wheat, sx, sy - 20);
     else if (o.type === 'sandpile') blit(Art.obj.sandpile, sx, sy - 8);
