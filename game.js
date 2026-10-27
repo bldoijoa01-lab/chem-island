@@ -1,4 +1,4 @@
-// 화학 섬 이야기 — 횡스크롤(단면 2D) 픽셀 월드, 시간, 장치 로직, UI
+// 화학 우주 이야기 — 횡스크롤(단면 2D) 픽셀 월드, 시간, 장치 로직, UI
 // 보스는 raid.js, 연구 노트는 notes.js, 그림은 sprites.js, 화학 식은 chem.js(Chem)만 사용한다.
 (() => {
 'use strict';
@@ -10,7 +10,7 @@ const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCK
 const save = Store.save;
 // 공용 UI(ui.js): 말풍선·모달·패널·메뉴·접속. 화면마다 다른 것은 맨 아래 UI.init(host)로 넘긴다
 const { $, fmt, pix, ic, say, flush, advance, refresh, set, setw, openModal, closeModal, interact, openBuild, openCraft, openLog, openHelp, openSave, boot, loadPlaza, api, capText, heatOf, has, pAtm, HELP_KEY } = UI;
-const airTemp = () => Sim.airTemp(S);   // ℃: chem.js의 시각별 기온 + 섬별 보정(sim.js ENV)
+const airTemp = () => Sim.airTemp(S);   // ℃: chem.js의 시각별 기온 + 행성별 보정(sim.js ENV)
 const targets = () => World.targets(S);
 const { wolfPos } = World;
 const applyDug = () => World.applyDug(S);
@@ -25,11 +25,11 @@ function pickAt(kind) { const wx = cam.x + mouse.x, wy = cam.y + mouse.y; return
 function useThermo() { const t = pickAt('dev'), [tx, ty] = mouseTile(); World.useThermo(S, t ? { dev: t.ref } : { tx, ty }); flush(); }
 function useShaker() { const w = pickAt('wolf'), [tx, ty] = mouseTile(); World.useShaker(S, w ? { wolf: w.ref } : { tx, ty }); flush(); }
 
-// ---------- 광장: 정박한 다른 사람의 뗏목 그리기(데이터는 UI.loadPlaza가 읽어 온다) ----------
+// ---------- 허브: 도킹한 다른 사람의 탐사정 그리기(데이터는 UI.loadPlaza가 읽어 온다) ----------
 function drawPlazaRafts(t) {
   ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
   UI.plazaRafts().slice(0, 3).forEach((r, i) => {
-    const x0 = 47 + i * 13,   // 허브 정박 구역(옛 월드 x 153 − 오프셋 106)
+    const x0 = 47 + i * 13,   // 허브 도킹 구역(옛 월드 x 153 − 오프셋 106)
        cells = Math.max(2, Math.min(10, r.cells | 0));
     for (let c = 0; c < cells; c++) ctx.drawImage(Art.tiles.raft[c % 3], (x0 + c) * T - cam.x, Sim.RAFT.ROW * T - cam.y);
     for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cells) {
@@ -113,7 +113,7 @@ document.querySelectorAll('#pad button').forEach(b => {
 // ---------- 물리 ----------
 const pst = { onGround: false, bound: false };   // 이동 상태(world.js stepPlayer가 갱신)
 let seaHintAt = 0;
-function hintSea() { const n = performance.now(); if (n - seaHintAt > 5000) { seaHintAt = n; say('바다가 거칠어서 헤엄쳐 건널 수 없어요. 뗏목으로 항해하세요 (항구 표지판).'); } }
+function hintSea() { const n = performance.now(); if (n - seaHintAt > 5000) { seaHintAt = n; say('바다가 거칠어서 헤엄쳐 건널 수 없어요. 탐사정으로 궤도 이동하세요 (궤도 이동 단말).'); } }
 const collides = World.collides;
 function physics(dt) {
   const modalOpen = !$('modal').hidden;
@@ -263,7 +263,7 @@ function draw(t) {
     if (d.id === 'cooker' && d.s.done) { ctx.fillStyle = '#ffe066'; ctx.fillRect(sx + 14, sy - 6 - Math.round(Math.sin(t * 6) * 2), 4, 4); }
     if (d.id === 'fire' && d.s.level > 0 && Math.random() < 0.1 * d.s.level) puff(d.x * T + 16, d.y * T + 10, '#ffb347', 1);
   }
-  // 서리 늑대
+  // 얼음 생물
   for (const m of S.mobs) {
     const [wx, wy] = wolfPos(m), face = (m.id % 2 ? -1 : 1), sx = Math.round(wx - 11 - cam.x), sy = Math.round(wy - 12 - cam.y), fr = Math.floor(t * 3 + m.id) % 2;
     ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx + 2, sy + 12, 18, 2);

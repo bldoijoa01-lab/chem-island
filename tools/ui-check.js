@@ -69,7 +69,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   await ev(() => { const s = G.debug(); s.min = 1380; s.speed = 10; s.f.raft = true; s.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }, { id: 'still', x: 50, y: 22, s: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 } }]; s.px = 49 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.mobs = []; });
   let m = null; for (let k = 0; k < 40 && !m; k++) { await pg.waitForTimeout(300); m = await ev(() => G.debug().mobs[0] || null); }
   await ev(() => { G.debug().speed = 1; });
-  chk('밤(영하) 늑대 출현', !!m, m ? m.M + ' g' : '');
+  chk('밤(영하) 얼음 생물 출현', !!m, m ? m.M + ' g' : '');
   // 8) 메뉴·섬 모달이 열린다(공용 UI를 옮겨도 같아야 한다)
   const title = () => ev(() => (document.getElementById('modal').hidden ? '' : document.getElementById('mtitle').textContent));
   const closeM = () => ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
@@ -78,14 +78,14 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   for (let k = 0; k < 5; k++) { await pg.mouse.click((vw - 4 - (5 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
   chk('메뉴 5개(건설·제작·연구 노트·기록·저장)가 열림', ['건설', '제작', '연구 노트', '기록', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
   await ev(() => { const s = G.debug(); s.px = 104 * 16; s.py = 25 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
-  chk('뗏목 파편 모달', (await title()).includes('뗏목 파편'), await title()); await closeM();
+  chk('탐사정 잔해 모달', (await title()).includes('탐사정 잔해'), await title()); await closeM();
   await ev(() => { const s = G.debug(); s.px = 102 * 16; s.py = 25 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
-  chk('항구 모달', (await title()).includes('항구'), await title()); await closeM();
+  chk('궤도 관문 모달', (await title()).includes('궤도 관문'), await title()); await closeM();
   await ev(() => { const s = G.debug(); s.f.raft = true; s.raft.dock = 'plaza'; World.applyDug(s); s.px = 31 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
-  chk('유리병 편지 게시판 모달', (await title()).includes('유리병'), await title()); await closeM();
+  chk('표류 통신 게시판 모달', (await title()).includes('표류 통신'), await title()); await closeM();
   // 늑대: 짝수 번호는 장치 왼쪽에 서므로 장치보다 늑대가 가장 가깝게 서 본다
   await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.placed = [{ id: 'fire', x: 103, y: 22, s: { level: 0, fuel: 0 } }]; s.mobs = [{ id: 2, k: 'wolf', M: 100, M0: 100, dx: 103, dy: 22, att: 0 }]; s.mobId = 2; s.px = 103 * 16 - 12 - 4; s.py = 18 * 16; s.vy = 0; s.min = 1400; }); await pg.waitForTimeout(1500); await E();
-  const tw = await title(); chk('서리 늑대 모달이 열림', tw.includes('늑대'), tw); await closeM();
+  const tw = await title(); chk('얼음 생물 모달이 열림', tw.includes('얼음 생물'), tw); await closeM();
   await b.close();
   chk('콘솔 에러 없음', errs.length === 0, errs.join(' | '));
   console.log(`\n결과: PASS ${pass} / FAIL ${fail}`); process.exit(fail ? 1 : 0);

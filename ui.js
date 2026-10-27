@@ -1,4 +1,4 @@
-// 공용 UI 모듈: 말풍선·기록·모달·장치 패널·메뉴·접속(로그인)·목표 표시·항구·게시판. DOM을 다루고, 계산은 sim.js, 상태는 store.js, 지형은 world.js에 있다.
+// 공용 UI 모듈: 말풍선·기록·모달·장치 패널·메뉴·접속(로그인)·목표 표시·궤도 관문·게시판. DOM을 다루고, 계산은 sim.js, 상태는 store.js, 지형은 world.js에 있다.
 // 2D(game.js)와 fp/·td/가 같이 쓴다. 화면마다 다른 것(연기 효과, 건설 모드, 키 초기화, 접속 뒤 처리)은 `UI.init(host)`로 받는다.
 window.UI = (() => {
 'use strict';
@@ -17,8 +17,8 @@ const EMO = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;   // 그
 const pix = s => String(s).replace(EMO, '').replace(/^\s+/, '');
 const ic = k => `<i class="ic" style="background-image:url(${Art.iconURL[k]})"></i>`;
 const clockText = () => `${S.day}일차 ${String(Math.floor(S.min / 60)).padStart(2, '0')}:${String(Math.floor(S.min % 60)).padStart(2, '0')}`;
-const airTemp = () => Sim.airTemp(S);   // ℃: chem.js의 시각별 기온 + 섬별 보정(sim.js ENV)
-const pAtm = () => Sim.pAtm(S);         // 외기 압력(atm): 섬마다 다르다(고산 섬은 낮음)
+const airTemp = () => Sim.airTemp(S);   // ℃: chem.js의 시각별 기온 + 행성별 보정(sim.js ENV)
+const pAtm = () => Sim.pAtm(S);         // 외기 압력(atm): 행성마다 다르다(저기압 고원 행성은 낮음)
 let msgTimer;
 function say(t) { $('msg').textContent = pix(t); clearTimeout(msgTimer); msgTimer = setTimeout(() => $('msg').textContent = '', 6000); }
 function logEv(type, text) { S.log.push({ day: S.day, t: clockText(), type, text: pix(text) }); if (S.log.length > 300) S.log.shift(); }
@@ -26,7 +26,7 @@ const has = cost => Sim.has(S, cost);
 const pay = cost => Sim.pay(S, cost);
 const costText = cost => Object.entries(cost).map(([k, v]) => `${ic(ITEM[k][0])}${ITEM[k][1]} ${v}`).join(' · ');
 const unlocked = id => Sim.unlocked(S, id);
-// 계산(sim.js)이 쌓은 이벤트를 화면에 반영한다: 말풍선·폭발 연기·늑대 효과·목표 갱신
+// 계산(sim.js)이 쌓은 이벤트를 화면에 반영한다: 말풍선·폭발 연기·얼음 생물 효과·목표 갱신
 function flush() {
   for (const e of Sim.drain()) {
     if (e.t === 'say') say(e.text);
@@ -41,38 +41,38 @@ const advance = dm => { Sim.advance(S, dm); flush(); };
 const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cookerState = Sim.cookerState;
 
 
-// ---------- 항해: 뗏목 파편 · 항구 표지판 · 유리병 편지 게시판 · 광장의 다른 뗏목 ----------
+// ---------- 궤도 이동: 탐사정 잔해 · 궤도 이동 단말 · 표류 통신 게시판 · 허브의 다른 탐사정 ----------
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function uiFragment() {
   const R = Sim.RAFT;
-  openModal('뗏목 파편', `<div class="box"><p>해안에 걸린 뗏목 파편입니다. 고치면 뗏목이 출항할 수 있게 되어 건너편 광장섬으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
+  openModal('탐사정 잔해', `<div class="box"><p>해안에 걸린 탐사정 잔해입니다. 고치면 탐사정이 이륙할 수 있게 되어 허브 정거장으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
     <div class="kv"><span>필요한 재료</span><b>${costText(R.REPAIR_COST)}</b></div>
     <div class="kv"><span>증류 기록 (직접 얻은 양)</span><b>증류수 ${Math.floor(S.f.dW)} / ${R.REPAIR_NEED.dW} g · 소금 ${Math.floor(S.f.dS)} / ${R.REPAIR_NEED.dS} g</b></div>
     <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) && S.f.dW >= R.REPAIR_NEED.dW && S.f.dS >= R.REPAIR_NEED.dS ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
-    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 서리 늑대가 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·조건·칸 수는 가정(임의값))</div>`);
+    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 얼음 생물이 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·조건·칸 수는 가정(임의값))</div>`);
 }
 function uiSail() {
   const here = Sim.dockOf(S).island;
-  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '귀항', name: '광장섬', open: true }];
+  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '허브 귀환', name: '허브 정거장', open: true }];
   const rows = list.map(h => {
     const need = Sim.UNLOCK[h.dock] || 0, locked = S.qDone < need, env = Sim.ENV[Sim.DOCKS[h.dock] ? Sim.DOCKS[h.dock].island : ''];
     const on = S.f.raft && h.open && Sim.DOCKS[h.dock] && h.dock !== S.raft.dock && !locked;
     const info = env && (env.P !== 1 || env.dT) ? `<div class="mut">외기 ${fmt(env.P, 2)} atm(물 ${fmt(C.tb(env.P), 0)} ℃에서 끓음) · 기온 ${env.dT >= 0 ? '+' : ''}${env.dT} ℃</div>` : '';
     return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? (locked ? `<span class="no">목표 ${need}개 달성 시 열림</span>` : `<span class="mut">${Sim.SAIL_MIN[h.dock] || 30}분</span>`) : '<span class="no">아직 갈 수 없음</span>'}${info}</div>
-      <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">출항</button></div>`;
+      <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">이륙</button></div>`;
   }).join('');
-  openModal(`항구 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">뗏목 파편을 먼저 고쳐야 출항할 수 있어요. (시작섬 동쪽 해안)</div>')
-    + rows + `<div class="mut">항해 시간은 가정(임의값)이고, 내 뗏목과 그 위의 장치가 함께 옮겨 갑니다. 섬마다 외기 압력·기온이 달라 같은 장치도 다르게 동작합니다.</div>`);
+  openModal(`궤도 관문 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요. (불시착 행성 동쪽 해안)</div>')
+    + rows + `<div class="mut">궤도 이동 시간은 가정(임의값)이고, 내 탐사정과 그 위의 장치가 함께 옮겨 갑니다. 행성마다 외기 압력·기온이 달라 같은 장치도 다르게 동작합니다.</div>`);
 }
 const NPC_BOTTLES = [
   { nick: '선배1', text: '증류기는 화덕 옆에! 약불(105 ℃)로는 끝까지 못 끓여요.' },
   { nick: '선배2', text: '한제는 얼음 100 g당 소금 16 g 이상이면 -10 ℃ 아래.' },
-  { nick: '선배3', text: '골렘 3단계는 O₂ 캡슐이 4개 필요해요. 하루치로는 모자라요.' },
+  { nick: '선배3', text: '대기 처리 코어 3단계는 O₂ 캡슐이 4개 필요해요. 하루치로는 모자라요.' },
 ];
 let bottleAt = 0;
 function uiBoard() {
   const online = window.Net && Net.user && Net.loadBottles;
-  openModal('유리병 편지 게시판', `<div class="box"><div id="b-list" class="mut">불러오는 중...</div></div>
+  openModal('표류 통신 게시판', `<div class="box"><div id="b-list" class="mut">불러오는 중...</div></div>
     ${online ? `<div class="row" style="margin-top:8px"><input id="b-text" maxlength="80" placeholder="유리병에 넣을 한마디 (80자, 개인정보는 쓰지 마세요)" style="flex:1 1 200px;min-width:0"><button class="primary" onclick="G.bottle()">띄우기</button></div>`
       : '<div class="warnbox">온라인으로 접속하면 다른 사람이 띄운 편지를 읽고 내 편지도 띄울 수 있어요. (지금은 선배들의 편지만 보입니다)</div>'}`);
   loadBottles();
@@ -82,7 +82,7 @@ async function loadBottles() {
   if (window.Net && Net.user && Net.loadBottles) { try { list = (await Net.loadBottles(12)).concat(list); } catch { /* 오프라인 */ } }
   const el = $('b-list'); if (el) el.innerHTML = list.map(b => `<div><b>${esc(b.nick)}</b> ${esc(pix(b.text))}</div>`).join('') || '아직 편지가 없습니다.';
 }
-// 광장섬: 정박한 다른 사람의 뗏목(읽기 전용). 서버의 /rafts에서 최근 것을 읽어 온다
+// 허브 정거장: 도킹한 다른 사람의 탐사정(읽기 전용). 서버의 /rafts에서 최근 것을 읽어 온다
 let plazaRafts = [];
 async function loadPlaza() {
   plazaRafts = [];
@@ -142,16 +142,16 @@ const ACT = {};
 
 function uiBroken(d) {
   curDev = d;
-  openModal(DEV[d.id].name, `<div class="box"><h4>파손됨</h4><p>서리 늑대가 부숴서 작동하지 않습니다. 나뭇가지 2개로 수리할 수 있어요.</p>
+  openModal(DEV[d.id].name, `<div class="box"><h4>파손됨</h4><p>얼음 생물이 부숴서 작동하지 않습니다. 나뭇가지 2개로 수리할 수 있어요.</p>
     <div class="row"><button class="primary" onclick="act('repair');G.closeModal()">수리 (나뭇가지 2)</button></div></div>`);
 }
-// 서리 늑대 화면: 소금 → 얼음이 녹는 양을 어는점 내림 식으로 계산 [#37 #39 #21]
+// 얼음 생물 화면: 소금 → 얼음이 녹는 양을 어는점 내림 식으로 계산 [#37 #39 #21]
 let wolfRef = null;
 function uiWolf(m) {
   wolfRef = m;
   const T = airTemp();
-  openModal('서리 늑대', `
-    <div class="grid2"><div class="box"><h4>늑대</h4>
+  openModal('얼음 생물', `
+    <div class="grid2"><div class="box"><h4>얼음 생물</h4>
       <div class="kv"><span>얼음 질량</span><b id="w-m"></b></div>
       <div class="kv"><span>현재 기온</span><b id="w-T"></b></div>
       <div class="kv"><span>평형 몰랄농도 m = |T|/(i·Kf)</span><b id="w-eq"></b></div>
@@ -186,7 +186,7 @@ function wolfSalt() {
   if (s <= 0) return say('소금을 뿌릴 양을 정하세요.');
   if (saltOnWolf(m, s)) closeModal(); else uiWolf(m);
 }
-// 늑대에게 소금 s g을 뿌린다(모달·소금 뿌리개 공용). 늑대가 정화되면 true
+// 얼음 생물에게 소금 s g을 뿌린다(모달·소금 뿌리개 공용). 얼음 생물이 정화되면 true
 function saltOnWolf(m, s) { const r = Sim.act.saltOnWolf(S, m, s); flush(); return r; }
 
 function uiFire(d) {
@@ -305,7 +305,7 @@ function uiCollector(d) {
       <div class="kv"><span>기체 분압 (P_i = x_i·P)</span><b id="g-p"></b></div>
       <div class="row" style="margin-top:8px"><button class="primary" onclick="act('cap')">공기 캡슐 만들기 (모래 1, 10분)</button></div>
       <div class="kv"><span>보유 캡슐</span><b id="g-c"></b></div></div>
-    <div class="warnbox">공기는 반응하지 않는 기체의 혼합물이라 전체 압력은 분압의 합입니다(돌턴). 같은 압력·부피라도 온도가 낮을수록 더 많은 기체가 모입니다. 질소·산소·헬륨 캡슐은 광장 보급 상자에서 얻습니다. (공기에서 성분을 분리하려면 분별증류 등이 필요 — 이 섬에는 없음)</div>`,
+    <div class="warnbox">공기는 반응하지 않는 기체의 혼합물이라 전체 압력은 분압의 합입니다(돌턴). 같은 압력·부피라도 온도가 낮을수록 더 많은 기체가 모입니다. 질소·산소·헬륨 캡슐은 허브 보급 상자에서 얻습니다. (공기에서 성분을 분리하려면 분별증류 등이 필요 — 이 행성에는 없음)</div>`,
   () => {
     const t = airTemp();
     set('g-T', fmt(t, 1) + ' ℃ / ' + fmt(pAtm(), 2) + ' atm'); set('g-n', fmt(C.moles(pAtm(), 0.5, t), 4) + ' mol');
@@ -326,8 +326,8 @@ function openBuild() {
       <button ${ok && has(d.cost) ? '' : 'disabled'} onclick="G.startBuild('${id}')">짓기</button></div>`;
   }).join('');
   const R = Sim.RAFT, full = S.raft.cells >= R.MAX_CELLS;
-  openModal('건설', rows + `<div class="mut">장치는 내 뗏목 위에 2x2 칸으로 짓습니다. 지을 곳에 마우스를 두고 클릭하세요.</div>
-    <div class="box row between"><div><b>뗏목 넓히기</b> <span class="mut">(${S.raft.cells}/${R.MAX_CELLS}칸, 한 번에 +${R.EXPAND}칸)</span>
+  openModal('건설', rows + `<div class="mut">장치는 내 탐사정 위에 2x2 칸으로 짓습니다. 지을 곳에 마우스를 두고 클릭하세요.</div>
+    <div class="box row between"><div><b>탐사정 넓히기</b> <span class="mut">(${S.raft.cells}/${R.MAX_CELLS}칸, 한 번에 +${R.EXPAND}칸)</span>
       <div class="mut">${costText(R.EXPAND_COST)} · 해안 쪽은 그대로, 바다 쪽으로 늘어납니다</div></div>
       <button ${!full && has(R.EXPAND_COST) ? '' : 'disabled'} onclick="G.expandRaft()">${full ? '최대' : '넓히기'}</button></div>
     <div class="row" style="margin-top:6px"><button class="danger" onclick="G.startDemolish()">철거 모드 (재료 환급)</button></div>`);
@@ -351,10 +351,10 @@ function openHelp() {
       <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기</div>
       <div>오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장/계정 · x1/x3/x10은 시간 속도</div></div>
     <div class="box"><h4>처음 해 볼 것</h4>
-      <div>1. 시작섬 동쪽 해안의 뗏목 위에서 바닷물을 뜨고(E), 건설에서 화덕을 뗏목 위에 지으세요. (증류에 쓸 바닷물은 3통까지 모아 두세요)</div>
+      <div>1. 불시착 행성 동쪽 해안의 탐사정 위에서 바닷물을 뜨고(E), 건설에서 화덕을 탐사정 위에 지으세요. (증류에 쓸 바닷물은 3통까지 모아 두세요)</div>
       <div>2. 나무·모래 더미에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
-      <div>3. 해안의 뗏목 파편을 고쳐 출항하면 건너편 광장섬에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 광장섬의 솥 골렘에 도전합니다.</div></div>
-    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 밤에는 기온이 영하로 내려가 서리 늑대가 장치를 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
+      <div>3. 해안의 탐사정 잔해를 고쳐 이륙하면 허브 정거장에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 허브 정거장의 대기 처리 코어에 도전합니다.</div></div>
+    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 밤에는 기온이 영하로 내려가 얼음 생물이 장치를 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
   null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
 }
 function openSave() {

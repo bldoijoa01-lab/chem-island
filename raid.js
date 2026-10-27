@@ -1,8 +1,8 @@
-// 솥 골렘 레이드. 기지에서 만든 물질로 3단계 화학 퍼즐을 푼다(혼자 하기). 온라인에서는 3단계 분압을 두 사람이 나눠 맞추는 협동도 있다.
+// 대기 처리 코어 레이드. 기지에서 만든 물질로 3단계 화학 퍼즐을 푼다(혼자 하기). 온라인에서는 3단계 분압을 두 사람이 나눠 맞추는 협동도 있다.
 // P1 증기 방어막: 증기압력 내림(라울)   P2 끓어 넘침: 압력·끓는점·열 평형   P3 가스 과압: 돌턴 분압·이상 기체
 window.Raid = (() => {
   const C = Chem;
-  const P1_WATER = 500, P1_GOAL = 0.95;                  // 골렘 솥의 물(g), 방어막이 깨지는 증기압(atm, 100 ℃)
+  const P1_WATER = 500, P1_GOAL = 0.95;                  // 대기 처리 코어 솥의 물(g), 방어막이 깨지는 증기압(atm, 100 ℃)
   const P2_WIN = [2.0, 2.8], P2_DMG = 4, SURGE = 10;     // 안전 압력대(atm), 초당 피해, 불길 1회의 온도 상승(℃)
   // SURGE=18일 때는 능숙한 조작으로도 폭발(시뮬레이션 4/4), 10일 때 4/4 클리어·무조작은 폭발 → 10으로 조정
   const TANK_V = 10, TANK_T = 300, GOAL_P = 2.0, GOAL_O2 = 0.40;
@@ -24,7 +24,7 @@ window.Raid = (() => {
 
   function soloOpen(a) {
     A = a;
-    if (S().f.boss) { A.say('솥 골렘은 이미 정화되었습니다. 다시 도전해 볼 수도 있어요.'); }
+    if (S().f.boss) { A.say('대기 처리 코어는 이미 정화되었습니다. 다시 도전해 볼 수도 있어요.'); }
     R = fresh(); api.active = true;
     render();
   }
@@ -33,7 +33,7 @@ window.Raid = (() => {
     A = a;
     const net = window.Net;
     if (!(net && net.user && net.raidJoin)) return soloOpen(a);
-    A.openModal('솥 골렘 제단', `<div class="box"><p>혼자서 1~3단계를 모두 풀거나, 온라인 친구와 <b>3단계(분압)</b>를 분업해 풀 수 있어요.</p>
+    A.openModal('대기 처리 코어 제단', `<div class="box"><p>혼자서 1~3단계를 모두 풀거나, 온라인 친구와 <b>3단계(분압)</b>를 분업해 풀 수 있어요.</p>
       <div class="row"><button class="primary" onclick="Raid.solo()">혼자 도전 (1~3단계)</button></div>
       <div class="row" style="margin-top:6px"><button onclick="Raid.coop('O2')">협동: 산소(O₂) 담당</button><button onclick="Raid.coop('N2')">협동: 질소·헬륨(N₂·He) 담당</button></div></div>
       <div class="warnbox">협동은 같은 탱크를 두 사람이 함께 보며, 각자 맡은 기체의 캡슐만 넣을 수 있습니다. 돌턴의 분압 법칙: 전체 압력 = 분압의 합.</div>`);
@@ -80,7 +80,7 @@ window.Raid = (() => {
     const caps = S().caps, i = caps.findIndex(c => c.k === k); if (i < 0) return;
     const c = caps.splice(i, 1)[0], { tot } = coopP(coop.st), add = C.partial(c.n, TANK_V, TANK_T);
     if (tot + add > C.PBURST) {
-      A.logEv('골렘 협동 폭발', `전체 ${A.fmt(tot + add, 2)} atm > ${C.PBURST} atm (${ROLE_NAME[coop.role]}가 ${k} 캡슐을 넣음)`);
+      A.logEv('대기 처리 코어 협동 폭발', `전체 ${A.fmt(tot + add, 2)} atm > ${C.PBURST} atm (${ROLE_NAME[coop.role]}가 ${k} 캡슐을 넣음)`);
       A.say('탱크가 폭발했습니다! 처음으로 돌아갑니다.');
       try { await window.Net.raidReset(fresh().n, (coop.st.round || 0) + 1); } catch { /* 무시 */ }
     } else { try { await window.Net.raidAdd(k, c.n); } catch { A.say('서버에 반영하지 못했습니다.'); } }
@@ -92,22 +92,22 @@ window.Raid = (() => {
     const st = coop.st, { o, tot } = coopP(st), roles = new Set(Object.values(st.players || {}).map(p => p.role));
     if (!(roles.has('O2') && roles.has('N2'))) return A.say('O₂ 담당과 N₂·He 담당, 두 사람이 모두 있어야 합니다.');
     const okP = Math.abs(tot - GOAL_P) <= 0.04, okO = Math.abs(o.O2 - GOAL_O2) <= 0.03;
-    A.logEv('골렘 협동 확인', `전체 ${A.fmt(tot, 3)} atm, O₂ 분압 ${A.fmt(o.O2, 3)} atm → ${okP && okO ? '성공' : '실패'}`);
+    A.logEv('대기 처리 코어 협동 확인', `전체 ${A.fmt(tot, 3)} atm, O₂ 분압 ${A.fmt(o.O2, 3)} atm → ${okP && okO ? '성공' : '실패'}`);
     if (!okP || !okO) return A.say(`${okP ? '' : '전체 압력이 맞지 않습니다. '}${okO ? '' : '산소 분압이 맞지 않습니다.'}`);
     try { await window.Net.raidDone(st.round || 0); } catch { /* 무시 */ }
     coopSuccess('협동으로 안정화에 성공했습니다');
   };
   function coopSuccess(why) {
     if (!coop || coop.done) return; coop.done = true;
-    S().f.boss = true; A.logEv('골렘 협동 성공', why); A.say('솥 골렘이 정화되었습니다!'); A.refresh();
-    A.openModal('솥 골렘 정화 완료 (협동)', `<p>${S().day}일차에 친구와 함께 골렘을 정화했습니다.</p>
+    S().f.boss = true; A.logEv('대기 처리 코어 협동 성공', why); A.say('대기 처리 코어가 정화되었습니다!'); A.refresh();
+    A.openModal('대기 처리 코어 정화 완료 (협동)', `<p>${S().day}일차에 친구와 함께 대기 처리 코어를 정화했습니다.</p>
       <div class="box">돌턴의 분압 법칙: 전체 압력 = <b>분압의 합</b>. 두 사람이 O₂·N₂ 분압을 나눠 맞췄습니다.</div>`, null, coopClose);
   }
   function close() { clearInterval(timer); timer = null; api.active = false; }
 
   function render() {
     clearInterval(timer);
-    const title = ['', '🗿 1단계 — 증기 방어막', '🗿 2단계 — 끓어 넘치는 솥', '🗿 3단계 — 가스 과압'][R.phase];
+    const title = ['', '1단계 — 증기 방어막', '2단계 — 끓어 넘치는 솥', '3단계 — 가스 과압'][R.phase];
     const html = [null, p1(), p2(), p3()][R.phase];
     A.openModal(title, html, null, close);
     document.getElementById('mbody').insertAdjacentHTML('afterbegin', '<canvas id="golem" class="golem"></canvas>');
@@ -120,7 +120,7 @@ window.Raid = (() => {
   // ---------- P1 ----------
   function p1() {
     const s = S().inv;
-    return `<p>골렘의 솥(물 ${P1_WATER} g, 100 ℃)이 증기로 방어막을 만들고 있습니다. 증기압력이 <b>${P1_GOAL} atm</b> 이하로 내려가면 방어막이 깨집니다. 비휘발성 용질을 녹여 증기압력을 내리세요.</p>
+    return `<p>대기 처리 코어의 솥(물 ${P1_WATER} g, 100 ℃)이 증기로 방어막을 만들고 있습니다. 증기압력이 <b>${P1_GOAL} atm</b> 이하로 내려가면 방어막이 깨집니다. 비휘발성 용질을 녹여 증기압력을 내리세요.</p>
     <div class="grid2"><div class="box">
       <label>소금 <b id="r-sv"></b> g (보유 ${Math.floor(s.salt)})<input type="range" id="r-salt" min="0" max="${Math.floor(s.salt)}" value="0" oninput="Raid.p1Update()"></label>
       <label>설탕 <b id="r-ugv"></b> g (보유 ${Math.floor(s.sugar)})<input type="range" id="r-sugar" min="0" max="${Math.floor(s.sugar)}" value="0" oninput="Raid.p1Update()"></label>
@@ -150,7 +150,7 @@ window.Raid = (() => {
     if (a > s.salt || b > s.sugar) return A.say('재료가 부족합니다.');
     s.salt -= a; s.sugar -= b; R.salt += a; R.sugar += b;
     const c = p1Calc();
-    A.logEv('골렘 P1', `소금 ${R.salt} g, 설탕 ${R.sugar} g 투입 → 증기압 ${A.fmt(c.p, 3)} atm`);
+    A.logEv('대기 처리 코어 P1', `소금 ${R.salt} g, 설탕 ${R.sugar} g 투입 → 증기압 ${A.fmt(c.p, 3)} atm`);
     if (c.p <= P1_GOAL) { A.say('🛡️ 증기 방어막이 깨졌습니다!'); R.phase = 2; render(); }
     else { A.say('아직 방어막이 남아 있습니다. 더 녹이세요.'); render(); }
     A.refresh();
@@ -158,7 +158,7 @@ window.Raid = (() => {
 
   // ---------- P2 ----------
   function p2() {
-    return `<p>방어막이 깨지자 솥이 밀폐되며 가열됩니다. 내부 압력을 <b>${P2_WIN[0]}~${P2_WIN[1]} atm</b>에 유지하면 골렘이 약해집니다. <b>${C.PBURST} atm</b>을 넘으면 폭발합니다!</p>
+    return `<p>방어막이 깨지자 솥이 밀폐되며 가열됩니다. 내부 압력을 <b>${P2_WIN[0]}~${P2_WIN[1]} atm</b>에 유지하면 대기 처리 코어가 약해집니다. <b>${C.PBURST} atm</b>을 넘으면 폭발합니다!</p>
     <div class="grid2"><div class="box">
       <label>가열 세기 <b id="r-dv"></b>/10<input type="range" id="r-dial" min="0" max="10" value="0" oninput="Raid.p2In()"></label>
       <label>배기 밸브 <b id="r-vv"></b>/5<input type="range" id="r-valve" min="0" max="5" value="0" oninput="Raid.p2In()"></label>
@@ -171,22 +171,22 @@ window.Raid = (() => {
       <div class="kv"><span>수증기압 P*(T)</span><b id="r-pv"></b></div>
       <div class="kv"><span>전체 압력</span><b id="r-pt"></b></div>
       <div class="bar"><i id="r-pbar"></i></div>
-      <div class="kv"><span>골렘 체력</span><b id="r-hp"></b></div>
+      <div class="kv"><span>대기 처리 코어 체력</span><b id="r-hp"></b></div>
       <div class="bar bad"><i id="r-hbar"></i></div><div id="r-st" class="mut"></div></div></div>
-    <div class="warnbox">밀폐 용기의 전체 압력 = 공기 분압(부피·양이 일정하면 온도에 비례, 이상 기체 방정식) + 수증기압(온도가 오를수록 가파르게 증가). 배기하면 공기부터 빠지고, 공기가 없어지면 증기를 내보내 열을 잃습니다. 증류수·얼음(융해열 334 J/g)은 열을 빼앗아 온도를 낮춥니다. 골렘의 불길이 주기적으로 온도를 올립니다. (게임 단순화: 2단계의 수증기압은 순수한 물 기준이며 1단계에 넣은 용질은 반영하지 않습니다.)</div>`;
+    <div class="warnbox">밀폐 용기의 전체 압력 = 공기 분압(부피·양이 일정하면 온도에 비례, 이상 기체 방정식) + 수증기압(온도가 오를수록 가파르게 증가). 배기하면 공기부터 빠지고, 공기가 없어지면 증기를 내보내 열을 잃습니다. 증류수·얼음(융해열 334 J/g)은 열을 빼앗아 온도를 낮춥니다. 대기 처리 코어의 불길이 주기적으로 온도를 올립니다. (게임 단순화: 2단계의 수증기압은 순수한 물 기준이며 1단계에 넣은 용질은 반영하지 않습니다.)</div>`;
   }
   const pTotal = () => R.airN * (R.T + 273.15) / 298.15 + C.pStar(R.T);
   function p2In() { R.dial = +$('r-dial').value; R.valve = +$('r-valve').value; A.set('r-dv', R.dial); A.set('r-vv', R.valve); }
   function p2Go() { R.running = !R.running; $('r-go').textContent = R.running ? '일시정지' : '계속'; }
   function p2Water() {
     const s = S().inv; if (s.water < 200) return A.say('증류수가 200 g 필요합니다.');
-    s.water -= 200; R.T = C.mixT(R.M, R.T, 200, 25); R.M += 200; A.logEv('골렘 P2', `증류수 200 g 투입 → 물 온도 ${A.fmt(R.T, 1)} ℃`); A.refresh();
+    s.water -= 200; R.T = C.mixT(R.M, R.T, 200, 25); R.M += 200; A.logEv('대기 처리 코어 P2', `증류수 200 g 투입 → 물 온도 ${A.fmt(R.T, 1)} ℃`); A.refresh();
   }
   function p2Pack() {
     const packs = S().packs; if (!packs.length) return A.say('한제 팩이 없습니다. (냉각 상자, 당일 사용)');
     const p = packs.sort((x, y) => x.T - y.T).shift();
     const before = R.T; R.T = C.packMix(R.M, R.T, p.M, p.T); R.M += p.M;
-    A.logEv('골렘 P2', `한제 팩(${A.fmt(p.T, 1)}℃, 얼음 ${p.M} g) 투입: ${A.fmt(before, 1)} → ${A.fmt(R.T, 1)} ℃`); A.refresh();
+    A.logEv('대기 처리 코어 P2', `한제 팩(${A.fmt(p.T, 1)}℃, 얼음 ${p.M} g) 투입: ${A.fmt(before, 1)} → ${A.fmt(R.T, 1)} ℃`); A.refresh();
   }
   function p2Update() {
     if (!$('r-dial')) return;
@@ -197,7 +197,7 @@ window.Raid = (() => {
     A.set('r-hp', A.fmt(R.hp, 0) + ' / 100'); A.setw('r-hbar', R.hp);
     if ($('golem')) A.Art.drawGolem($('golem'), 2, Math.max(0, R.hp) / 100);
     A.set('r-have2', `증류수 ${A.fmt(S().inv.water, 0)} g · 한제 팩 ${S().packs.length}개`);
-    A.set('r-st', R.warn > 0 ? '🔥 골렘이 불을 뿜으려 합니다! (온도 상승 임박)' : (R.running ? (pt >= P2_WIN[0] && pt <= P2_WIN[1] ? '안전 압력대 — 골렘이 약해지는 중' : '압력대 밖') : '대기 중'));
+    A.set('r-st', R.warn > 0 ? '대기 처리 코어가 불을 뿜으려 합니다! (온도 상승 임박)' : (R.running ? (pt >= P2_WIN[0] && pt <= P2_WIN[1] ? '안전 압력대 — 대기 처리 코어가 약해지는 중' : '압력대 밖') : '대기 중'));
   }
   function p2Tick() {
     if (!R.running) return p2Update();
@@ -210,22 +210,22 @@ window.Raid = (() => {
     }
     R.surgeIn -= dt;
     if (R.surgeIn <= 2 && R.warn === 0) R.warn = 2;
-    if (R.surgeIn <= 0) { R.T += SURGE; R.surgeIn = 10 + Math.random() * 4; R.warn = 0; A.logEv('골렘 P2', `불길: 온도 +${SURGE} ℃ → ${A.fmt(R.T, 1)} ℃`); }
+    if (R.surgeIn <= 0) { R.T += SURGE; R.surgeIn = 10 + Math.random() * 4; R.warn = 0; A.logEv('대기 처리 코어 P2', `불길: 온도 +${SURGE} ℃ → ${A.fmt(R.T, 1)} ℃`); }
     pt = pTotal();
     if (pt >= P2_WIN[0] && pt <= P2_WIN[1]) R.hp -= P2_DMG * dt;
     if (pt > C.PBURST) {
-      A.logEv('골렘 P2 폭발', `전체 압력 ${A.fmt(pt, 2)} atm > ${C.PBURST} atm (T=${A.fmt(R.T, 1)}℃, 공기 ${A.fmt(R.airN, 2)})`);
+      A.logEv('대기 처리 코어 P2 폭발', `전체 압력 ${A.fmt(pt, 2)} atm > ${C.PBURST} atm (T=${A.fmt(R.T, 1)}℃, 공기 ${A.fmt(R.airN, 2)})`);
       A.say('💥 솥이 폭발했습니다! 2단계를 다시 시작합니다.');
       const salt = R.salt, sugar = R.sugar;
       R = fresh(); R.phase = 2; R.salt = salt; R.sugar = sugar; render(); return;
     }
-    if (R.hp <= 0) { A.logEv('골렘 P2', '안전 압력대 유지에 성공'); A.say('🗿 골렘이 약해졌습니다!'); R.phase = 3; render(); return; }
+    if (R.hp <= 0) { A.logEv('대기 처리 코어 P2', '안전 압력대 유지에 성공'); A.say('대기 처리 코어가 약해졌습니다!'); R.phase = 3; render(); return; }
     p2Update();
   }
 
   // ---------- P3 ----------
   function p3() {
-    return `<p>골렘의 탱크(${TANK_V} L, ${TANK_T} K)가 불안정한 혼합 기체로 차 있습니다. 캡슐을 넣어 <b>전체 압력 ${GOAL_P} atm</b>, <b>산소 분압 ${GOAL_O2} atm</b>으로 맞추세요. (허용 오차 ±0.04 / ±0.03) ${C.PBURST} atm을 넘으면 폭발합니다.</p>
+    return `<p>대기 처리 코어의 탱크(${TANK_V} L, ${TANK_T} K)가 불안정한 혼합 기체로 차 있습니다. 캡슐을 넣어 <b>전체 압력 ${GOAL_P} atm</b>, <b>산소 분압 ${GOAL_O2} atm</b>으로 맞추세요. (허용 오차 ±0.04 / ±0.03) ${C.PBURST} atm을 넘으면 폭발합니다.</p>
     <div class="grid2"><div class="box"><h4>탱크 안</h4>
       <div class="kv"><span>N₂ 분압</span><b id="t-N2"></b></div><div class="kv"><span>O₂ 분압</span><b id="t-O2"></b></div>
       <div class="kv"><span>Ar 분압</span><b id="t-Ar"></b></div><div class="kv"><span>He 분압</span><b id="t-He"></b></div>
@@ -255,7 +255,7 @@ window.Raid = (() => {
     if (k === 'air') for (const g in C.AIR) R.n[g] += c.n * C.AIR[g]; else R.n[k] += c.n;
     const { tot } = p3P();
     if (tot > C.PBURST) {
-      A.logEv('골렘 P3 폭발', `전체 압력 ${A.fmt(tot, 2)} atm > ${C.PBURST} atm`);
+      A.logEv('대기 처리 코어 P3 폭발', `전체 압력 ${A.fmt(tot, 2)} atm > ${C.PBURST} atm`);
       A.say('💥 탱크가 폭발했습니다! 기체 조성이 처음으로 돌아갑니다.');
       const f = fresh(); R.n = f.n; render(); return;
     }
@@ -265,10 +265,10 @@ window.Raid = (() => {
   function p3Check() {
     const { o, tot } = p3P();
     const okP = Math.abs(tot - GOAL_P) <= 0.04, okO = Math.abs(o.O2 - GOAL_O2) <= 0.03;
-    A.logEv('골렘 P3 확인', `전체 ${A.fmt(tot, 3)} atm, O₂ 분압 ${A.fmt(o.O2, 3)} atm → ${okP && okO ? '성공' : '실패'}`);
+    A.logEv('대기 처리 코어 P3 확인', `전체 ${A.fmt(tot, 3)} atm, O₂ 분압 ${A.fmt(o.O2, 3)} atm → ${okP && okO ? '성공' : '실패'}`);
     if (!okP || !okO) return A.say(`${okP ? '' : '전체 압력이 맞지 않습니다. '}${okO ? '' : '산소 분압이 맞지 않습니다.'}`);
-    S().f.boss = true; A.say('🎉 솥 골렘이 정화되었습니다!'); A.refresh();
-    A.openModal('🎉 솥 골렘 정화 완료', `<p>${S().day}일차에 골렘을 정화했습니다.</p>
+    S().f.boss = true; A.say('대기 처리 코어가 정화되었습니다!'); A.refresh();
+    A.openModal('대기 처리 코어 정화 완료', `<p>${S().day}일차에 대기 처리 코어를 정화했습니다.</p>
       <div class="box">1단계: 소금·설탕이 만든 <b>증기압력 내림</b><br>2단계: 압력과 <b>끓는점</b>, 열 평형(비열·융해열)<br>3단계: <b>돌턴의 분압 법칙</b>과 이상 기체 방정식</div>
       <p class="mut">‘📝 기록’의 자동 기록을 개발 기록(시험 플레이 증빙)에 활용하세요.</p>`, null, close);
   }

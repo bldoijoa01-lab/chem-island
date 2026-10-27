@@ -72,7 +72,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
       }
       for (let y = 25; y < g; y++) map[y * W + x] = WATER;
     }
-    if (name === 'plaza') for (let gx = 152; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 허브의 정박 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
+    if (name === 'plaza') for (let gx = 152; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 허브의 도킹 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
     if (name === 'start') for (const [gcx, cy, r] of [[50, 37, 5], [70, 41, 6], [92, 38, 5], [30, 45, 6], [60, 48, 4]]) {
       for (let y = cy - r; y <= cy + r; y++) for (let x = gcx - r * 2; x <= gcx + r * 2; x++) {
         if (((x - gcx) / 2) ** 2 + (y - cy) ** 2 <= r * r) map[y * W + x - off] = AIR;
@@ -182,13 +182,13 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     say(`온도계: ${name} ${fmt(val, 1)} ℃ — ${note}`);
     logEv(S, '온도 측정', `${name} ${fmt(val, 1)}℃ (${note})`);
   }
-  // sel = { wolf } (서리 늑대) 또는 { tx, ty } (칸)
+  // sel = { wolf } (얼음 생물) 또는 { tx, ty } (칸)
   function useShaker(S, sel) {
     if (S.inv.salt < 1) return say('소금이 없습니다.');
     const T0 = Sim.airTemp(S), s = Math.min(SHAKE_G, S.inv.salt);
     if (sel.wolf) return Sim.act.saltOnWolf(S, sel.wolf, s);
     const { tx, ty } = sel, id = tileAt(tx, ty);
-    if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 서리 늑대에게 뿌리세요.');
+    if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 얼음 생물에게 뿌리세요.');
     if (!inReach(S, tx, ty)) return say('너무 멉니다.');
     const k = DK(ty * dim.W + tx), had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T0, s);
     if (melt <= 0) return say('기온이 0 ℃ 이상이라 소금이 필요 없어요.');
@@ -204,7 +204,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : o.type === 'harbor' || o.type === 'board' ? 14 : 8)];
   function nearWater(S) {
     const tx = Math.floor((S.px + PW / 2) / T), ty = Math.floor((S.py + PH / 2) / T);
-    for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 뗏목 위에서는 바로 아래 물까지
+    for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 탐사정 위에서는 바로 아래 물까지
     return false;
   }
   const wolfPos = m => [m.dx * T + (m.id % 2 ? 44 : -12), m.dy * T + 26];   // 장치 옆 땅 위
@@ -214,18 +214,18 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (const o of OBJS) {
       if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
       const [x, y] = objCenter(o), n = NODE[o.type];
-      const label = { box: '광장 보급 상자', altar: '솥 골렘 제단', harbor: '항구 표지판 (항해)', board: '유리병 편지 게시판', fragment: '뗏목 파편 (수리)' }[o.type];
+      const label = { box: '허브 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)' }[o.type];
       add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
     }
     for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
-    for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `서리 늑대 ${fmt(m.M, 0)} g`); }
+    for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `얼음 생물 ${fmt(m.M, 0)} g`); }
     if (nearWater(S)) add('water', null, cx, cy + 4, '바닷물 뜨기');
     return out.sort((a, b) => a.d - b.d);
   }
-  // 장치는 뗏목 위에만 짓는다: 왼쪽 타일 tx → 뗏목의 해안 쪽 끝에서 u칸 떨어진 자리(2칸 폭)
+  // 장치는 탐사정 위에만 짓는다: 왼쪽 타일 tx → 탐사정의 해안 쪽 끝에서 u칸 떨어진 자리(2칸 폭)
   function ghostCheck(S, id, tx) {
     const def = DEV[id], u = Sim.raftU(S, tx);
-    if (u < 0 || u + 2 > S.raft.cells) return { ok: false, tx, msg: '뗏목 위에 지어야 합니다. (뗏목이 모자라면 건설 메뉴에서 넓히세요)' };
+    if (u < 0 || u + 2 > S.raft.cells) return { ok: false, tx, msg: '탐사정 위에 지어야 합니다. (탐사정이 모자라면 건설 메뉴에서 넓히세요)' };
     const dev = { x: tx, y: Sim.RAFT.DEV_Y };
     if (S.placed.some(d => Math.abs(d.u - u) < 2)) return { ok: false, tx, msg: '다른 장치와 겹칩니다.' };
     if (Math.abs(tx * T - S.px) > 8 * T) return { ok: false, tx, msg: '너무 멉니다. 가까이 가서 지으세요.' };
@@ -257,7 +257,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     const nx = S.px + S.vx * dt;
     st.bound = false;
     if (!collides(nx, S.py)) S.px = nx;
-    { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 섬 사이는 뗏목으로만 건넌다
+    { const b = Sim.bounds(S), lo = b.L * T, hi = (b.R + 1) * T - PW;   // 행성 사이는 탐사정으로만 건넌다
       if (S.px < lo || S.px > hi) { S.px = Math.max(lo, Math.min(hi, S.px)); st.bound = true; } }
     const ny = S.py + S.vy * dt;
     if (!collides(S.px, ny)) S.py = ny;
