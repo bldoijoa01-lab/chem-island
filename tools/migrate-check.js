@@ -8,13 +8,13 @@ let fail = 0;
 const ok = (name, cond, extra = '') => { console.log((cond ? 'PASS ' : 'FAIL ') + name + (cond ? '' : '  ' + extra)); if (!cond) fail++; };
 const legacy = (o) => Object.assign(JSON.parse(JSON.stringify(Sim.newState())), { ver: 2 }, o);
 const OLD = 380;
-// 1. 불시착 행성(옛 창 오프셋 0): 키만 폭 380 → 120으로 다시 매겨진다
+// 1. 불시착 행성(옛 창 오프셋 0): 키만 폭 380 → 800(17단계)으로 다시 매겨진다
 {
   const j = legacy({ px: 60 * 16, py: 20 * 16, dug: { [30 * OLD + 60]: 0, [24 * OLD + 92]: 7 }, melt: { [24 * OLD + 92]: 40 } });
   const S = Sim.merge(j);
-  ok('불시착: 땅 파기 키 이전', S.dug['start:' + (30 * 120 + 60)] === 0 && S.dug['start:' + (24 * 120 + 92)] === 7 && Object.keys(S.dug).length === 2, JSON.stringify(S.dug));
-  ok('불시착: 얼음 녹임 키 이전', S.melt['start:' + (24 * 120 + 92)] === 40 && Object.keys(S.melt).length === 1, JSON.stringify(S.melt));
-  ok('불시착: 위치 그대로(오프셋 0)', S.px === 60 * 16 && S.py === 20 * 16 && S.ver === 3);
+  ok('불시착: 땅 파기 키 이전', S.dug['start:' + (30 * 800 + 60)] === 0 && S.dug['start:' + (24 * 800 + 92)] === 7 && Object.keys(S.dug).length === 2, JSON.stringify(S.dug));
+  ok('불시착: 얼음 녹임 키 이전', S.melt['start:' + (24 * 800 + 92)] === 40 && Object.keys(S.melt).length === 1, JSON.stringify(S.melt));
+  ok('불시착: 위치 그대로(오프셋 0)', S.px === 60 * 16 && S.py === 20 * 16 && S.ver === 4);
   W.applyDug(S);
   ok('불시착: 맵에 땅 파기가 입혀짐', W.tileAt(60, 30) === W.AIR && W.tileAt(92, 24) === W.WATER);
 }
@@ -24,7 +24,7 @@ const OLD = 380;
   const S = Sim.merge(j);
   ok('허브: 위치에서 오프셋 106칸을 뺌', S.px === (140 - 106) * 16 + 8 && S.py === 24 * 16 - 18, String(S.px));
   ok('허브: 키 이전(x 135 → 29)', S.dug['plaza:' + (24 * 112 + 29)] === 0, JSON.stringify(S.dug));
-  ok('경계: x 115는 불시착, 116은 허브(116 → 10)', S.dug['start:' + (26 * 120 + 115)] === 0 && S.dug['plaza:' + (26 * 112 + 10)] === 0);
+  ok('경계: x 115는 불시착, 116은 허브(116 → 10)', S.dug['start:' + (26 * 800 + 115)] === 0 && S.dug['plaza:' + (26 * 112 + 10)] === 0);
   ok('얼음 위성: x 335 → 44', S.dug['polar:' + (30 * 102 + 44)] === 0 && S.melt['polar:' + (24 * 102 + 44)] === 60, JSON.stringify([S.dug, S.melt]));
   ok('고원: x 214 → 13', S.dug['alpine:' + (28 * 102 + 13)] === 0);
   ok('이전한 키가 모두 새 형식', Object.keys(S.dug).every(k => /^(start|plaza|alpine|polar):\d+$/.test(k)) && Object.keys(S.dug).length === 5);
@@ -35,7 +35,7 @@ const OLD = 380;
 {
   const j = legacy({ px: 50 * 16, dug: { [30 * 120 + 50]: 0 }, melt: {}, qDone: 3 }); delete j.ver;
   const S = Sim.merge(j);
-  ok('폭 120 시절: 키 이전과 목표 보정', S.dug['start:' + (30 * 120 + 50)] === 0 && S.qDone === 4 && S.f.raft === true && S.ver === 3, JSON.stringify([S.dug, S.qDone]));
+  ok('폭 120 시절: 키 이전과 목표 보정', S.dug['start:' + (30 * 800 + 50)] === 0 && S.qDone === 4 && S.f.raft === true && S.ver === 4, JSON.stringify([S.dug, S.qDone]));
 }
 // 4. 장치 위치(u)와 인벤토리·진행은 그대로, 이미 새 형식인 저장은 다시 이전되지 않는다
 {
@@ -51,14 +51,26 @@ const OLD = 380;
 {
   const j = legacy({ fp: { x: 5, y: 12, z: 6, yaw: 0, pitch: 0, melted: {} }, px: 777, melt: { 'iceblock-polar-3': 40 } });
   const S = Sim.merge(j);
-  ok('fp 저장: 위치·얼음 녹임 키 그대로', S.px === 777 && S.melt['iceblock-polar-3'] === 40 && S.ver === 3);
+  ok('fp 저장: 위치·얼음 녹임 키 그대로', S.px === 777 && S.melt['iceblock-polar-3'] === 40 && S.ver === 4);
 }
 // 6. 맵 생성 함수는 크기를 인자로 받는다(17단계: 800 × 110)
 {
   const g = W.genPlanet('start', 200, 80, 0);
   ok('genPlanet(크기 인자)', g.map.length === 200 * 80 && g.gy.length === 200);
   const a = W.genPlanet('start', P.start.W, P.start.H, P.start.off);
-  ok('불시착 맵 크기', a.map.length === 120 * 56 && a.gy[60] === 24);
+  ok('불시착 맵 크기 800 × 110', a.map.length === 800 * 110 && a.gy[60] === 24 && a.gy.length === 800 && a.gy[104] === 23);
+}
+// 7. ver 3 저장(16단계, 불시착 폭 120): start 키만 폭 800으로 다시 매기고 다른 행성 키·위치는 그대로(17단계)
+{
+  const v3 = Object.assign(JSON.parse(JSON.stringify(Sim.newState())), { ver: 3, px: 99 * 16, dug: { 'start:2940': 0, 'start:2051': 7, 'plaza:2000': 0, 'alpine:77': 0 }, melt: { 'start:2972': 25 } });
+  const S = Sim.merge(v3);
+  ok('ver 3 → 4: start 키 y*120+x → y*800+x', S.dug['start:' + (24 * 800 + 60)] === 0 && S.dug['start:' + (17 * 800 + 11)] === 7 && S.melt['start:' + (24 * 800 + 92)] === 25 && S.ver === 4, JSON.stringify([S.dug, S.melt]));
+  ok('ver 3 → 4: 다른 행성 키·위치 그대로', S.dug['plaza:2000'] === 0 && S.dug['alpine:77'] === 0 && S.px === 99 * 16 && Object.keys(S.dug).length === 4);
+  ok('새 필드 base 기본값 null', S.base === null && Sim.newState().base === null && Sim.newState().ver === 4);
+  const S2 = Sim.merge(JSON.parse(JSON.stringify(S)));
+  ok('ver 4 저장은 다시 이전되지 않음', JSON.stringify(S2.dug) === JSON.stringify(S.dug));
+  W.applyDug(S);
+  ok('맵에 땅 파기가 입혀짐(800폭)', W.dim.W === 800 && W.tileAt(60, 24) === W.AIR);
 }
 if (fail) { console.error('옛 저장 읽기 점검 실패 ' + fail + '건'); process.exit(1); }
 console.log('옛 저장 읽기 점검 통과');

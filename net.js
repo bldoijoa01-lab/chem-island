@@ -213,5 +213,15 @@ window.Net = (() => {
   N.reportVote = (rid, pid, v) => db.ref('reports/' + rid + '/votes/' + pid).set(v);
   N.boardSet = (board, pid, obj) => db.ref('boards/' + board + '/' + pid).set(Object.assign({ t: TSV() }, obj));
   N.boardLoad = async (board, n) => { const out = [], s = await db.ref('boards/' + board).orderByChild('score').limitToLast(n || 10).once('value'); s.forEach(c => { out.push(Object.assign({ pid: c.key }, c.val())); }); return out.reverse(); };
+  // ---- 기지(17-a, 옆면 2D 전용): /bases/{id} 공개 요약 + /baseClaims/{cx_cy} 선점 칸 (DESIGN.md §4-23) ----
+  // 겹침 검사는 서버의 원자적 다중 경로 쓰기다: 기지 기록과 선점 칸 140개를 update() 한 번으로 쓰고, 규칙이 "이미 선점된 칸은 거절"하므로 동시에 같은 자리를 잡으면 한쪽만 성공한다.
+  N.baseWatch = (cb) => { const ref = db.ref('bases'), fn = (s) => cb(s.val() || {}); ref.on('value', fn, () => cb({})); return () => ref.off('value', fn); };
+  N.baseGet = async (id) => (await db.ref('bases/' + id).once('value')).val();
+  N.baseClaim = async (id, rec, cells) => {
+    const up = {}; up['bases/' + id] = Object.assign({}, rec, { t: TSV() });
+    for (const c of cells) up['baseClaims/' + c] = id;
+    try { await db.ref().update(up); return { ok: true }; } catch (e) { return { ok: false, err: (e && e.code) || String(e) }; }
+  };
+  N.baseRelease = async (id, cells) => { const up = {}; up['bases/' + id] = null; for (const c of cells) up['baseClaims/' + c] = null; await db.ref().update(up); };
   return N;
 })();

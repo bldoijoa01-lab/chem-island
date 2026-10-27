@@ -275,6 +275,7 @@ window.Art = (() => {
   A.icon.book = I(['.bbbbbb.', 'bBBBBBBb', 'bBwwwwBb', 'bBwkkwBb', 'bBwwwwBb', 'bBwkkwBb', 'bBBBBBBb', '.bbbbbb.'], { b: '#2f5ea8', B: '#4a82d6', w: '#f4f6fa', k: '#8a94a8' });
   A.icon.scroll = I(['.wwwwww.', 'wWWWWWWw', 'wWkkkkWw', 'wWWWWWWw', 'wWkkkWWw', 'wWWWWWWw', 'wWkkkkWw', '.wwwwww.'], { w: '#c9b98a', W: '#efe3bd', k: '#6a5a3a' });
   A.icon.disk = I(['bbbbbbbb', 'bsssssbb', 'bsssssbb', 'bbbbbbbb', 'bwwwwwwb', 'bwkkkkwb', 'bwwwwwwb', 'bbbbbbbb'], { b: '#3a4a7a', s: '#c9d4e8', w: '#e8ecf4', k: '#3a4a7a' });
+  A.icon.core = I(['..bbbbbb', '.bBBBBBB', 'bBwwwwwB', 'bBwkkkwB', 'bBwkkkwB', 'bBwwwwwB', '.bBBBBBB', '..bbbbbb'], { b: '#3a4a6a', B: '#8f9bb8', w: '#cfe9f5', k: '#4aa3d8' });   // 17-a: 기지 코어(밀폐 캡슐) 아이콘
   A.icon.still = A.dev.still; A.icon.cooker = A.dev.cooker; A.icon.cooler = A.dev.cooler; A.icon.collector = A.dev.collector; A.icon.fire = A.dev.fire;
   for (const k in A.icon) A.iconURL[k] = A.icon[k].toDataURL();
 
@@ -346,6 +347,19 @@ window.Art = (() => {
     if (r() < 0.35) { p(3, 4, 3, 1, '#ffb347'); p(10, 12, 2, 1, '#7fe0ff'); }   // 점검 표시등
     return c;
   });
+  // 17-a 기지 코어: 선체(단단한 캡슐 벽)와 해치(문). 코어 안쪽 방은 보통의 지하 칸이다
+  A.tiles.hull = variants(i => {
+    const c = mk(16, 16), p = painter(c), r = rng(71 * i);
+    p(0, 0, 16, 16, '#7d889f'); p(0, 0, 16, 2, '#c3cde0'); p(0, 14, 16, 2, '#4d5872'); p(0, 0, 2, 16, '#a9b4cb'); p(14, 0, 2, 16, '#59647d');
+    for (const [x, y] of [[3, 3], [11, 3], [3, 11], [11, 11]]) { p(x, y, 2, 2, '#37405a'); p(x, y, 1, 1, '#dfe6f5'); }
+    if (r() < 0.5) p(6, 7, 4, 2, '#4aa3d8');
+    return c;
+  }, 1);
+  A.tiles.hatch = variants(i => {
+    const c = mk(16, 16), p = painter(c);
+    p(0, 0, 16, 16, '#3a4256'); p(3, 0, 10, 16, '#59647d'); p(4, 1, 8, 14, '#2d3550'); p(7, 1, 2, 14, '#7d889f'); p(5, 7, 1, 3, '#ffb347'); p(10, 7, 1, 3, '#ffb347');
+    return c;
+  }, 1);
   // 하늘의 먼 행성(원반): kind = gas(고리 있는 가스 행성) · ocean(바다 행성) · ice(얼음 띠 행성) · violet(보랏빛 행성). r = 반지름(px). 빛은 왼쪽 위에서
   const discCache = {};
   A.bgDisc = (kind, r) => {

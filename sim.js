@@ -49,7 +49,7 @@
   // 맵 크기는 가정(임의값)이고 17단계에서 불시착 행성을 800 × 110으로 키운다(DESIGN.md §4-22). L..R은 걸을 수 있는 범위(맵 안 타일 x, 접안 쪽 여유 포함).
   // 탐사정이 더 멀리 뻗으면 그만큼 넓어진다. 행성 사이는 걸어서 건널 수 없고 궤도 이동으로만 간다.
   const ISLANDS = {
-    start: { name: '불시착 행성', W: 120, H: 56, off: 0, L: 13, R: 112 },
+    start: { name: '불시착 행성', W: 800, H: 110, off: 0, L: 13, R: 798 },   // 17-a: 가로 800 × 세로 110. 옛 120칸 영역(x 0..119)은 좌표 그대로 "추락 반도"가 되고 동쪽에 만과 대륙이 이어진다(DESIGN.md §4-23)
     plaza: { name: '허브 정거장', W: 112, H: 56, off: 106, L: 12, R: 96 },
     alpine: { name: '저기압 고원 행성', W: 102, H: 56, off: 201, L: 12, R: 86 },
     polar: { name: '얼음 위성', W: 102, H: 56, off: 291, L: 12, R: 86 },
@@ -124,7 +124,7 @@
       inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
       caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
       f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0, raft: false, alpineW: 0, polarMelt: false },
-      qDone: 0, log: [], memo: '', ver: 3,
+      qDone: 0, log: [], memo: '', ver: 4, base: null,   // base: 기지 코어 { x, y, at(설치 시각 ms), id } — 17-a. 설치 전에는 null
       raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
   }
@@ -140,8 +140,17 @@
   // 월드가 넓어지고(120 → 380칸) 목표가 하나 늘었고(ver 2), 월드가 행성별 맵으로 나뉘었다(ver 3, 16단계):
   // ver < 2: 땅 파기 기록의 타일 번호(y·120+x)를 폭 380으로 다시 매기고, 튜토리얼(목표 1~3)을 넘긴 세이브는 탐사정 잔해를 이미 고친 것으로 보며 qDone을 새 목록에 맞춘다.
   // ver < 3: 땅 파기·얼음 녹임 키(y·380+x)를 행성별 키 `행성id:y·W+x'`로 옮기고, 플레이어 위치 S.px에서 행성 창의 오프셋을 뺀다. 그 밖의 필드는 그대로다.
+  // ver 4(17단계): 불시착 행성이 가로 120 → 800칸이 되어 ver 3 저장의 `start:` 키(y·120+x)를 y·800+x로 다시 매긴다. 다른 행성·위치·장치는 그대로다.
+  const START_W_V3 = 120;
   function migrateWorld(S, raw) {
-    if (!raw || raw.ver >= 3) return;
+    if (!raw || raw.ver >= 4) return;
+    if (raw.ver === 3) {
+      if (!S.fp) {
+        const W = ISLANDS.start.W, re = (m) => { const o = {}; for (const k in m) { const mm = /^start:(\d+)$/.exec(k); if (!mm) { o[k] = m[k]; continue; } const i = +mm[1], y = Math.floor(i / START_W_V3), x = i % START_W_V3; o['start:' + (y * W + x)] = m[k]; } return o; };
+        S.dug = re(S.dug || {}); S.melt = re(S.melt || {});
+      }
+      S.ver = 4; return;
+    }
     if (raw.ver === undefined || raw.ver < 2) {
       const OLD_W = 120, re = (m) => { const o = {}; for (const k in m) { const y = Math.floor(k / OLD_W), x = k % OLD_W; o[y * LEGACY_W + x] = m[k]; } return o; };
       S.dug = re(S.dug || {}); S.melt = re(S.melt || {});
@@ -153,7 +162,7 @@
       S.dug = conv(S.dug || {}); S.melt = conv(S.melt || {});
       const dk = S.raft && DOCKS[S.raft.dock] ? S.raft.dock : 'start'; S.px = (S.px || 0) - ISLANDS[dk].off * 16;
     }
-    S.ver = 3;
+    S.ver = 4;
   }
   // 예전 세이브(장치가 땅 위, u 없음) → 탐사정 위로 옮긴다: 왼쪽에서부터 순서와 붙어 있던 관계를 지키며 해안 쪽부터 놓는다.
   // 옛 세이브는 칸 수 제한을 넘을 수 있으므로 필요한 만큼 탐사정을 넓혀 준다(제한은 새로 넓힐 때만 적용).

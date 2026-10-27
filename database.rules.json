@@ -26,7 +26,7 @@
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['nick', 'x', 'y'])",
           "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
-          "x": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4000" },
+          "x": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20000" },
           "y": { ".validate": "newData.isNumber() && newData.val() >= -100 && newData.val() <= 2000" },
           "vx": { ".validate": "newData.isNumber() && newData.val() >= -200 && newData.val() <= 200" },
           "face": { ".validate": "newData.isNumber() && (newData.val() === 1 || newData.val() === -1)" },
@@ -119,6 +119,33 @@
         "round": { ".write": "auth != null && root.child('raid/golem/players/' + auth.uid).exists()", ".validate": "newData.isNumber()" },
         "doneRound": { ".write": "auth != null && root.child('raid/golem/players/' + auth.uid).exists()", ".validate": "newData.isNumber()" },
         "$other": { ".validate": false }
+      }
+    },
+    "bases": {
+      ".read": "auth != null",
+      "$id": {
+        ".write": "auth != null && ($id === auth.uid || root.child('parties/' + $id + '/members/' + auth.uid).exists()) && ((!data.exists() && newData.exists()) || (data.exists() && !newData.exists() && data.child('t').val() > now - 300000))",
+        ".validate": "newData.hasChildren(['x', 'y', 'w', 'h', 'cx', 'cy', 'name', 'color', 'members', 't', 'cell']) && (data.exists() || (newData.child('t').val() === now && newData.parent().parent().child('baseClaims').child(newData.child('cell').val()).val() === $id))",
+        "x": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 800 && (!data.exists() || newData.val() === data.val())" },
+        "y": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 110 && (!data.exists() || newData.val() === data.val())" },
+        "w": { ".validate": "newData.isNumber() && newData.val() >= 48 && newData.val() <= 96 && (!data.exists() || newData.val() === data.val())" },
+        "h": { ".validate": "newData.isNumber() && newData.val() >= 32 && newData.val() <= 64 && (!data.exists() || newData.val() === data.val())" },
+        "cx": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 800" },
+        "cy": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 110" },
+        "cell": { ".validate": "newData.isString() && newData.val().matches(/^[0-9]{1,3}_[0-9]{1,3}$/)" },
+        "t": { ".validate": "newData.isNumber()" },
+        "name": { ".write": "auth != null && ($id === auth.uid || root.child('parties/' + $id + '/members/' + auth.uid).exists())", ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 10" },
+        "color": { ".write": "auth != null && ($id === auth.uid || root.child('parties/' + $id + '/members/' + auth.uid).exists())", ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
+        "tech": { ".write": "auth != null && ($id === auth.uid || root.child('parties/' + $id + '/members/' + auth.uid).exists())", ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
+        "members": { ".write": "auth != null && ($id === auth.uid || root.child('parties/' + $id + '/members/' + auth.uid).exists())", "$u": { ".validate": "newData.isString() && newData.val().length <= 8" } },
+        "$other": { ".validate": false }
+      }
+    },
+    "baseClaims": {
+      ".read": "auth != null",
+      "$c": {
+        ".write": "auth != null && $c.matches(/^[0-9]{1,3}_[0-9]{1,3}$/) && ((!data.exists() && newData.exists() && newData.parent().parent().child('bases').child(newData.val()).exists() && (newData.val() === auth.uid || root.child('parties/' + newData.val() + '/members/' + auth.uid).exists())) || (data.exists() && !newData.exists() && !newData.parent().parent().child('bases').child(data.val()).exists() && (data.val() === auth.uid || root.child('parties/' + data.val() + '/members/' + auth.uid).exists())))",
+        ".validate": "newData.isString() && newData.val().length <= 40"
       }
     },
     "partyCodes": {

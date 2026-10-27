@@ -5,7 +5,7 @@
 const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
 const S = Store.S;               // 상태는 store.js, 지형·땅 규칙은 world.js, 계산은 sim.js (2D와 3D가 같이 쓴다)
-const { T, dim, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
+const { T, dim, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
 const save = Store.save;
 // 공용 UI(ui.js): 말풍선·모달·패널·메뉴·접속. 화면마다 다른 것은 맨 아래 UI.init(host)로 넘긴다
@@ -47,11 +47,19 @@ function drawPlazaRafts(t) {
 }
 
 // ---------- 건설 (평평한 땅에 2x2 장치) ----------
-let mode = null;   // 'build:<id>' | 'demolish'
+let mode = null;   // 'build:<id>' | 'demolish' | 'block:<item>' | 'tool:<id>' | 'core'(기지 코어 설치, 17-a)
+// 기지 코어 미리보기: 가로는 걷고 있는 칸을 따라가고, 깊이(지표 기준 0..50칸 아래)는 ↑ ↓ 키·마우스 휠로 정한다
+let coreDepth = 0;
+function coreGhost() {
+  const cx = Math.floor((S.px + PW / 2) / T), x = cx - 2, gy = GY[Math.max(0, Math.min(dim.W - 1, cx))], y = gy - World.CORE.CH + coreDepth;
+  return Object.assign({ x, y }, World.coreCheck(S, x, y, UI.otherBases()));
+}
+function enterCore() { if (S.base || Sim.dockOf(S).island !== 'start') return; mode = 'core'; coreDepth = 0; say('기지 코어를 놓을 자리를 고르세요: A/D로 걷고 ↑↓로 깊이를 정한 뒤 클릭(Enter). ESC로 잠시 멈춰요. (B)'); }
 const mouse = { x: 0, y: 0 };
 const cam = { x: 0, y: 0 };
 const ghostCheck = id => World.ghostCheck(S, id, Math.floor((cam.x + mouse.x) / T - 1 + 0.5));
 function placeAtMouse() {
+  if (mode === 'core') { const g = coreGhost(); return UI.installBase(g.x, g.y).then(ok => { if (ok && mode === 'core') mode = null; }); }
   if (mode.startsWith('block:')) return placeBlock();
   if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
@@ -76,14 +84,18 @@ window.addEventListener('keydown', e => {
   if (!$('title').hidden) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); } return; }
   if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
-  if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); }
+  if (KEYMAP[k] && !(mode === 'core' && (k === 'arrowup' || k === 'arrowdown'))) { keys[KEYMAP[k]] = true; e.preventDefault(); }
+  else if (mode === 'core' && (k === 'arrowup' || k === 'arrowdown')) { coreDepth = Math.max(0, Math.min(World.CORE.DEPTH, coreDepth + (k === 'arrowdown' ? 1 : -1))); e.preventDefault(); }
+  else if (mode === 'core' && k === 'enter') placeAtMouse();
   else if (k === 'e') interact(targets()[0]);
-  else if (k === 'escape' && mode) { mode = null; say('취소'); }
+  else if (k === 'b') { if (mode === 'core') { mode = null; say('설치 모드를 멈췄습니다. (B로 다시)'); } else UI.openBase(); }
+  else if (k === 'escape' && mode) { mode = null; say(S.base ? '취소' : '설치 모드를 멈췄습니다. (B로 다시)'); }
 });
 window.addEventListener('keyup', e => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys[k] = false; });
 const cv = $('cv'), ctx = cv.getContext('2d');
 function canvasPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
 cv.addEventListener('mousemove', e => Object.assign(mouse, canvasPos(e)));
+cv.addEventListener('wheel', e => { if (mode === 'core') { coreDepth = Math.max(0, Math.min(World.CORE.DEPTH, coreDepth + (e.deltaY > 0 ? 1 : -1))); e.preventDefault(); } }, { passive: false });
 // 마우스를 꾹 누르면 그 자리의 땅을 판다(클릭할 대상·HUD·건설 모드가 아닐 때)
 cv.addEventListener('pointerdown', e => {
   Object.assign(mouse, canvasPos(e));
@@ -135,7 +147,7 @@ function stepParts(dt) {
   for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
   if (parts.length > 200) parts.splice(0, 50);
-  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > dim.W * T + 40) b.x = -40; }
+  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > cam.x + VW + 60) b.x = cam.x - 40; else if (b.x < cam.x - 120) b.x = cam.x + VW * Math.random(); }   // 800칸 맵: 화면 둘레에서 되돌린다
 }
 
 // ---------- 그리기 ----------
@@ -197,6 +209,8 @@ function draw(t) {
   const hour = S.min / 60, night = nightOf(hour);
   cam.x = Math.max(0, Math.min(dim.W * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
   cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
+  const cg = mode === 'core' ? coreGhost() : null;
+  if (cg) cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round((cg.y + 2) * T - VH * 0.5)));   // 코어 설치 모드: 카메라가 미리보기를 따라간다
   // 행성 배경(16-c, 보이기만): 대기 두께 atm이 얇을수록 우주색에 가깝고 별이 낮에도 보인다. 시각별 하늘색(Art.sky)은 그대로 쓰고 우주색·행성 색조를 섞는다
   const here = Sim.dockOf(S).island, V = PLANET_VIEW[here], space = night > 0 || V.atm < 1;
   const bands = Art.sky(hour, 18).map(s => { const c = s.match(/\d+/g).map(Number), m = (a, b2, k) => a + (b2 - a) * k, sp = [3, 6, 16]; let r = [m(sp[0], c[0], V.atm), m(sp[1], c[1], V.atm), m(sp[2], c[2], V.atm)]; if (V.tint) r = r.map((x, i) => m(x, V.tint[i], 0.3 * V.atm)); return `rgb(${r.map(Math.round)})`; });
@@ -229,15 +243,15 @@ function draw(t) {
   const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
   for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
     const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
-    if (id === AIR) { if (tx >= 0 && tx < dim.W && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); } continue; }
+    if (id === AIR) { if (tx >= 0 && tx < dim.W && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); if (World.inCore(S, tx, ty)) { ctx.fillStyle = 'rgba(150,200,230,.22)'; ctx.fillRect(sx, sy, T, T); } } continue; }
     if (id === WATER) {
       ctx.fillStyle = V.water[Math.min(2, Math.floor((ty - 25) / 2))]; ctx.fillRect(sx, sy, T, T);
       drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
     }
     const hub = V.hub && (id === GRASS || id === SAND || id === DIRT);   // 허브 정거장: 풀·모래·흙 자리에 금속 바닥판과 선체
-    const tset = hub ? (id === DIRT ? Art.tiles.hubhull : Art.tiles.hubtop) : id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : Art.tiles.ice;
-    ctx.drawImage(tset[v], sx, sy);
-    if (V.tint && !hub && id !== RAFT) { ctx.fillStyle = `rgba(${V.tint},.2)`; ctx.fillRect(sx, sy, T, T); }   // 행성 지형 색조
+    const tset = hub ? (id === DIRT ? Art.tiles.hubhull : Art.tiles.hubtop) : id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : id === HULL ? Art.tiles.hull : id === HATCH ? Art.tiles.hatch : Art.tiles.ice;
+    ctx.drawImage(tset[v % tset.length], sx, sy);
+    if (V.tint && !hub && id !== RAFT && id !== HULL && id !== HATCH) { ctx.fillStyle = `rgba(${V.tint},.2)`; ctx.fillRect(sx, sy, T, T); }   // 행성 지형 색조
     if (ty > 26) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (ty - 26) * 0.03)})`; ctx.fillRect(sx, sy, T, T); }
     if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(sx, sy, T, 1); }
     if (isOpen(tx - 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy, 1, T); }
@@ -262,7 +276,7 @@ function draw(t) {
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
     ctx.fillStyle = 'rgba(0,0,0,.22)';
-    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit((o.gx >= 83 && o.gx <= 112) || o.gx >= 213 ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
+    if (o.type === 'tree') { ctx.fillRect(sx - 4, sy - 1, 24, 2); blit(o.pine ? Art.obj.pine : Art.obj.tree, sx - 8, sy - 48); }
     else if (o.type === 'cane') blit(Art.obj.cane, sx, sy - 32);
     else if (o.type === 'wheat') blit(Art.obj.wheat, sx, sy - 20);
     else if (o.type === 'sandpile') blit(Art.obj.sandpile, sx, sy - 8);
@@ -327,7 +341,7 @@ function draw(t) {
       for (const [r, a] of [[52, 0.07], [38, 0.09], [24, 0.12]]) { ctx.fillStyle = `rgba(255,170,70,${a * night})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
     }
     for (const f of flies) {
-      const fx = f.x - cam.x + Math.sin(t * 0.8 + f.ph) * 14, fy = f.y - cam.y + Math.cos(t * 0.6 + f.ph * 2) * 8, a = night * (0.4 + 0.6 * Math.abs(Math.sin(t * 2 + f.ph)));
+      const fx = (((f.x - cam.x) % (VW + 60)) + VW + 60) % (VW + 60) - 30 + Math.sin(t * 0.8 + f.ph) * 14, fy = f.y - cam.y + Math.cos(t * 0.6 + f.ph * 2) * 8, a = night * (0.4 + 0.6 * Math.abs(Math.sin(t * 2 + f.ph)));
       ctx.fillStyle = `rgba(220,255,120,${a * 0.25})`; ctx.fillRect(Math.round(fx) - 1, Math.round(fy) - 1, 4, 4); ctx.fillStyle = `rgba(240,255,170,${a})`; ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
     }
   }
@@ -343,6 +357,7 @@ function draw(t) {
       if (dig.on && dig.p > 0) { ctx.fillStyle = '#000'; ctx.fillRect(sx, sy - 4, T, 3); ctx.fillStyle = '#ffd84a'; ctx.fillRect(sx + 1, sy - 3, Math.round((T - 2) * Math.min(1, dig.p / dig.need)), 1); }
     }
   }
+  drawBases(cg);
   drawHUD(t);
   // 상호작용 표시(픽셀 화살표)
   if (tg && $('modal').hidden) {
@@ -350,7 +365,7 @@ function draw(t) {
     ctx.fillStyle = '#000'; ctx.fillRect(ax - 4, ay - 1, 9, 3); ctx.fillRect(ax - 3, ay + 2, 7, 2); ctx.fillRect(ax - 1, ay + 4, 3, 2);
     ctx.fillStyle = '#ffd84a'; ctx.fillRect(ax - 3, ay, 7, 1); ctx.fillRect(ax - 2, ay + 2, 5, 1); ctx.fillRect(ax, ay + 4, 1, 1);
   }
-  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
+  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode === 'core' ? (cg.ok ? `기지 코어 설치 가능 — 깊이 ${cg.depth}칸 · 클릭/Enter 설치 · ↑↓ 깊이 · ESC 멈춤` : `설치 불가: ${cg.msg} (↑↓ 깊이, A/D 걷기)`) : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
   if (warp) {   // 궤도 이동 연출 1.4초
     const k = (performance.now() - warp.at) / 1400;
@@ -368,6 +383,36 @@ function draw(t) {
     const gx = g.tx * T - cam.x, gy = Sim.RAFT.DEV_Y * T - cam.y;
     ctx.globalAlpha = 0.65; blit(Art.dev[id], gx, gy); ctx.globalAlpha = 1;
     ctx.strokeStyle = g.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(gx + 0.5, gy + 0.5, 31, 31);
+  }
+}
+
+// ---------- 기지 표시 (17-a): 다른 기지(서버 요약)·내 기지 영역·코어 설치 미리보기 ----------
+function outlined(txt, x, y, col) { ctx.font = '8px sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); }
+function drawBases(cg) {
+  if (Sim.dockOf(S).island !== 'start') return;
+  const K = World.CORE, me = UI.myBaseId();
+  ctx.textAlign = 'left';
+  for (const [id, b] of Object.entries(UI.bases())) {
+    if (id === me || !b) continue;
+    const sx = b.x * T - cam.x, sy = b.y * T - cam.y;
+    if (sx > VW || sy > VH || sx + b.w * T < 0 || sy + b.h * T < 0) continue;
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = b.color || '#ffffff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, b.w * T, b.h * T); ctx.restore();
+    const cx = b.cx * T - cam.x, cy = b.cy * T - cam.y;   // 코어: 팀 색 캡슐(칸 내용은 서버에 올라오지 않는다)
+    ctx.fillStyle = b.color || '#ffffff'; ctx.fillRect(cx, cy, K.CW * T, K.CH * T); ctx.fillStyle = 'rgba(8,14,34,.75)'; ctx.fillRect(cx + T, cy + T, (K.CW - 2) * T, (K.CH - 2) * T);
+    outlined(`${b.name || '기지'} (${Object.keys(b.members || {}).length}명)`, Math.round(cx), Math.round(cy) - 3, '#ffffff');
+  }
+  if (S.base) {
+    const a = World.areaOf(S.base), sx = a.x0 * T - cam.x, sy = a.y0 * T - cam.y;
+    ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(120,255,160,.45)'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, a.w * T, a.h * T); ctx.restore();
+    if (sx > -a.w * T && sx < VW && sy > -a.h * T && sy < VH) outlined(`내 기지 영역 ${a.w}x${a.h} (가정) — 밖은 보기만`, Math.round(Math.max(2, sx + 2)), Math.round(Math.max(10, sy + 9)), 'rgba(160,255,190,.8)');
+  }
+  if (cg) {
+    const sx = cg.x * T - cam.x, sy = cg.y * T - cam.y, a = World.areaOf(cg);
+    ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = cg.ok ? 'rgba(120,255,160,.45)' : 'rgba(255,120,100,.4)'; ctx.strokeRect(Math.round(a.x0 * T - cam.x) + 0.5, Math.round(a.y0 * T - cam.y) + 0.5, a.w * T, a.h * T); ctx.restore();
+    ctx.fillStyle = cg.ok ? 'rgba(76,255,122,.28)' : 'rgba(255,90,74,.32)'; ctx.fillRect(sx, sy, K.CW * T, K.CH * T);
+    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(sx + T, sy + T, (K.CW - 2) * T, (K.CH - 2) * T);
+    ctx.strokeStyle = cg.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, K.CW * T - 1, K.CH * T - 1);
+    outlined(`코어 ${K.CW}x${K.CH} · 깊이 ${cg.depth !== undefined ? cg.depth : coreDepth}칸`, Math.round(sx), Math.round(sy) - 3, cg.ok ? '#b8ffcb' : '#ffb0a6');
   }
 }
 
@@ -396,7 +441,7 @@ function hudBox(x, y, w, h, on) {
 }
 const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
 const hudMenu = [
-  ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
+  ['core', '기지 코어 (B)', () => UI.openBase()], ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
   ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()],
 ];
 function drawHUD(t) {
@@ -424,7 +469,7 @@ function drawHUD(t) {
   if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · ${Sim.ISLANDS[Sim.dockOf(S).island].name} 외기 ${Math.round(airTemp())}℃ · ${fmt(pAtm(), 2)} atm`;
   // 메뉴 버튼
   hudMenu.forEach(([icon, label, fn], i) => {
-    const x = VW - 4 - (5 - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);
+    const x = VW - 4 - (hudMenu.length - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[icon], x + 3, y + 3);
     HUD.hits.push({ x, y, w: 16, h: 16, fn }); if (hov) HUD.tip = label;
   });
@@ -457,6 +502,7 @@ UI.init({
   puff, burst, clearKeys, applyWorld,
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
+  startCore() { enterCore(); },
   joinMap() { Net.joinMap(MAPID, posPacket()); },
 });
 refresh(); fit(); requestAnimationFrame(frame);
@@ -466,7 +512,7 @@ $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}
 function startGame() {
   if ($('title').hidden) return;
   $('title').hidden = true; Store.paused = false; loadPlaza();
-  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+  boot().then(() => UI.syncBase()).then(() => { if (!S.base) enterCore(); let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
 }
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => openHelp();

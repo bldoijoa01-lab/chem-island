@@ -17,9 +17,12 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   await pg.click('#t-start'); await pg.waitForTimeout(300);
   chk('시작 후 도움말 표시', await ev(() => !document.getElementById('modal').hidden && document.getElementById('mtitle').textContent === '도움말'));
   await pg.click('#mclose');
+  chk('새 게임: 코어가 없으면 설치 모드로 이어짐', await ev(() => !G.debug().base && /기지 코어/.test(document.getElementById('target').textContent + document.getElementById('msg').textContent)));
   // 2) 구 세이브 호환(새 필드 없는 세이브)
   await ev(() => { const s = JSON.parse(JSON.stringify(G.debug())); delete s.dug; delete s.melt; delete s.stoneGift; delete s.mobs; for (const k of ['dirt','stone','pickaxe','shaker','thermo']) delete s.inv[k]; delete s.f.wolf; localStorage.setItem('chemisle_side_v1', JSON.stringify(s)); });
   await pg.reload(); await pg.waitForTimeout(700); await pg.click('#t-start'); await pg.waitForTimeout(300); await pg.click('#mclose').catch(() => {});
+  chk('구 세이브(코어 없음): 설치 모드로 이어짐', await ev(() => G.debug().base === null && G.debug().ver === 4));
+  await pg.keyboard.press('Escape');
   chk('구 세이브 로드(새 필드 기본값)', await ev(() => { const s = G.debug(); return s.dug && s.melt && s.stoneGift === false && s.inv.pickaxe === 0 && Array.isArray(s.mobs) && s.f.wolf === 0; }));
   // 3) 증류 목표 1~3
   await ev(() => { const s = G.debug(); s.inv.sea = 3; s.inv.stick = 12; s.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }, { id: 'still', x: 50, y: 22, s: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 } }]; s.f.sea = s.f.fire = true; s.min = 360; });
@@ -51,7 +54,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   chk('골렘 P3 O₂4+N₂4 → 정화', await ev(() => G.debug().f.boss === true));
   await pg.click('#mclose');
   // 6) 파기·블록·도구
-  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.px = 48 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.placed = []; s.min = 180; s.inv.salt = 100; s.inv.shaker = 1; s.inv.thermo = 1; s.inv.stone = 2; s.inv.stick = 5; }); await pg.waitForTimeout(400);
+  await ev(() => { const s = G.debug(); s.raft.dock = 'start'; World.applyDug(s); s.px = 48 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.placed = []; s.min = 180; s.inv.salt = 100; s.inv.shaker = 1; s.inv.thermo = 1; s.inv.stone = 2; s.inv.stick = 5; s.base = { x: 66, y: 20, at: 0, id: 'test' }; World.applyDug(s); }); await pg.waitForTimeout(400);
   const cam = await ev(() => { const s = G.debug(); return [Math.max(0, Math.round(s.px + 5 - 250)), Math.round(s.py + 9 - 180)]; });
   const sc = (tx, ty) => [(tx * 16 + 8 - cam[0]) * 2, (ty * 16 + 8 - cam[1]) * 2];
   await pg.mouse.move(...sc(49, 24)); await pg.mouse.down(); await pg.waitForTimeout(150); await pg.mouse.up();
@@ -64,7 +67,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   await near(91); const c2 = await ev(() => { const s = G.debug(); return [Math.max(0, Math.round(s.px + 5 - 250)), Math.round(s.py + 9 - 180)]; });
   const i = await ev(() => Object.entries(G.debug().inv).filter(([, v]) => v >= 1).map(([k]) => k).indexOf('shaker')); await pg.mouse.click((4 + i * 17 + 8) * 2, 24);
   for (let k = 0; k < 3; k++) { await pg.mouse.click((92 * 16 + 8 - c2[0]) * 2, (24 * 16 + 8 - c2[1]) * 2); await pg.waitForTimeout(80); }
-  chk('소금 뿌리개: 얼음 타일 3번에 물로', await ev(() => G.debug().dug['start:' + (24 * 120 + 92)] === 7), await ev(() => Math.round(G.debug().inv.salt * 10) / 10 + ' g left'));
+  chk('소금 뿌리개: 얼음 타일 3번에 물로', await ev(() => G.debug().dug['start:' + (24 * 800 + 92)] === 7), await ev(() => Math.round(G.debug().inv.salt * 10) / 10 + ' g left'));
   // 7) 늑대(밤, 영하)
   await ev(() => { const s = G.debug(); s.min = 1380; s.speed = 10; s.f.raft = true; s.placed = [{ id: 'fire', x: 47, y: 22, s: { level: 0, fuel: 0 } }, { id: 'still', x: 50, y: 22, s: { w: 0, ns: 0, outW: 0, outS: 0, run: false, T: 25 } }]; s.px = 49 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.mobs = []; });
   let m = null; for (let k = 0; k < 40 && !m; k++) { await pg.waitForTimeout(300); m = await ev(() => G.debug().mobs[0] || null); }

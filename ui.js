@@ -7,7 +7,7 @@ const { ITEM, NODE } = World;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
 const save = Store.save;
 // 화면별 훅(기본은 아무 일도 하지 않는다): puff(x,y,색,개수) · burst(장치) · clearKeys() · startBuild(id) · startDemolish() · joinMap() · applyWorld()
-let H = { puff() {}, burst() {}, clearKeys() {}, startBuild() {}, startDemolish() {}, joinMap() {}, applyWorld() {} };
+let H = { puff() {}, burst() {}, clearKeys() {}, startBuild() {}, startDemolish() {}, startCore() {}, joinMap() {}, applyWorld() {} };
 Store.onWarn = (m) => say(m);
 
 // ---------- 유틸 ----------
@@ -90,6 +90,72 @@ async function loadPlaza() {
   try { plazaRafts = await Net.loadRafts(3); } catch { /* 오프라인 */ }
 }
 setInterval(() => { if (!Store.paused) loadPlaza(); }, 60000);
+
+// ---------- 기지 코어 (17-a, DESIGN.md §4-23) ----------
+// 서버(/bases)의 다른 기지 요약을 읽어 두고(칸 내용은 오지 않는다), 설치 조건 검사에 쓴다. 개인 기지의 id = uid(한 사람 팀).
+let bases = {}, baseUnwatch = null, installing = false;
+const myBaseId = () => (window.Net && Net.user) ? Net.user.uid : 'local';
+const otherBases = () => Object.entries(bases).filter(([id]) => id !== myBaseId()).map(([, b]) => b);
+const COLORS = ['#ff8a5b', '#5bc0ff', '#9be564', '#e0a3ff', '#ffd84a', '#ff6b9a', '#6fe0c8', '#c0c8d8'];
+const baseName = () => ((window.Net && Net.nick) ? Net.nick + ' 기지' : '내 기지').slice(0, 10);
+const baseColor = () => COLORS[[...myBaseId()].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+function watchBases() { if (baseUnwatch || !(window.Net && Net.user && Net.baseWatch)) return; baseUnwatch = Net.baseWatch((b) => { bases = b || {}; }); }
+function unwatchBases() { if (baseUnwatch) baseUnwatch(); baseUnwatch = null; bases = {}; }
+async function installBase(x, y) {
+  if (S.base) return say('이미 기지 코어가 있습니다.'), false;
+  if (installing) return false;
+  const c = World.coreCheck(S, x, y, otherBases());
+  if (!c.ok) return say(c.msg), false;
+  installing = true;
+  try {
+    const a = c.area, id = myBaseId();
+    if (window.Net && Net.user && Net.baseClaim) {
+      const rec = { x: a.x0, y: a.y0, w: a.w, h: a.h, cx: x, cy: y, name: baseName(), color: baseColor(), members: { [Net.user.uid]: Net.nick }, tech: 0, cell: World.cellKey(a) };
+      const r = await Net.baseClaim(id, rec, World.claimCells(a));
+      if (!r.ok) return say(`서버가 이 자리를 거절했습니다. 다른 팀이 먼저 잡았거나 간격이 모자랍니다. (${r.err})`), false;
+    }
+    S.base = { x, y, at: Date.now(), id };
+    H.applyWorld(); logEv('기지', `코어 설치: 칸 (${x}, ${y}), 지표 아래 ${c.depth}칸, 기지 영역 ${a.w}×${a.h} (왼쪽 위 ${a.x0}, ${a.y0})`);
+    save(true); say('기지 코어를 설치했습니다. 기지 영역 안에서만 땅을 팔 수 있어요. 5분 안에는 취소할 수 있습니다. (B)'); refresh();
+    return true;
+  } finally { installing = false; }
+}
+async function cancelBase() {
+  if (!S.base) return false;
+  if (!World.canCancelBase(S)) return say('설치한 지 5분이 지나 코어를 옮길 수 없습니다.'), false;
+  if (window.Net && Net.user && Net.baseRelease) {
+    try { await Net.baseRelease(S.base.id, World.claimCells(World.areaOf(S.base))); } catch { return say('서버에서 기지 기록을 지우지 못했습니다. (설치 후 5분이 지났거나 연결이 끊겼습니다)'), false; }
+  }
+  S.base = null; H.applyWorld(); logEv('기지', '코어 설치 취소(5분 안)'); save(true); refresh();
+  return true;
+}
+// 접속 직후: 서버 기지 목록을 구독하고, 내 코어는 있는데 서버에 기록이 없으면(재게시 전에 설치했거나 지워진 경우) 한 번 다시 올린다
+async function syncBase() {
+  watchBases();
+  if (!S.base || !(window.Net && Net.user && Net.baseGet)) return;
+  try {
+    if (await Net.baseGet(S.base.id)) return;
+    const a = World.areaOf(S.base), cells = World.claimCells(a);
+    await Net.baseRelease(S.base.id, cells).catch(() => {});
+    const r = await Net.baseClaim(S.base.id, { x: a.x0, y: a.y0, w: a.w, h: a.h, cx: S.base.x, cy: S.base.y, name: baseName(), color: baseColor(), members: { [Net.user.uid]: Net.nick }, tech: 0, cell: World.cellKey(a) }, cells);
+    if (!r.ok) say('내 기지 자리가 서버에서 다른 기지와 겹쳐 공개하지 못했습니다. (진행은 그대로입니다)');
+  } catch { /* 오프라인 */ }
+}
+function openBase() {
+  const K = World.CORE, onStart = Sim.dockOf(S).island === 'start';
+  const rules = `<div class="warnbox">설치 조건(모든 숫자는 게임 설정, 가정): 지표 아래 ${K.DEPTH}칸 이내 · 물·얼음 호수 가까이 불가 · 단단한 땅 위 · 다른 기지와 ${K.GAP}칸 이상 간격 · 추락 지점·궤도 이동 단말 둘레 ${K.KEEP}칸 비움. 코어는 ${K.CW}×${K.CH}칸 밀폐 캡슐(안쪽 4×2, 양쪽 해치)이고, 기지 영역(${K.AW}×${K.AH}칸) 밖은 팔 수 없고 보기만 합니다. 설치한 뒤 5분 안에는 취소하고 다시 놓을 수 있어요.</div>`;
+  if (!S.base) {
+    openModal('기지 코어', `<div class="box"><p>아직 기지 코어를 설치하지 않았습니다. 코어를 설치하면 그 둘레 기지 영역 안에서 땅을 파고 블록을 놓을 수 있어요.</p>
+      <div class="row"><button class="primary" ${onStart ? '' : 'disabled'} onclick="G.startCore()">설치할 자리 고르기</button></div>${onStart ? '' : '<div class="mut">기지는 불시착 행성에서만 설치합니다.</div>'}</div>` + rules);
+    return;
+  }
+  const a = World.areaOf(S.base), left = Math.max(0, World.CORE.CANCEL_MS - (Date.now() - S.base.at)), can = World.canCancelBase(S);
+  openModal('기지 코어', `<div class="box"><div class="kv"><span>코어 위치(왼쪽 위 칸)</span><b>${S.base.x}, ${S.base.y}</b></div>
+    <div class="kv"><span>기지 영역</span><b>${a.w}×${a.h}칸 (왼쪽 위 ${a.x0}, ${a.y0})</b></div>
+    <div class="kv"><span>서버 공개</span><b>${window.Net && Net.user ? '공개됨 (' + Object.keys(bases).length + '개 기지가 보임)' : '혼자 하기 모드(서버에 올리지 않음)'}</b></div>
+    <div class="kv"><span>이동</span><b>${can ? '취소 가능 (남은 ' + Math.ceil(left / 60000) + '분)' : '이동 불가'}</b></div>
+    ${can ? '<div class="row" style="margin-top:6px"><button class="danger" onclick="G.cancelBase()">취소하고 다시 놓기</button></div>' : ''}</div>` + rules);
+}
 
 // ---------- 퀘스트 ----------
 function checkQuests() { Sim.checkQuests(S); flush(); }
@@ -379,7 +445,7 @@ async function enterWorld() {
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
   $('auth').hidden = true; Store.paused = false; Store.forceNext(); save(true); refresh();
-  H.joinMap();
+  H.joinMap(); syncBase();
   say(`${Net.nick}님, 환영합니다!`);
 }
 async function busy(fn) {
@@ -416,6 +482,8 @@ window.G = {
   },
   expandRaft() { if (Sim.act.expandRaft(S)) H.applyWorld(); flush(); openBuild(); refresh(); },
   startDemolish() { H.startDemolish(); },
+  startCore() { closeModal(); H.startCore(); },
+  async cancelBase() { if (await cancelBase()) { closeModal(); H.startCore(); } },
   craft(id) { const r = Sim.act.craft(S, id); if (!r) return; flush(); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
@@ -431,7 +499,7 @@ window.G = {
     if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
     save(true); await Net.logout();
     try { localStorage.removeItem(Store.KEY); } catch { /* 무시 */ }
-    Store.reset(); H.applyWorld(); closeModal(); showAuth();
+    unwatchBases(); Store.reset(); H.applyWorld(); closeModal(); showAuth();
   },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
   reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { Store.reset(); H.applyWorld(); save(true); closeModal(); refresh(); } },
@@ -451,6 +519,7 @@ return {
   $, fmt, pix, ic, esc, say, logEv, flush, advance, has, pay, costText, unlocked, heatOf, fireNear,
   set, setw, openModal, closeModal, refresh, checkQuests, interact, openBox, openDevice, capCount, capText,
   openBuild, openCraft, openLog, openHelp, openSave, showAuth, boot, loadPlaza, plazaRafts: () => plazaRafts, api,
+  installBase, cancelBase, syncBase, openBase, bases: () => bases, otherBases, myBaseId,
   isModalOpen: () => !$('modal').hidden,
   tick() { if (modalTick && !$('modal').hidden) modalTick(); },   // 열린 패널을 주기적으로 다시 그린다
   pAtm, HELP_KEY, targets: () => World.targets(S),
