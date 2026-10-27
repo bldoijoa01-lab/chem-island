@@ -169,3 +169,10 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 같이 붙일 파일(**채팅의 저장소 첨부는 오래된 커밋에 고정되니 파일을 직접 첨부**): `sim.js`(세이브 이전 부분), `tools/migrate-check.js`, `DESIGN.md` §4-22
 - 질문: (1) 행성 창 오프셋을 빼는 계산이 모든 행성 경계에서 맞는지(경계 열 2개씩), 어느 행성에도 속하지 않는 바다 구간의 키는 버려지는지, (2) 이미 `행성id:번호` 키인 항목에 다시 이전이 돌 때 `NaN` 키가 생기지 않는지, (3) 빈 저장 `{}`, `dug`·`melt`가 없거나 null·배열인 저장, 음수·소수·범위 밖 키가 오염을 일으키지 않는지, (4) 시험이 빠뜨린 입력. 코드는 고치지 말고 문제가 되는 입력 예를 적어 줘.
 - 사람이 확인할 방법: 옛 저장이 있는 브라우저에서 `index.html`을 열어 위치·판 땅·녹인 얼음이 그대로인지 보기, `node tools/migrate-check.js`
+
+### [2026-10-27] 17-a: 기지 코어 서버 규칙과 겹침 검사, 동시 설치 시나리오
+- 맡길 일: `/bases`·`/baseClaims` 보안 규칙이 의도대로 동작하는지(동시 설치에서 한쪽만 성공, 남의 기록·선점 칸을 못 건드림, 5분 뒤 지우기 거절) 규칙 문장을 줄 단위로 검토하고, 깨지는 시나리오를 만들어 보기
+- 같이 붙일 파일(**채팅의 저장소 첨부는 오래된 커밋에 고정되니 파일을 직접 첨부**): `database.rules.json`(`bases`·`baseClaims` 부분), `net.js`(`baseClaim`·`baseRelease`), `world.js`(`areaOf`·`claimCells`·`coreCheck`), `tools/fakenet.js`(`baseClaim`·`baseRelease`), `tools/smokebase.js`, `MULTIPLAYER.md`, `DESIGN.md` §4-23
+- 질문: (1) `.write`와 `.validate`의 `newData.parent().parent().child('baseClaims').child(newData.child('cell').val())`가 `ref().update()` 다중 경로 쓰기에서 "쓰기 뒤의 상태"를 읽는지(`root`는 쓰기 전), 아니면 `bases`와 `baseClaims`를 함께 쓸 때 거절될 수 있는지, (2) 선점 칸 지우기 규칙(`!newData.parent().parent().child('bases').child(data.val()).exists()`)과 만들기 규칙(`...child(newData.val()).exists()`)이 서로 순환하지 않는지, 빈 칸 몇 개만 먼저 선점해 남의 자리를 막는 "쓰레기 선점"이 가능한지, (3) 영역을 4칸 격자에 맞추고 영역 + 사방 4칸을 선점하면 "영역 사이 간격 ≥ 8칸"과 정확히 같은 조건인지(경계값: 간격 7·8·9칸, 음수 인덱스 `-1`을 +1 해서 만든 키), (4) 서버가 검증하지 못하는 항목(지형·깊이·추락 지점 간격)을 속이면 어떤 피해가 나는지
+- 사람이 확인할 방법: Firebase 콘솔 규칙 시뮬레이터에서 (a) 다른 uid로 `/bases/{남}` 쓰기, (b) 이미 있는 `/baseClaims/{칸}`에 쓰기, (c) 만든 지 5분 뒤 `/bases/{내 id}` 지우기, (d) `w`·`h`가 범위 밖인 값, (e) 두 브라우저에서 같은 자리에 동시에 설치해 보기. 그리고 `node tools/smokebase.js`
+

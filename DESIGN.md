@@ -892,6 +892,21 @@
 
 **시험.** `tools/smokebase.js`(가짜 서버 `tools/fakenet.js`에 `/bases`·선점 규칙을 같은 뜻으로 흉내): 조건 거절(깊이 50 초과·호수·단단하지 않은 바닥·추락 지점 20칸 안·겹침·8칸 간격) · 동시 설치에서 한쪽만 성공 · 영역 밖 땅파기 거절 · 5분 안 취소 / 5분 뒤 이동 불가 · 콘솔 에러 0. `tools/migrate-check.js`에 ver 3 → 4 추가. 기존 `smoke.js`·`ui-check.js`는 코어가 없는 저장이 설치 모드로 이어지는 것을 반영해 갱신한다.
 
+**17-a 구현 기록.** `sim.js`: `ISLANDS.start` 800 × 110(`R` 798), `newState()`에 `base: null`, 세이브 `ver` 4와 `migrateWorld`의 3 → 4 단계(`start:` 키만 폭 120 → 800). `world.js`: 동쪽 대륙 `startExt`(시드 17, 이웃 열 높이 차 ≤ 1, 호수 4·얼음 연못 3·동굴 18·자원 75개), 타일 `HULL`(9)·`HATCH`(10), `CORE`·`areaOf`·`claimCells`·`coreCheck`·`canCancelBase`, `applyDug`가 코어를 다시 찍음, `digCheck`·`placeBlock`의 영역 제한(불시착 행성만). `net.js`: `baseWatch`·`baseGet`·`baseClaim`·`baseRelease`. `ui.js`: `installBase`·`cancelBase`·`syncBase`·`openBase`(기지 창). `game.js`: 설치 모드(`mode === 'core'`, ↑↓·휠 깊이, 카메라가 미리보기를 따라감), 다른 기지·내 영역·미리보기 그리기, 메뉴 맨 왼쪽 "기지" 버튼, B 키. `sprites.js`: `A.tiles.hull`·`hatch`, `A.icon.core`. `database.rules.json`: `/bases`·`/baseClaims`, 프레즌스 `x` 상한 20,000.
+
+| 점검 | 결과 |
+|---|---|
+| `node tools/sim-check.js` | 10개 기준값 그대로 통과(계산 불변) |
+| `node tools/smoke.js` · `tools/ui-check.js` | 통과(ui-check 22개: 코어가 없으면 설치 모드로 이어짐 2개 추가, 땅 파기 시험은 코어를 먼저 둠) |
+| `node tools/migrate-check.js` | 통과(ver 3 → 4 추가, 키 폭 120 → 800) |
+| `node tools/smokebase.js` | 통과(조건 거절 5종·허용·동시 설치 한쪽만·간격 8칸·영역 밖 거절·5분 취소/잠금·서버 복구·코어 모양, 콘솔 에러 0) |
+| `smokefp`·`smoketd`·`smokemix`·`smokeparty`·`smokeinter`·`move-check` | 통과(`shared/`는 건드리지 않았고 `world.js`·`sim.js`만 바꿨다. `fp/`·`td/` 화면 코드는 그대로) |
+| 프레임 | 헤드리스 Chromium(소프트웨어 렌더링, 1280×720)에서 16단계 120칸 맵 60.3 fps, 17-a 800칸 맵의 x = 60·500·700 모두 60.3 / 60.3 / 59.7 fps. 화면에 보이는 칸만 그리므로 폭이 늘어도 프레임 비용이 같다. 실제 노트북 GPU 값은 사람이 확인한다 |
+
+**설계 대비 달라진 점(근거).** ① 지표를 그대로 두고(하늘 24 + 땅 86) 좌표를 옮기지 않았다(위 표). ② 겹침 검사를 `transaction()`이 아니라 원자적 다중 경로 `update()`로 구현했다(`transaction()`은 경로 하나만 다룬다). ③ "걸어 다니며 미리보기"는 가로는 걷는 칸을 따르고 깊이는 ↑↓·휠로 정한다(영역 밖을 못 파므로 깊은 자리는 걸어서 갈 수 없기 때문). ④ 코어 해치는 양쪽 벽 아랫줄에 하나씩이며 19단계 전까지는 항상 열려 있다.
+
+**남은 일(사람이 해야 함).** Firebase 콘솔에서 `database.rules.json`을 다시 게시하고 규칙 시뮬레이터로 `MULTIPLAYER.md`의 확인 목록을 시험한다(특히 `newData.parent().parent()`로 선점 칸을 읽는 식). 일반 노트북에서 60 fps 확인.
+
 ## 5. 아이템 보관함에서 다시 확인하면 좋을 기록 (정확성 점검 제안)
 
 삭제하지 말고 '수정 필요' + 수정 이유로 남기는 규칙(보관함 규칙 4)에 맞춰 검토해 보세요.
