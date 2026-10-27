@@ -21,7 +21,7 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `shared/` | **fp/와 td/ 공용(13-a)**: `gen.js`(높이장·섬·자원 배치)·`move.js`(이동·충돌 물리 상수와 `stepBody`)·`ctl.js`(월드 질의 `makeCtx`: 지면 높이·장치 좌표·충돌·uid·`Sim.geo` 고리)·`play.js`(채집·건설·연결·도구·상호작용 규칙과 조작 상태 `makePlay`)·`hud.js`(가방·메뉴·시계·팀 창)·`presence.js`(접속 위치 공유)·`theme.js`(우주 테마 문구)·`party.js`(팀·임대·공용 창고)·`hub.js`(팀 간 교류). 화면(THREE·캔버스)에 묶이지 않는다. 이동 전 상태는 태그 `fp-before-shared` |
 | `td/` | **탑다운 2D(13단계)**: `index.html`·`main.js`(캔버스 그리기·입력·시간/저장 연결)·`ground.js`(높이장 → 땅 픽셀 아트 굽기)·`styletd.css`. 월드·이동·팀·교류는 `shared/`를 `fp/`와 같이 쓰고 저장 키·서버 경로도 같다. 시험 `node tools/smoketd.js`(three 불필요) |
 | `fp/` | **1인칭 3D**(6~7단계). `index.html`·`main.js`(컨트롤러·경사 충돌·시선 대상·채집·공용 UI 연결)·`gen.js`(시드 고정 높이 지형 `height(x,z)`, 섬 4개)·`terrain.js`(정점 색 지형 메시)·`models.js`(기본 도형 모형)·`stylefp.css`. 블록 채굴은 없다(7단계). `window.CHEM_FP`로 저장 키 `chemisle_fp_v2`·서버 `/saves3`·`/rafts3`를 쓴다. `Sim.geo.adjacent`를 격자 인접으로 바꿔 끼운다. 이전 복셀 버전은 태그 `fp-voxel-v1`. 시험: `node tools/smokefp.js`, 팀은 `node tools/smokeparty.js`, 팀 간 교류는 `node tools/smokeinter.js`, 탑다운 + 1인칭 혼합 접속은 `node tools/smokemix.js`(모두 `tools/fakenet.js`)(CDN이 막히면 `THREE_MODULE=`) |
-| `game.js` | (2D 입력·그리기·HUD만 남음. 아래 설명 중 UI·저장·땅 규칙은 위 모듈로 옮겨짐) IIFE, ~1,200 lines (380-tile world: start island, plaza, alpine, polar; raft, sailing, plaza rafts/bottle board): save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
+| `game.js` | (2D 입력·그리기·HUD만 남음. 아래 설명 중 UI·저장·땅 규칙은 위 모듈로 옮겨짐) IIFE, ~470 lines (행성마다 단면 맵 하나: 불시착 120x56, 허브 112, 고원·얼음 위성 102 — 16단계; 탐사정·궤도 이동): save, tile world, dig/tools, modal panels, auth flow, input, physics, rendering, HUD, presence ghosts. Calls `Sim.*` and applies its events via `flush()`. Exposes an `api` object to `raid.js`/`notes.js`. |
 | `raid.js` | `window.Raid`: 3-phase "솥 골렘" boss puzzle (P1 Raoult, P2 pressure/heat balance, P3 Dalton partial pressure). Opened via `Raid.open(api)`. |
 | `notes.js` | `window.Notes`: research-note modal — concept-link table (`LINKS`, with lesson item numbers and implemented ✔/✘) and live calculators. |
 | `sprites.js` | `window.Art`: all pixel art drawn procedurally onto canvases (tiles, player, devices, icons, golem, sky/parallax). 16×16 tiles, auto 1px outline. |
@@ -31,6 +31,9 @@ A Korean-language 2D side-view pixel game where every device is a real chemistry
 | `DESIGN.md` | Assessment design doc: device↔rule↔lesson-item table, assumptions, verification cases. |
 | `MULTIPLAYER.md` | Firebase multiplayer design, data layout, roadmap (M0–M7) and current progress (§11). |
 | `.claude/settings.json` | Enables the oh-my-claudecode plugin. `.omc/` is git-ignored. |
+
+## 하위 폴더 안내
+`shared/AGENTS.md` · `fp/AGENTS.md` · `td/AGENTS.md` · `tools/AGENTS.md`. `fp/`·`td/`는 동결(옆면 단일 클라이언트 결정, 태그 `fp-td-final`).
 
 ## Script load order (index.html)
 Firebase SDK (CDN) → `firebase-config.js` → `net.js` → `chem.js` → `sim.js` → `store.js` → `world.js` → `sprites.js` → `ui.js` → `notes.js` → `raid.js` → `game.js`. Modules attach to `window.*`; `game.js` runs last and consumes the others. Adding a script means adding a `<script>` tag in the right position.
