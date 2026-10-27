@@ -60,7 +60,8 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     const dx = tx - c.x, dy = ty - c.y;
     if (dx < 0 || dx >= CORE.CW || dy < 0 || dy >= CORE.CH) return -1;
     if (dx > 0 && dx < CORE.CW - 1 && dy > 0 && dy < CORE.CH - 1) return AIR;
-    return dy === CORE.CH - 2 && (dx === 0 || dx === CORE.CW - 1) ? HATCH : HULL;
+    // 해치는 2칸 높이(안쪽 두 줄 모두): 플레이어 키 PH(18 px)가 한 칸(16 px)보다 커서 1칸 해치는 지나갈 수 없다
+    return (dy === 1 || dy === CORE.CH - 2) && (dx === 0 || dx === CORE.CW - 1) ? HATCH : HULL;
   }
   const ORIGIN = { x: 0, y: 0 };
   const inCore = (S, tx, ty) => inf && coreTile(ORIGIN, tx, ty) !== -1;

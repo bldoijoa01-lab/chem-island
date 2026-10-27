@@ -30,6 +30,8 @@ const { server, handle, initScript } = require('./fakenet');
   const ev = (pg, f, a) => pg.evaluate(f, a);
   try {
     const A = await open('uA', '에이'), B = await open('uB', '비이');
+    // 0. 회귀(2026-10-27): 플레이어 키(18 px)가 한 칸보다 커서 1칸 해치에 걸려 코어에서 못 나갔다 → 해치는 2칸 높이, 서 있는 자리에서 해치로 걸어 들어갈 수 있다
+    ok('코어 해치는 2칸 높이: 서 있는 채로 지나갈 수 있음(해치 밖은 단단한 땅 → 파서 나간다)', await ev(A, () => { const S = G.debug(), y = 3 * 16 - 18, sx = S.px, sy = S.py; S.px = 0; S.py = y; const r = !World.collides(0, y) && !World.collides(5 * 16 + 3, y) && World.solidAt(-1, 1) && World.solidAt(-1, 2) && World.digCheck(S, -1, 2).ok; S.px = sx; S.py = sy; return r; }));
     // 1. 두 사람이 각자 코어 캡슐 안에서 시작한다(각자 자기 월드, 같은 시드)
     ok('A·B: 코어 (0, 0) 캡슐 안에서 시작', await ev(A, () => G.debug().base.x === 0 && World.tileAt(0, 0) === World.HULL) && await ev(B, () => G.debug().base.x === 0 && World.tileAt(0, 0) === World.HULL));
     const hash = (pg) => ev(pg, () => { let h = 0; for (const [cx, cy] of [[-1, 0], [1, 0], [0, 1], [-1, 1], [5, 3], [-40, 9], [3, 20], [-2, 11]]) { const c = World.getChunk(cx, cy); for (let i = 0; i < c.t.length; i++) h = (Math.imul(h, 31) + c.t[i]) | 0; h = (Math.imul(h, 31) + c.objs.length) | 0; } return h; });
