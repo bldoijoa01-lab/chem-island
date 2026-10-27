@@ -1,0 +1,33 @@
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-10-27 -->
+
+# tools/
+
+Node 점검·시험 스크립트(의존성 없음, 브라우저 시험은 Playwright 필요). 모두 저장소 루트에서 `node tools/<파일>`로 실행한다.
+
+## 계산(브라우저 없음)
+| 파일 | 역할 |
+|---|---|
+| `sim-check.js` | `sim.js` 시나리오 10개를 `sim-baseline.json`과 비교. **항상 통과해야 한다** |
+| `sim-scenarios.js` | 시나리오 정의(브라우저와 Node가 같은 코드를 돌린다) |
+| `sim-baseline.json` | 기준 로그. 규칙을 일부러 바꿀 때만 다시 만들고 전후 수치를 `DESIGN.md`에 쓴다 |
+| `sim-rebase.js` | 문구만 바뀐 시나리오의 기준 로그 갱신. 숫자 필드가 다르면 거부 |
+| `sim-compare.js` | 같은 장치를 행성(환경)마다 돌려 비교(`DESIGN.md` §4-8) |
+| `move-check.js` | 점프만으로 섬 끝에서 끝까지, 구덩이 탈출이 되는지 |
+| `migrate-check.js` | 옛 저장(ver 2, 폭 380·120)을 행성별 맵 형식으로 읽는 시험(16단계) |
+
+## 브라우저(Playwright)
+| 파일 | 대상 |
+|---|---|
+| `smoke.js` | 옆면 `index.html` 시작 → 이동, 콘솔 에러 0 |
+| `ui-check.js` | 옆면 UI 점검(증류·밥솥·한제·캡슐·골렘·땅 파기·늑대 등) |
+| `smokefp.js` | `fp/` (CDN이 막히면 `THREE_MODULE=`) |
+| `smoketd.js` | `td/` |
+| `smokeparty.js` · `smokeinter.js` · `smokemix.js` | 팀 / 팀 간 교류 / 탑다운 + 1인칭 혼합 접속. `fakenet.js`(가짜 Firebase, 규칙의 의미만 흉내)를 쓴다 |
+
+## 규칙
+- 변경 뒤 최소 `node tools/sim-check.js`와 `node tools/smoke.js`. `node --check`는 "주석이 뒤따르는 코드를 삼키는" 실수를 못 잡는다.
+- `fakenet.js`는 실제 규칙이 아니다. 서버 규칙은 Firebase 콘솔 규칙 시뮬레이터로 따로 확인한다(`MULTIPLAYER.md`).
+- 기준 로그를 바꾸면 이유를 커밋 메시지와 `DESIGN.md`에 남긴다. 새 시험은 에러를 숨기지 말고 실패로 끝낸다.
+
+<!-- MANUAL: Notes below this line are preserved when regenerating -->
