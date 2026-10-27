@@ -331,6 +331,44 @@ window.Art = (() => {
     p(4, 62, 56, 2, '#222'); p(4, 62, Math.max(0, Math.round(56 * hp)), 2, '#e74c3c');
   };
 
+  // ---------- 16단계(우주 테마): 허브 정거장 바닥판과 하늘의 먼 행성(모두 코드로 그림, 외부 이미지 없음) ----------
+  A.tiles.hubtop = variants(i => {   // 정거장 바닥(윗면): 금속판 + 이음매 + 리벳
+    const c = mk(16, 16), p = painter(c), r = rng(61 * i);
+    p(0, 0, 16, 16, '#59627a'); p(0, 0, 16, 2, '#9aa5bd'); p(0, 2, 16, 1, '#7c879f'); p(0, 15, 16, 1, '#3a4256'); p(7, 3, 1, 12, '#47506a'); p(15, 3, 1, 12, '#47506a');
+    for (const [x, y] of [[2, 5], [12, 5], [2, 12], [12, 12]]) { p(x, y, 2, 2, '#2e3548'); p(x, y, 1, 1, '#aeb8cf'); }
+    if (r() < 0.5) p(3 + ((r() * 8) | 0), 8, 4, 1, '#6a7590');
+    return c;
+  });
+  A.tiles.hubhull = variants(i => {  // 정거장 선체(아래쪽): 어두운 격벽판
+    const c = mk(16, 16), p = painter(c), r = rng(67 * i);
+    p(0, 0, 16, 16, '#3a4256'); p(0, 0, 16, 1, '#4d5872'); p(0, 8, 16, 1, '#2a3144'); p(8, 0, 1, 16, '#2a3144');
+    for (const [x, y] of [[2, 2], [12, 2], [2, 11], [12, 11]]) { p(x, y, 1, 1, '#6f7b97'); }
+    if (r() < 0.35) { p(3, 4, 3, 1, '#ffb347'); p(10, 12, 2, 1, '#7fe0ff'); }   // 점검 표시등
+    return c;
+  });
+  // 하늘의 먼 행성(원반): kind = gas(고리 있는 가스 행성) · ocean(바다 행성) · ice(얼음 띠 행성) · violet(보랏빛 행성). r = 반지름(px). 빛은 왼쪽 위에서
+  const discCache = {};
+  A.bgDisc = (kind, r) => {
+    const key = kind + r; if (discCache[key]) return discCache[key];
+    const pal = { gas: ['#e8c48a', '#d9a05a', '#b8793f', '#f3dcaa'], ocean: ['#3f8fd8', '#2f6fb8', '#4aa86a', '#e8f4ff'], ice: ['#cfe8f4', '#a9d2e6', '#86b8d4', '#f4fbff'], violet: ['#9a78d0', '#7a5ab0', '#5a4090', '#d8c4f4'] }[kind];
+    const ring = kind === 'gas', W = ring ? Math.round(r * 3.2) : r * 2 + 2, H = r * 2 + 2, c = mk(W, H), g = c.getContext('2d'), cx = W / 2, cy = H / 2, rn = rng(r * 13 + kind.length);
+    const blobs = Array.from({ length: 5 }, () => [rn() * 2 - 1, rn() * 2 - 1, 0.2 + rn() * 0.3]);
+    const px = (x, y, col) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const dx = (x - cx) / r, dy = (y - cy) / r, d2 = dx * dx + dy * dy; if (d2 > 1) continue;
+      let ci = kind === 'gas' || kind === 'ice' ? (Math.floor((dy + 1) * 3.5 + Math.sin(dx * 3) * 0.4) % 3 + 3) % 3 : 1;
+      if (kind === 'ocean' || kind === 'violet') for (const [bx, by, br] of blobs) if ((dx - bx * 0.6) ** 2 + (dy - by * 0.6) ** 2 < br * br) ci = kind === 'ocean' ? 2 : 0;
+      const lit = -(dx * 0.6 + dy * 0.6) + (1 - Math.sqrt(d2)) * 0.2;   // 왼쪽 위가 밝다
+      px(x, y, lit > 0.55 ? pal[3] : pal[ci]);
+      if (lit < -0.35) { g.fillStyle = `rgba(4,6,20,${Math.min(0.72, -lit - 0.2)})`; g.fillRect(x, y, 1, 1); }
+    }
+    if (ring) {   // 고리: 원반 앞쪽(아래 절반)과 뒤쪽(위 절반) 타원
+      g.strokeStyle = 'rgba(232,214,170,.8)'; g.lineWidth = 2; g.beginPath(); g.ellipse(cx, cy, r * 1.55, r * 0.36, -0.28, 0, 7); g.stroke();
+      g.strokeStyle = 'rgba(150,120,80,.7)'; g.lineWidth = 1; g.beginPath(); g.ellipse(cx, cy, r * 1.35, r * 0.3, -0.28, 0, 7); g.stroke();
+    }
+    return (discCache[key] = c);
+  };
+
   // ---------- 하늘/배경 ----------
   const lerp = (a, b, t) => a + (b - a) * t;
   const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];

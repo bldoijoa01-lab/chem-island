@@ -15,6 +15,9 @@ const targets = () => World.targets(S);
 const { wolfPos } = World;
 const applyDug = () => World.applyDug(S);
 applyDug();
+// 궤도 이동 연출(16-c, 보이기만): 도착한 행성 맵을 불러온 직후 검은 화면에서 별 줄무늬가 퍼지며 밝아지고 행성 이름이 뜬다
+let lastPlanet = Sim.dockOf(S).island, warp = null;
+const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: Sim.ISLANDS[h].name }; } };
 
 // ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
@@ -180,51 +183,67 @@ function frame(now) {
   draw(tt);
   requestAnimationFrame(frame);
 }
+// 행성별 배경·색 표현(보이기만, 가정(임의값)): atm = 대기 두께(0이면 진공: 우주색 하늘·구름 없음), tint = 행성 색조 RGB, disc = 하늘의 먼 행성 [종류, 반지름, 가로 위치(화면 비율), 세로 위치, ], water = 물 색 3단계, hub = 정거장 바닥판
+// shared/theme.js의 PLANET(fp·td용)과 같은 값을 쓰되 이 화면(옆면 2D)에 맞게 따로 둔다
+const PLANET_VIEW = {
+  start: { atm: 1, tint: null, disc: ['gas', 22, 0.78, 0.2, 0.9], discA: 0.9, water: ['#3f9be0', '#2c7cc0', '#1f66a4'], nebula: null },
+  plaza: { atm: 0, tint: null, hub: true, disc: ['ocean', 48, 0.3, 0.72, 1], discA: 1, water: ['#0b1432', '#070d24', '#04081a'], nebula: [[0.65, 0.3, 120, 26, 'rgba(120,80,200,.10)'], [0.2, 0.55, 150, 20, 'rgba(60,160,200,.08)']] },
+  alpine: { atm: 0.6, tint: [122, 95, 176], disc: ['violet', 16, 0.2, 0.18, 0.9], discA: 0.9, water: ['#5a4b92', '#493c7a', '#3a2f64'], nebula: [[0.7, 0.2, 90, 14, 'rgba(160,120,220,.10)']] },
+  polar: { atm: 0.45, tint: [159, 208, 232], disc: ['gas', 52, 0.74, 0.3, 0.95], discA: 0.95, water: ['#9fd5ea', '#86c3dc', '#6eaec8'], nebula: null },
+};
 const blit = (img, x, y) => { const p = img.pad || 0; ctx.drawImage(img, Math.round(x - p), Math.round(y - p)); };
 const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
 function draw(t) {
   const hour = S.min / 60, night = nightOf(hour);
   cam.x = Math.max(0, Math.min(dim.W * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
   cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
-  // 하늘(띠) + 별 + 해/달
-  const bands = Art.sky(hour, 18);
+  // 행성 배경(16-c, 보이기만): 대기 두께 atm이 얇을수록 우주색에 가깝고 별이 낮에도 보인다. 시각별 하늘색(Art.sky)은 그대로 쓰고 우주색·행성 색조를 섞는다
+  const here = Sim.dockOf(S).island, V = PLANET_VIEW[here], space = night > 0 || V.atm < 1;
+  const bands = Art.sky(hour, 18).map(s => { const c = s.match(/\d+/g).map(Number), m = (a, b2, k) => a + (b2 - a) * k, sp = [3, 6, 16]; let r = [m(sp[0], c[0], V.atm), m(sp[1], c[1], V.atm), m(sp[2], c[2], V.atm)]; if (V.tint) r = r.map((x, i) => m(x, V.tint[i], 0.3 * V.atm)); return `rgb(${r.map(Math.round)})`; });
   for (let i = 0; i < bands.length; i++) { ctx.fillStyle = bands[i]; ctx.fillRect(0, Math.floor(i * VH / bands.length), VW, Math.ceil(VH / bands.length) + 1); }
-  if (night > 0) for (let i = 0; i < stars.length; i++) { ctx.fillStyle = `rgba(255,255,255,${night * (0.45 + 0.55 * Math.abs(Math.sin(t * 1.5 + i)))})`; ctx.fillRect(Math.floor(stars[i][0] * VW), Math.floor(stars[i][1] * VH * 0.6), 1 + (i % 7 === 0 ? 1 : 0), 1); }
+  const starA = Math.max(night, 1 - V.atm * 0.9), starH = V.atm === 0 ? VH : VH * 0.6;
+  if (starA > 0) for (let i = 0; i < stars.length; i++) { ctx.fillStyle = `rgba(255,255,255,${starA * (0.45 + 0.55 * Math.abs(Math.sin(t * 1.5 + i)))})`; ctx.fillRect(Math.floor(((stars[i][0] * VW - cam.x * 0.02) % VW + VW) % VW), Math.floor(stars[i][1] * starH), 1 + (i % 7 === 0 ? 1 : 0), 1); }
+  if (V.nebula) for (const [fx, fy, rx, ry, col] of V.nebula) { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(((fx * VW - cam.x * 0.03) % (VW + 200) + VW + 200) % (VW + 200) - 100, fy * VH, rx, ry, 0.4, 0, 7); ctx.fill(); }   // 성운 띠(옅은 반투명 타원)
+  { const d = Art.bgDisc(V.disc[0], V.disc[1]), dx = Math.round(V.disc[2] * VW - cam.x * 0.03), dy = Math.round(V.disc[3] * VH - cam.y * 0.02); ctx.globalAlpha = V.discA * (0.55 + 0.45 * Math.max(night, 1 - V.atm)); ctx.drawImage(d, dx - d.width / 2, dy - d.height / 2); ctx.globalAlpha = 1; }   // 하늘의 먼 행성
   const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12, arcY = Math.max(50, VH * 0.28);
   const sunX = Math.round(sunT * (VW - 18)), sunY = Math.round(arcY + 14 - Math.sin(sunT * Math.PI) * (arcY - 6));
-  if (sunT >= 0 && sunT <= 1) {
+  if (V.atm > 0 && sunT >= 0 && sunT <= 1) {
     for (const [r, a] of [[30, 0.08], [22, 0.12], [15, 0.18]]) { ctx.fillStyle = `rgba(255,240,160,${a})`; ctx.beginPath(); ctx.arc(sunX + 9, sunY + 9, r, 0, 7); ctx.fill(); }
     ctx.drawImage(Art.sun, sunX, sunY);
   }
-  if (moonT >= 0 && moonT <= 1) ctx.drawImage(Art.moon, Math.round(moonT * (VW - 16)), Math.round(arcY + 14 - Math.sin(moonT * Math.PI) * (arcY - 6)));
-  for (let i = 0; i < 5; i++) {
+  if (V.atm === 0) { ctx.fillStyle = 'rgba(255,240,170,.9)'; ctx.fillRect(Math.round(VW * 0.12), Math.round(VH * 0.1), 2, 2); ctx.fillStyle = 'rgba(255,240,170,.25)'; ctx.beginPath(); ctx.arc(VW * 0.12 + 1, VH * 0.1 + 1, 7, 0, 7); ctx.fill(); }   // 허브: 먼 항성 하나(해·달 호는 없다)
+  else if (moonT >= 0 && moonT <= 1) ctx.drawImage(Art.moon, Math.round(moonT * (VW - 16)), Math.round(arcY + 14 - Math.sin(moonT * Math.PI) * (arcY - 6)));
+  for (let i = 0; i < Math.round(5 * V.atm * V.atm); i++) {   // 구름은 대기가 두꺼울수록 많다
     const w = VW + 80, cx = ((i * 170 - t * 3 * (1 + i % 3 * 0.4) - cam.x * 0.08) % w + w) % w - 50;
-    ctx.globalAlpha = 1 - night * 0.75; ctx.drawImage(Art.clouds[i % 3], Math.round(cx), 14 + (i * 23) % Math.max(30, VH * 0.35)); ctx.globalAlpha = 1;
+    ctx.globalAlpha = (1 - night * 0.75) * 0.9; ctx.drawImage(Art.clouds[i % 3], Math.round(cx), 14 + (i * 23) % Math.max(30, VH * 0.35)); ctx.globalAlpha = 1;
   }
-  // 시차 배경: 먼 산 → 언덕 → 숲
+  // 시차 배경: 먼 산 → 언덕 → 숲(허브 정거장은 진공이라 없다)
   const horizon = 24 * T - cam.y;
-  for (const [img, f, base, sink] of [[Art.farHills, 0.12, 100, 8], [Art.midHills, 0.28, 74, 6], [Art.forest, 0.5, 54, 4]]) {
+  if (V.atm > 0) for (const [img, f, base, sink] of [[Art.farHills, 0.12, 100, 8], [Art.midHills, 0.28, 74, 6], [Art.forest, 0.5, 54, 4]]) {
     const off = -Math.floor((cam.x * f) % 512);
     for (let x = off; x < VW; x += 512) ctx.drawImage(img, x, Math.round(horizon - base + sink));
   }
-  if (night > 0) { ctx.fillStyle = `rgba(6,10,40,${night * 0.55})`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }
+  if (V.tint && V.atm > 0) { ctx.fillStyle = `rgba(${V.tint},.16)`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }   // 행성 색조(산·숲 위에 옅게)
+  if (night > 0 && V.atm > 0) { ctx.fillStyle = `rgba(6,10,40,${night * 0.55})`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }
   // 타일
   const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
   for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
     const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
     if (id === AIR) { if (tx >= 0 && tx < dim.W && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); } continue; }
     if (id === WATER) {
-      ctx.fillStyle = ty - 25 < 2 ? '#3f9be0' : ty - 25 < 4 ? '#2c7cc0' : '#1f66a4'; ctx.fillRect(sx, sy, T, T);
+      ctx.fillStyle = V.water[Math.min(2, Math.floor((ty - 25) / 2))]; ctx.fillRect(sx, sy, T, T);
       drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
     }
-    const tset = id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : Art.tiles.ice;
+    const hub = V.hub && (id === GRASS || id === SAND || id === DIRT);   // 허브 정거장: 풀·모래·흙 자리에 금속 바닥판과 선체
+    const tset = hub ? (id === DIRT ? Art.tiles.hubhull : Art.tiles.hubtop) : id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : Art.tiles.ice;
     ctx.drawImage(tset[v], sx, sy);
+    if (V.tint && !hub && id !== RAFT) { ctx.fillStyle = `rgba(${V.tint},.2)`; ctx.fillRect(sx, sy, T, T); }   // 행성 지형 색조
     if (ty > 26) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (ty - 26) * 0.03)})`; ctx.fillRect(sx, sy, T, T); }
     if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(sx, sy, T, 1); }
     if (isOpen(tx - 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy, 1, T); }
     if (isOpen(tx + 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx + T - 1, sy, 1, T); }
     if (isOpen(tx, ty + 1)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy + T - 1, T, 1); }
-    if (id === GRASS && tileAt(tx, ty - 1) === AIR) {   // 풀 다발·꽃·돌
+    if (id === GRASS && !V.hub && tileAt(tx, ty - 1) === AIR) {   // 풀 다발·꽃·돌
       const h = hash(tx, ty);
       if (h % 2 === 0) ctx.drawImage(Art.tuft[h % 3], sx, sy - 5);
       if (h % 9 === 0) ctx.drawImage(Art.flower[(h >>> 3) % 3], sx + (h % 9), sy - 6);
@@ -232,6 +251,12 @@ function draw(t) {
     }
   }
   // 오브젝트
+  // 하늘 경계 줄: 이 줄 위는 행성의 외기(압력·조성·기온)가 그대로 있는 "하늘"이다. 칸 시뮬(18단계)에서 이 줄이 외기 저수조가 된다. 줄 위치는 가정(임의값)
+  { const ly = World.SKY_ROW * T - cam.y;
+    if (ly > -2 && ly < VH + 2) {
+      ctx.fillStyle = 'rgba(130,225,255,.38)'; for (let x = -(cam.x % 10); x < VW; x += 10) ctx.fillRect(Math.round(x), Math.round(ly), 6, 1);
+      ctx.font = '8px sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(160,235,255,.55)'; ctx.fillText('외기 경계 (가정) — 이 줄 위는 행성의 외기', 4, Math.round(ly) - 3);
+    } }
   for (const o of OBJS) {
     const sx = o.x * T - cam.x, sy = o.y * T - cam.y, n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
     if (sx < -48 || sx > VW + 48) continue;
@@ -327,6 +352,16 @@ function draw(t) {
   }
   const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
+  if (warp) {   // 궤도 이동 연출 1.4초
+    const k = (performance.now() - warp.at) / 1400;
+    if (k >= 1) warp = null;
+    else {
+      const a = 1 - k; ctx.fillStyle = `rgba(2,4,12,${Math.min(1, a * 1.3)})`; ctx.fillRect(0, 0, VW, VH);
+      ctx.strokeStyle = `rgba(190,215,255,${a * 0.8})`; ctx.lineWidth = 1;
+      for (let i = 0; i < 48; i++) { const ang = i * 2.399, r0 = 8 + k * 60 + (i % 5) * 6, r1 = r0 + 20 + a * 90 + (i % 7) * 4; ctx.beginPath(); ctx.moveTo(VW / 2 + Math.cos(ang) * r0, VH / 2 + Math.sin(ang) * r0 * 0.7); ctx.lineTo(VW / 2 + Math.cos(ang) * r1, VH / 2 + Math.sin(ang) * r1 * 0.7); ctx.stroke(); }
+      ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = `rgba(230,240,255,${Math.min(1, a * 2)})`; ctx.fillText(`궤도 이동 — ${warp.name}`, VW / 2, VH / 2 + 4); ctx.textAlign = 'left';
+    }
+  }
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
     const id = mode.slice(6), g = ghostCheck(id);
@@ -419,7 +454,7 @@ function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(�
 }
 window.addEventListener('resize', fit);
 UI.init({
-  puff, burst, clearKeys, applyWorld: applyDug,
+  puff, burst, clearKeys, applyWorld,
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
   joinMap() { Net.joinMap(MAPID, posPacket()); },

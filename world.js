@@ -3,6 +3,7 @@
 // 화면에 보여 줄 말·효과는 sim.js의 이벤트 통로(Sim.say / Sim.emit)로 내보낸다.
 window.World = (() => {
   const T = 16, PW = 10, PH = 18, REACH = 40;
+  const SKY_ROW = 16;   // 가정(임의값) 하늘 경계 줄(타일 y): 이 줄 위는 행성 외기가 그대로 있는 "하늘", 아래는 18단계 칸 시뮬 범위. 지표(GY ≈ 24)보다 8칸 위
   const C = Chem;
   const { DEV, FIRE_T, FIRE_NAME } = Sim;
   const say = (t) => Sim.say(t), logEv = (S, type, text) => Sim.logEv(S, type, text);
@@ -266,7 +267,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   }
 
   return {
-    T, dim, genPlanet, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T,
+    T, SKY_ROW, dim, genPlanet, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T,
     AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
     tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock,
     tileTemp, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
