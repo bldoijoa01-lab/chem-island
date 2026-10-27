@@ -188,3 +188,14 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 질문: (a) Firebase `update({ver: n+1, by, 'world/0,0': …, placed: …})`가 `state/.validate`(전체 쓰기용)를 건너뛰고 `state/ver`의 `.validate`(`newData.val() === data.val() + 1`)만 평가한다는 해석이 맞는지, 맞다면 `world` 자식에는 형식 검증이 없어 팀원이 임의 문자열을 쓸 수 있다는 한계(`MULTIPLAYER.md`)가 전부인지, (b) `onSnap`이 `st.ver > P.ver && !(P.holder && st.by === id)`일 때만 `applyRemote`를 부르는데, 내가 올린 직후 다른 팀원이 `ver+1`을 올리고 내 스냅샷이 둘 다 합쳐져 도착하면 내 `lastWorld`가 서버와 어긋나 다음 델타가 틀린 덩어리를 `null`로 지우지 않는지, (c) 가입 직후 `S.world`(옛 개인 월드)가 비어 있지 않은 채 `getWorld()`가 첫 틱에서 호출되면 옛 덩어리가 팀에 올라가는 경로가 없는지.
 - 사람이 확인할 방법: `node tools/smoketeam.js`(가짜 서버), 두 브라우저로 같은 팀에 들어가 A가 파는 동안 B에서 땅이 보이는지·B가 파려 하면 "동료가 조작 중이에요"가 뜨는지, Firebase 콘솔 규칙 시뮬레이터에서 `parties/{pid}/state`에 `ver` 건너뛰기·팀원이 아닌 사람 쓰기 거부 확인
 
+### 규칙 시뮬레이터 점검 항목 (`database.rules.json`을 바꿀 때마다 — 고정 요청)
+- **원칙**: Firebase 규칙 언어에 없는 함수는 쓰지 않는다(`indexOf`·`toString`·`Math`·화살표 함수 등은 JavaScript 문법이라 규칙에서 쓸 수 없다). 지금 쓰는 것은 `val`·`child`·`exists`·`hasChildren`·`isString`·`isNumber`·`isBoolean`·`matches`뿐이다. 규칙을 바꾸면 **JSON 문법만이 아니라 함수 사용도** `node tools/rules-check.js`로 확인한다(허용 목록 밖의 메서드·이름·JS 문법이면 실패). 이 점검은 문법·이름 수준이고 의미(누가 쓸 수 있나)는 가짜 서버 시험도 흉내일 뿐이므로 아래를 **콘솔 시뮬레이터에서 직접** 확인한다.
+- 맡길 일(Argon): `database.rules.json`의 모든 `.read/.write/.validate` 식이 Realtime Database 규칙 언어로 유효한지(없는 메서드, 문자열 `length` 사용, `newData`/`data`/`root` 구분 오용, `$변수` 범위), 그리고 아래 허용/거부 사례가 의도대로 판정되는지.
+- 같이 붙일 파일(직접 첨부): `database.rules.json`, `tools/rules-check.js`, `tools/fakenet.js`, `MULTIPLAYER.md`
+- 사람이 콘솔 시뮬레이터에서 확인할 항목 (규칙 편집기 → 규칙 시뮬레이터, 위치·인증 uid를 바꿔 가며):
+  1. **17-b 팀 상태**: 팀원 uid로 `parties/{pid}/state`에 `update({ver: 기존+1, by, 'world/0,0': '…'})` → 허용 / `ver`를 건너뛰어(+2) 쓰기 → 거부 / 팀원이 아닌 uid로 쓰기 → 거부.
+  2. **`/bases/{id}`**: 본인 uid 또는 속한 팀 pid로 쓰기 → 허용 / 남의 uid → 거부 / `devices` 41개 → 거부 / `map.w` 65 → 거부 / `rows` 한 줄 65자 → 거부 / `map`에 `$other` 필드 추가 → 거부 / `tech` 7 → 거부 / 코어 위치(`x`·`cx`) 필드 → 거부.
+  3. **9단계 임대·가입**: 만료 전 다른 uid가 임대 가져가기 → 거부, 5번째 팀원 가입 → 거부, 틀린 코드로 가입 → 거부.
+  4. **11단계 교류**: 자기 팀 교역 수락 → 거부, 점수 줄이기 → 거부, 상한 초과 → 거부, 남의 팀 점수 쓰기 → 거부.
+  5. 규칙 게시 직후 앱에서 로그인 → 저장 → 팀 만들기 → 본부 간판 보기가 에러 없이 되는지(브라우저 콘솔의 `PERMISSION_DENIED` 확인).
+

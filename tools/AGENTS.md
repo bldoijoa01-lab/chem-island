@@ -22,6 +22,7 @@ Node 점검·시험 스크립트(의존성 없음, 브라우저 시험은 Playwr
 | `smoke.js` | 옆면 `index.html` 시작(코어 캡슐) → 이동 → 패드 3초 → 본부 → 턱 점프, 콘솔 에러 0 |
 | `smoketut.js` | 옆면 튜토리얼 목표 1~11을 무한 지하에서 끝까지(도구 단계·건설·증류·보스·원정 행성) |
 | `smokebase.js` | 내 월드: 같은 시드, 패드, 건설, 도구 단계, RLE 저장, 저장 상한, `/bases` 요약(`fakenet.js`) |
+| `rules-check.js` | `database.rules.json` JSON 문법 + 규칙 식에 쓴 메서드·이름이 Firebase 규칙 언어에 있는 것뿐인지(실제 평가는 콘솔 시뮬레이터) |
 | `smoketeam.js` | 옆면 팀·교류(17-b): 팀 만들기·가입 확인 창·월드 덩어리 공유·쓰기 임대·동시 쓰기 충돌·델타 크기와 빈도 측정·본부 시설·방문 미리보기·탈퇴(`fakenet.js`, 로컬 `http.server`, `QUICK=1`이면 20초 측정 구간 생략) |
 | `ui-check.js` | 옆면 UI 점검(증류·밥솥·한제·캡슐·골렘·땅 파기·늑대 등) |
 | `smokefp.js` | `fp/` (CDN이 막히면 `THREE_MODULE=`) |
