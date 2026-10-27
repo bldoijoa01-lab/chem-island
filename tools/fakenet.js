@@ -17,6 +17,17 @@ async function handle(page, uid, nick, method, a) {
     case 'watchlog': { setTimeout(() => emitLog(a[0]), 20); return null; }
     case 'lease': { const [pid, active, ms] = a, p = P(pid), L = p.lease, now = Date.now(); if (L && L.uid !== uid && L.active && L.exp > now) return false; p.lease = { uid, nick, active: !!active, exp: now + ms }; await emit(pid); return true; }
     case 'publish': { const [pid, base, st] = a, p = P(pid); if (!p.members[uid]) return { ok: false }; const cur = p.state ? p.state.ver : 0; if (cur !== base) return { ok: false, ver: cur }; p.state = Object.assign(clean(st), { ver: base + 1, by: uid }); await emit(pid); return { ok: true, ver: base + 1 }; }
+    // 옆면(17-b): 바뀐 필드·덩어리만 update() 한 번에(ver가 정확히 +1일 때만, 만들 때는 필수 필드가 모두 있어야 한다). state/world는 규칙이 검증하지 않는 자식이다
+    case 'publishDelta': {
+      const [pid, base, fields, wd] = a, p = P(pid); if (!p || !p.members[uid]) return { ok: false };
+      const cur = p.state ? p.state.ver : 0; if (cur !== base) return { ok: false, ver: cur };
+      const next = Object.assign({}, p.state || {}, clean(fields), { ver: base + 1, by: uid });
+      if (!['raft', 'f', 'qDone', 'day', 'min'].every(k => next[k] !== undefined)) return { ok: false, ver: cur };
+      const world = Object.assign({}, (p.state && p.state.world) || {});
+      for (const k in wd || {}) { if (wd[k] === null) delete world[k]; else world[k] = wd[k]; }
+      next.world = world; p.state = next; server.delta = server.delta || []; server.delta.push({ pid, uid, bytes: JSON.stringify(fields).length + JSON.stringify(wd || {}).length, chunks: Object.keys(wd || {}).length, wbytes: JSON.stringify(wd || {}).length, t: Date.now() });
+      await emit(pid); return { ok: true, ver: base + 1 };
+    }
     case 'log': { const [pid, e] = a; P(pid).log.push(Object.assign({ uid, nick, t: Date.now() }, e)); await emitLog(pid); return null; }
     case 'beat': { const p = P(a[0]); if (p && p.members[uid]) p.members[uid].t = Date.now(); return null; }
   }
@@ -59,16 +70,17 @@ async function handle2(page, uid, nick, method, a) {
     case 'basePublish': {
       const [id, rec] = a;
       if (id !== uid && !memberOf(id, uid)) throw new Error('PERMISSION_DENIED(id)');
-      const okRec = rec && typeof rec.name === 'string' && rec.name.length >= 2 && rec.name.length <= 10 && /^#[0-9a-fA-F]{6}$/.test(rec.color) && rec.members && typeof rec.tech === 'number' && rec.tech >= 0 && rec.tech <= 6 && typeof rec.summary === 'string' && rec.summary.length <= 200 && !('cx' in rec) && !('x' in rec);
+      const okRec = rec && typeof rec.name === 'string' && rec.name.length >= 2 && rec.name.length <= 10 && /^#[0-9a-fA-F]{6}$/.test(rec.color) && rec.members && typeof rec.tech === 'number' && rec.tech >= 0 && rec.tech <= 6 && typeof rec.summary === 'string' && rec.summary.length <= 200 && !('cx' in rec) && !('x' in rec) && (!rec.devices || (Array.isArray(rec.devices) && rec.devices.length <= 40 && rec.devices.every(d => typeof d.id === 'string' && d.id.length <= 12 && Math.abs(d.x) <= 100000 && Math.abs(d.y) <= 100000))) && (!rec.map || (rec.map.w >= 1 && rec.map.w <= 64 && rec.map.h >= 1 && rec.map.h <= 48 && Array.isArray(rec.map.rows) && rec.map.rows.every(r => typeof r === 'string' && r.length <= 64)));
       if (!okRec) throw new Error('PERMISSION_DENIED(validate)');
       server.bases[id] = Object.assign(clean(rec), { t: Date.now() }); return null;
     }
     case 'baseLoad': return Object.entries(server.bases).map(([id, v]) => Object.assign({ id }, v)).sort((x, y) => y.t - x.t).slice(0, a[0] || 20);
+    case 'baseGet': return server.bases[a[0]] ? Object.assign({ id: a[0] }, server.bases[a[0]]) : null;
     default: return handle0(page, uid, nick, method, a);
   }
 }
 
-const rpcNames = ['create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'basePublish', 'baseLoad'];
+const rpcNames = ['publishDelta', 'baseGet', 'create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'basePublish', 'baseLoad'];
 module.exports = { server, handle: handle2, clean, initScript: null };
 
 // 페이지 쪽 가짜 Net: 팀 API + 팀 간 교류 API를 모두 rpc로 서버에 넘긴다
@@ -79,13 +91,13 @@ module.exports.initScript = ({ uid, nick }) => {
     partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
     partyWatch: (pid, cb) => { watchers[pid] = cb; rpc('watch', [pid]); return () => { delete watchers[pid]; rpc('unwatch', [pid]); }; },
     partyWatchLog: (pid, cb) => { logw[pid] = cb; rpc('watchlog', [pid]); return () => {}; },
-    partyLease: (pid, active, ms) => rpc('lease', [pid, active, ms]), partyPublish: (pid, base, st) => rpc('publish', [pid, base, st]), partyLog: (pid, e) => rpc('log', [pid, e]), partyBeat: (pid) => rpc('beat', [pid]),
+    partyPublishDelta: (pid, base, fields, wd) => rpc('publishDelta', [pid, base, fields, wd]), partyLease: (pid, active, ms) => rpc('lease', [pid, active, ms]), partyPublish: (pid, base, st) => rpc('publish', [pid, base, st]), partyLog: (pid, e) => rpc('log', [pid, e]), partyBeat: (pid) => rpc('beat', [pid]),
     pubSet: (pid, o) => rpc('pubSet', [pid, o]), pubLoad: (n) => rpc('pubLoad', [n]),
     tradePost: (t) => rpc('tradePost', [t]), tradesLoad: (n) => rpc('tradesLoad', [n]), tradeTake: (tid, pid, name, paid) => rpc('tradeTake', [tid, pid, name, paid]), tradeCancel: (tid) => rpc('tradeCancel', [tid]), tradeClaim: (tid) => rpc('tradeClaim', [tid]),
     projectWatch: (cb) => { projectCb = cb; rpc('projectWatch', []); return () => { projectCb = null; }; }, projectAdd: (pid, name, color, item, n, need) => rpc('projectAdd', [pid, name, color, item, n, need]), projectTeam: (pid, o) => rpc('projectTeam', [pid, o]), projectDone: () => rpc('projectDone', []),
     reportPost: (r) => rpc('reportPost', [r]), reportsLoad: (n) => rpc('reportsLoad', [n]), reportVote: (rid, pid, v) => rpc('reportVote', [rid, pid, v]),
     boardSet: (b, pid, o) => rpc('boardSet', [b, pid, o]), boardLoad: (b, n) => rpc('boardLoad', [b, n]),
-    basePublish: (id, rec) => rpc('basePublish', [id, rec]), baseLoad: (n) => rpc('baseLoad', [n]) };
+    basePublish: (id, rec) => rpc('basePublish', [id, rec]), baseLoad: (n) => rpc('baseLoad', [n]), baseGet: (id) => rpc('baseGet', [id]) };
   window.__fakePeers = (pp) => { for (const k of Object.keys(fake.peers)) delete fake.peers[k]; Object.assign(fake.peers, pp); };
   window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
   window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);

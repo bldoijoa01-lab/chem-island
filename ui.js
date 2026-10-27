@@ -109,15 +109,23 @@ function padTick() {
   if (left <= 0) { const to = padWait.to; padWait = null; if (Sim.act.teleport(S, to)) { closeModal(); save(true); } flush(); refresh(); return; }
   set('pad-st', `전송 중... ${Math.ceil(left / 1000)}초`);
 }
-// 방문 목록용 공개 요약(/bases/{id}): 이름·색·팀원·연구 단계·요약 한 줄. 코어 위치·칸 내용은 올리지 않는다
+// 방문 미리보기용 공개 요약(/bases/{id}, 17-b): 이름·색·팀원·연구 단계·한 줄 + 장치 목록(40개) + 판 칸을 줄인 작은 그림. 코어 위치 말고는 올리지 않고, 걸어 들어갈 수는 없다(읽기 전용)
+// 팀이면 id는 팀 id(pid)이고 임대 보유자만 올린다. 혼자면 내 uid. 값이 그대로면 쓰지 않고 10분마다 한 번은 시각을 갱신한다
 const COLORS = ['#ff8a5b', '#5bc0ff', '#9be564', '#e0a3ff', '#ffd84a', '#ff6b9a', '#6fe0c8', '#c0c8d8'];
 let lastPub = '', lastPubAt = 0;
 function publishBase(force) {
   if (!(window.Net && Net.user && Net.basePublish)) return;
-  const id = Net.user.uid, name = ((Net.nick || '내') + ' 월드').slice(0, 10);
+  const T = window.Team, team = !!(T && T.inParty());
+  if (team && !T.holder()) return;
+  const uid = Net.user.uid, id = team ? T.pid() : uid, meta = team ? (T.meta() || {}) : null;
+  const members = {}; if (team) { for (const u in T.members()) members[u] = String((T.members()[u] || {}).nick || '').slice(0, 8); } else members[uid] = String(Net.nick || '').slice(0, 8);
+  const devices = S.placed.filter(d => (d.pl || 'start') === 'start').slice(0, 40).map(d => ({ id: String(d.id).slice(0, 12), x: d.x, y: d.y, run: !!(d.s && d.s.run), broken: !!(d.s && d.s.broken) }));
+  let map = null; try { map = World.thumb(S); } catch { /* 그림 없이 올린다 */ }
   const summary = `장치 ${S.placed.length}개 · 목표 ${S.qDone}/${QUESTS.length} · 판 칸 ${Math.round(World.worldSize() / 1000)} KB`.slice(0, 200);
-  const rec = { name, color: COLORS[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length], members: { [id]: Net.nick }, tech: 0, summary }, k = JSON.stringify(rec), now = Date.now();
-  if (!force && (k === lastPub || now - lastPubAt < 60000)) return;
+  const rec = { name: team ? meta.name : ((Net.nick || '내') + ' 월드').slice(0, 10), color: team ? meta.color : COLORS[[...uid].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length], members, tech: 0, summary, devices };
+  if (map) rec.map = map;
+  const k = JSON.stringify(rec), now = Date.now();
+  if (!force && ((k === lastPub && now - lastPubAt < 600000) || now - lastPubAt < 25000)) return;
   lastPub = k; lastPubAt = now;
   Net.basePublish(id, rec).catch(() => {});
 }
@@ -127,6 +135,7 @@ setInterval(() => { if (!Store.paused) publishBase(false); }, 30000);
 function checkQuests() { Sim.checkQuests(S); flush(); }
 
 // ---------- 상호작용 대상 ----------
+const HUB_FACILITY = { trade: 'trade', reports: 'reports', boards: 'boards', signs: 'signs', project: 'project' };   // 17-b 본부 교류 시설 → shared/hub.js 창
 function interact(t) {
   if (!t) return;
   if (t.kind === 'wolf') return uiWolf(t.ref);
@@ -137,6 +146,7 @@ function interact(t) {
   if (t.kind === 'pad') return openPad();
   if (t.kind === 'harbor') return uiSail();
   if (t.kind === 'board') return uiBoard();
+  if (HUB_FACILITY[t.kind]) return window.HubUI ? window.HubUI[HUB_FACILITY[t.kind]]() : say('팀·교류 시설은 웹 주소(http)로 접속해야 쓸 수 있어요. 파일로 연 화면에서는 꺼져 있습니다.');
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
   if (t.kind === 'rocksalt' && !(S.inv.pickaxe > 0)) return say('암염은 단단한 이온 결정이라 곡괭이가 있어야 캘 수 있어요.');
   const n = NODE[t.kind], ok = Sim.act.gather(S, t.ref, n, ITEM[n[0]][1]);

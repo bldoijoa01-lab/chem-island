@@ -180,7 +180,8 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   // ---- 유한 맵: 허브 정거장(plaza)·원정 행성(alpine·polar) ----
   const SPAN = { plaza: [118, 202] };
   const OBJ_SPEC = {   // 허브: [종류, [옛 월드 x(= 맵 x + 106)]]. 재배 선반(나무·밀·사탕수수)·모래 비축·얼음 저장고는 첫 목표를 본부에서 할 수 있게 둔 소량이다
-    plaza: [['fragment', [126]], ['harbor', [129]], ['pad', [131]], ['box', [133]], ['tree', [135, 143, 145, 146]], ['board', [137]], ['altar', [140]], ['wheat', [144, 147, 148]], ['cane', [149]], ['sandpile', [150]], ['icecrystal', [151]]],
+    plaza: [['fragment', [126]], ['harbor', [129]], ['pad', [131]], ['box', [133]], ['tree', [135, 143, 145, 146]], ['board', [137]], ['altar', [140]], ['wheat', [144, 147, 148]], ['cane', [149]], ['sandpile', [150]], ['icecrystal', [151]],
+      ['project', [152]], ['trade', [154]], ['reports', [156]], ['boards', [158]], ['signs', [160]]],   // 17-b: 팀 간 교류 시설(평지 x 46~57)
   };
   // 원정 행성(102 × 56): 착륙 캡슐 동굴(전송 패드) + 자원 동굴. [종류, 중심 x, 바닥 y, 반폭 rx, 높이 h]
   const FIN_DEF = {
@@ -224,7 +225,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
       for (let y = g; y < H; y++) { const d = y - g; map[y * W + x] = d === 0 ? (beach ? SAND : GRASS) : d <= 4 ? (beach ? SAND : DIRT) : STONE; }
       for (let y = 25; y < g; y++) map[y * W + x] = WATER;
     }
-    for (let gx = 152; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 도킹 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
+    for (let gx = 164; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 도킹 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
     for (const [type, xs] of OBJ_SPEC[name]) for (const gx of xs) objs.push({ id: type[0] + type[1] + gx, type, x: gx - off, gx, y: gy[gx - off], pine: false });
     return { map, gy, objs, zones: [] };
   }
@@ -364,7 +365,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   }
 
   // ---------- 상호작용 대상 (플레이어 주변에서 E/클릭으로 누를 수 있는 것) ----------
-  const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : o.type === 'harbor' || o.type === 'board' ? 14 : 8)];
+  const objCenter = o => o.type === 'altar' ? [o.x * T + 16, o.y * T - 16] : [o.x * T + 8, o.y * T - (NODE[o.type] ? NODE[o.type][4] : o.type === 'harbor' || o.type === 'board' || o.type === 'trade' || o.type === 'reports' || o.type === 'boards' || o.type === 'signs' ? 14 : o.type === 'project' ? 16 : 8)];
   function nearWater(S) {
     const tx = Math.floor((S.px + PW / 2) / T), ty = Math.floor((S.py + PH / 2) / T);
     for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 탐사정 위에서는 바로 아래 물까지
@@ -379,7 +380,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (const o of objsIn(ptx - 4, pty - 4, ptx + 4, pty + 4)) {
       if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
       const [x, y] = objCenter(o), n = NODE[o.type];
-      const label = { box: '본부 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)', pad: '전송 패드' }[o.type];
+      const label = { box: '본부 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)', pad: '전송 패드', trade: '교역소', reports: '연구 보고서 게시판', boards: '리더보드', signs: '팀 간판 (방문)', project: '공동 프로젝트: 대기 처리 코어' }[o.type];
       add(o.type, o, x, y, n ? `${UG_NAME[o.type] || n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
     }
     for (const d of devHere(S)) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
@@ -433,6 +434,50 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   }
 
   // 무한 월드 보조(그리기·시험·저장 크기): 덩어리 접근, 오브젝트 범위, 저장 바이트
+  // ---- 팀 월드 동기화(17-b): 서버에서 받은 덩어리 RLE 맵으로 내 S.world를 맞추고, 달라진 덩어리 캐시만 비운다 ----
+  function applyWorldDelta(S, rw) {
+    const changed = [];
+    for (const k of new Set([...Object.keys(S.world), ...Object.keys(rw || {})])) {
+      const v = rw ? rw[k] : undefined;
+      if (S.world[k] === v) continue;
+      if (v === undefined || v === null) delete S.world[k]; else S.world[k] = v;
+      changed.push(k);
+    }
+    if (inf && curS === S) {
+      for (const k of changed) {
+        chunks.delete(k); const [cx, cy] = k.split(',').map(Number);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { const n = chunks.get((cx + dx) + ',' + (cy + dy)); if (n) n.dirty = true; }
+      }
+      worldBytes = 0; for (const k in S.world) worldBytes += chunkBytes(k, S.world[k]);
+    }
+    return changed;
+  }
+  function resetWorldState(S) { for (const k in S.world) delete S.world[k]; chunks.clear(); worldBytes = 0; if (curS === S) resetInf(S); }
+  // 방문 미리보기용 작은 그림(DESIGN §4-25): 판 덩어리 + 코어를 감싸는 범위를 최대 64×48칸 격자로 줄인다. 글자 . 단단함 · o 빈 곳 · ~ 물 · # 코어 선체
+  function thumb(S) {
+    const ks = Object.keys(S.world).map(k => k.split(',').map(Number)); ks.push([0, 0]);
+    let cx0 = Infinity, cx1 = -Infinity, cy0 = Infinity, cy1 = -Infinity;
+    for (const [a, b] of ks) { cx0 = Math.min(cx0, a); cx1 = Math.max(cx1, a); cy0 = Math.min(cy0, b); cy1 = Math.max(cy1, b); }
+    cy0 = Math.max(cy0, -1);
+    const x0 = cx0 * CHUNK, y0 = cy0 * CHUNK, bw = (cx1 - cx0 + 1) * CHUNK, bh = (cy1 - cy0 + 1) * CHUNK;
+    const sc = Math.max(1, Math.ceil(bw / 64), Math.ceil(bh / 48)), w = Math.min(64, Math.ceil(bw / sc)), h = Math.min(48, Math.ceil(bh / sc)), rows = [];
+    const saved = inf; if (!inf) inf = true;   // 무한 월드 타일을 읽는다(화면이 다른 행성이어도 같은 S.world를 본다)
+    const keepS = curS; if (curS !== S) { curS = S; if (worldRef !== S.world) resetInf(S); }
+    for (let j = 0; j < h; j++) {
+      let row = '';
+      for (let i = 0; i < w; i++) {
+        let open = 0, water = 0, hull = 0, n = 0;
+        for (let b = 0; b < Math.min(sc, 4); b++) for (let a = 0; a < Math.min(sc, 4); a++) {
+          const t = infTile(x0 + i * sc + Math.floor(a * sc / Math.min(sc, 4)), y0 + j * sc + Math.floor(b * sc / Math.min(sc, 4))); n++;
+          if (t === AIR || t === HATCH) open++; else if (t === WATER) water++; else if (t === HULL) hull++;
+        }
+        row += hull * 2 >= n ? '#' : water * 2 >= n ? '~' : open * 4 >= n ? 'o' : '.';
+      }
+      rows.push(row);
+    }
+    inf = saved; curS = keepS;
+    return { x0, y0, s: sc, w, h, rows };
+  }
   const worldSize = () => worldBytes;
   const isInfinite = () => inf;
   const planet = () => loaded;
@@ -441,6 +486,6 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, BEDROCK, HARD, SALT, IRON, GOLD, HOT, RARE, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
     tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, UG_NAME, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock, toolTier,
     CORE, coreTile, inCore, ambientAt, tileTemp, devHere, mobHere, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
-    getChunk, objsIn, featureAt, worldSize, isInfinite, planet, rleEncode, rleDecode, pickFeature, ZONES, STARTERS,
+    getChunk, objsIn, featureAt, applyWorldDelta, resetWorldState, thumb, worldSize, isInfinite, planet, rleEncode, rleDecode, pickFeature, ZONES, STARTERS,
   };
 })();

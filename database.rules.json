@@ -132,6 +132,22 @@
         "members": { "$u": { ".validate": "newData.isString() && newData.val().length <= 8" } },
         "tech": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
         "summary": { ".validate": "newData.isString() && newData.val().length <= 200" },
+        "devices": { "$i": {
+          ".validate": "newData.hasChildren(['id', 'x', 'y'])",
+          "id": { ".validate": "newData.isString() && newData.val().length <= 12" },
+          "x": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
+          "y": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
+          "run": { ".validate": "newData.isBoolean()" },
+          "broken": { ".validate": "newData.isBoolean()" },
+          "$other": { ".validate": false } } },
+        "map": {
+          "x0": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
+          "y0": { ".validate": "newData.isNumber() && newData.val() >= -100000 && newData.val() <= 100000" },
+          "s": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 4096" },
+          "w": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 64" },
+          "h": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 48" },
+          "rows": { "$i": { ".validate": "newData.isString() && newData.val().length <= 64" } },
+          "$other": { ".validate": false } },
         "t": { ".validate": "newData.isNumber()" },
         "$other": { ".validate": false }
       }

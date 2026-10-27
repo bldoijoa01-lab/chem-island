@@ -186,6 +186,13 @@ window.Net = (() => {
     }, undefined, false);
     return { ok: !!r.committed, ver: base + 1 };
   };
+  // 옆면(17-b) 월드 동기화용: state 전체를 다시 쓰지 않고 바뀐 필드와 바뀐 덩어리(state/world/{cx,cy})만 update() 한 번으로 올린다. 서버 규칙의 `ver 정확히 +1` 검사(낙관적 동시성)는 그대로 적용된다.
+  // fields: 바뀐 팀 필드, worldDelta: { 'cx,cy': RLE 또는 null(삭제) }. 만들 때(base 0)는 모든 팀 필드를 넘긴다. 성공하면 { ok: true, ver }
+  N.partyPublishDelta = async (pid, base, fields, worldDelta) => {
+    const up = Object.assign({}, JSON.parse(JSON.stringify(fields || {})), { ver: base + 1, by: N.user.uid });
+    for (const k in worldDelta || {}) up['world/' + k] = worldDelta[k];
+    try { await db.ref('parties/' + pid + '/state').update(up); return { ok: true, ver: base + 1 }; } catch { return { ok: false, ver: base + 1 }; }
+  };
   N.partyLog = (pid, entry) => db.ref('parties/' + pid + '/log').push(Object.assign({ uid: N.user.uid, nick: N.nick, t: firebase.database.ServerValue.TIMESTAMP }, entry));
   N.partyBeat = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid + '/t').set(firebase.database.ServerValue.TIMESTAMP);
   N.partyMeta = (pid, meta) => db.ref('parties/' + pid).update(meta);
@@ -216,5 +223,6 @@ window.Net = (() => {
   // ---- 내 월드 공개 요약(17-a′): /bases/{id} = { name, color, members, tech, summary, t }. 방문 목록용이고 코어 위치·칸 내용은 올리지 않는다(DESIGN.md §4-24) ----
   N.basePublish = (id, rec) => db.ref('bases/' + id).set(Object.assign({}, rec, { t: TSV() }));
   N.baseLoad = async (n) => { const out = [], s = await db.ref('bases').orderByChild('t').limitToLast(n || 20).once('value'); s.forEach(c => { out.push(Object.assign({ id: c.key }, c.val())); }); return out.reverse(); };
+  N.baseGet = async (id) => { const v = (await db.ref('bases/' + id).once('value')).val(); return v ? Object.assign({ id }, v) : null; };   // 17-b 방문 미리보기: 팀 id 또는 uid 하나
   return N;
 })();

@@ -489,7 +489,7 @@
     // 지하 개편(17-a′): 기지·원정 부지 안 칸 (x, y)에 짓는다. pl = 그 장치가 서 있는 행성 id(환경·화면이 이것을 따른다)
     placeFree(S, id, tx, ty, pl) {
       if (!act.place(S, id, tx, ty, undefined, `${ISLANDS[pl].name} 칸 (${tx}, ${ty})`)) return false;
-      S.placed[S.placed.length - 1].pl = pl; return true;
+      const d = S.placed[S.placed.length - 1]; d.pl = pl; d.uid = pl + tx + '_' + ty; return true;   // uid: 예측 정확도·열선 등이 장치를 가리키는 이름
     },
     // 위치와 무관한 장치 생성(재료·상태). 2D는 build가, 1인칭은 격자 칸 (x, y)로 직접 부른다. u가 없으면 탐사정 좌표를 쓰지 않는다
     place(S, id, tx, ty, u, where) {

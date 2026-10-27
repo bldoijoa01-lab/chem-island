@@ -18,6 +18,7 @@ window.Store = (() => {
     if (!force && now - lastRemote < 4000) return;      // 서버 쓰기는 4초에 한 번만
     lastRemote = now;
     const snap = JSON.parse(JSON.stringify(S)); snap.log = snap.log.slice(-60);   // undefined/NaN 제거, 기록은 최근 것만
+    if (S.party && S.party.pid) delete snap.world;   // 17-b: 팀원의 월드는 팀 상태(/parties/{pid}/state/world)가 진본이라 개인 저장에 반복해 올리지 않는다(로컬에는 사본이 남는다)
     if (Net.saveRaft && (force || now - lastRaftSave > 20000)) {   // 광장에 정박한 뗏목 요약(남은 읽기만): 장치 종류·위치·가동 여부 정도만 올린다
       lastRaftSave = now;
       Net.saveRaft({ cells: S.raft.cells, dock: S.raft.dock, t: now, devs: FP ? S.placed.map(d => ({ id: d.id, u: d.x, z: d.y, run: !!d.s.run, broken: !!d.s.broken })) : S.placed.filter(d => d.u !== undefined).map(d => ({ id: d.id, u: d.u, run: !!d.s.run, broken: !!d.s.broken })) }).catch(() => {});

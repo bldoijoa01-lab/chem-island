@@ -87,8 +87,8 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   const closeM = () => ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
   await closeM(); await ev(() => { const s = G.debug(); s.raft.dock = 'plaza'; World.applyDug(s); s.f.raft = false; s.placed = []; s.mobs = []; s.px = 20 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.min = 600; }); await pg.waitForTimeout(1500);
   const names = []; const vw = await ev(() => Math.ceil(window.innerWidth / 2));
-  for (let k = 0; k < 5; k++) { await pg.mouse.click((vw - 4 - (5 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
-  chk('메뉴 5개(건설·제작·연구 노트·기록·저장)가 열림', ['건설', '제작', '연구 노트', '기록', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
+  for (let k = 0; k < 6; k++) { await pg.mouse.click((vw - 4 - (6 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
+  chk('메뉴 6개(건설·제작·연구 노트·기록·팀·저장)가 열림', ['건설', '제작', '연구 노트', '기록', '', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
   await ev(() => { const s = G.debug(); s.px = 20 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
   chk('탐사정 잔해 모달(본부 도킹 구역)', (await title()).includes('탐사정 잔해'), await title()); await closeM();
   await ev(() => { const s = G.debug(); s.px = 23 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();

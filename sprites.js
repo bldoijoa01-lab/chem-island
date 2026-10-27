@@ -276,6 +276,7 @@ window.Art = (() => {
   A.icon.shaker = I(['..wwww..', '.wkkkkw.', '..wwww..', '.gGGGGg.', 'gGGwGGGg', 'gGGGGwGg', 'gGGGGGGg', '.gggggg.'], { w: '#e4ecf2', k: '#667587', g: '#6fb7a6', G: '#c4ece0' });
   A.icon.thermo = I(['...ww...', '...wr...', '...wr...', '...wr...', '...wr...', '..wrrw..', '..wrrw..', '...ww...'], { w: '#e8ecf4', r: '#ff5a4a' });
   A.icon.hammer = I(['.hhhh...', 'hHHHHh..', 'hHHHHh.b', '.hhhhbB.', '....bB..', '...bB...', '..bB....', '..B.....'], { h: '#8f949e', H: '#d0d6e0', b: '#b9834a', B: '#7a4f25' });
+  A.icon.team = I(['.pp..pp.', '.pp..pp.', 'bbbbbbbb', 'bBbbbbBb', 'bbbbbbbb', '.bb..bb.', '.bb..bb.', '........'], { p: '#f0c8a0', b: '#4a7bd8', B: '#8fb4ff' });   // 17-b 팀 버튼
   A.icon.gear = I(['...gg...', '.g.gg.g.', '..gGGg..', 'ggGggGgg', 'ggGggGgg', '..gGGg..', '.g.gg.g.', '...gg...'], { g: '#9aa3b0', G: '#dde3ec' });
   A.icon.book = I(['.bbbbbb.', 'bBBBBBBb', 'bBwwwwBb', 'bBwkkwBb', 'bBwwwwBb', 'bBwkkwBb', 'bBBBBBBb', '.bbbbbb.'], { b: '#2f5ea8', B: '#4a82d6', w: '#f4f6fa', k: '#8a94a8' });
   A.icon.scroll = I(['.wwwwww.', 'wWWWWWWw', 'wWkkkkWw', 'wWWWWWWw', 'wWkkkWWw', 'wWWWWWWw', 'wWkkkkWw', '.wwwwww.'], { w: '#c9b98a', W: '#efe3bd', k: '#6a5a3a' });

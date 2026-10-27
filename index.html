@@ -68,5 +68,6 @@
 <script src="notes.js"></script>
 <script src="raid.js"></script>
 <script src="game.js"></script>
+<script>if (location.protocol !== 'file:') { const m = document.createElement('script'); m.type = 'module'; m.src = 'team.js'; document.body.appendChild(m); }   // 팀·교류(17-b)는 ES 모듈이라 file://에서는 불러오지 않는다(그때는 팀 기능만 꺼진다)</script>
 </body>
 </html>

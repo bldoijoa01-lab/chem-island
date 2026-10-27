@@ -10,7 +10,10 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const me = () => (window.Net && Net.user ? Net.user.uid : null);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const P = { pid: null, meta: null, members: {}, lease: null, ver: 0, holder: false, active: false, log: [], unsub: [], lastAction: 0, lastPub: 0, lastHash: '', lastBeat: 0, publishing: false, prevQ: 0, onApplied: null, say: () => {}, isModalOpen: () => false };
+const P = { pid: null, meta: null, members: {}, lease: null, ver: 0, holder: false, active: false, log: [], unsub: [], lastAction: 0, lastPub: 0, lastHash: '', lastBeat: 0, publishing: false, prevQ: 0, onApplied: null, say: () => {}, isModalOpen: () => false,
+  // 옆면(17-b) 월드 동기화: worldSync가 켜지면 판 칸 덩어리(S.world)도 팀 상태에 들어가고, 바뀐 필드·바뀐 덩어리만 올린다. getWorld/applyWorld/resetWorld는 화면 쪽이 넘긴다(fp/·td/는 켜지 않는다)
+  worldSync: false, getWorld: () => ({}), applyWorld: () => [], resetWorld: () => {}, lastWorld: {}, lastFields: {}, stats: { writes: 0, bytes: 0, last: 0 } }
+const WORLD_PUB_MS = 2000;   // 가정(임의값) 월드가 바뀐 뒤 올리는 최소 간격(연속 파기 때 덩어리 RLE를 덜 자주 올린다);
 
 function ensureTeam() {
   if (!S.team) S.team = {};
@@ -23,13 +26,18 @@ const teamOf = () => { ensureTeam(); const o = {}; for (const k of TEAM_KEYS) o[
 
 // 서버의 팀 상태를 내 S의 팀 필드에 덮어쓴다(Firebase는 빈 배열을 지우므로 Sim.merge로 기본 형태를 복구한다)
 function applyRemote(state) {
-  const m = Sim.merge(Object.assign({ fp: {} }, state));   // fp를 넣어 2D 뗏목 이전(migrateRaft)을 건너뛴다
-  const oldDay = S.day;
+  const m = Sim.merge(Object.assign({ fp: {} }, state, { ver: Sim.newState().ver }));   // fp를 넣어 2D 뗏목 이전(migrateRaft)을 건너뛴다. ver는 팀 버전이 아니라 세이브 버전으로(팀 ver 1이 옛 세이브 이전 코드를 타지 않게)
+  const oldDay = S.day, dock = S.raft && S.raft.dock;
   for (const k of TEAM_KEYS) S[k] = m[k];
+  if (P.worldSync && dock) S.raft = Object.assign({}, S.raft, { dock });   // 지금 있는 행성은 개인이다
   S.links = Array.isArray(state.links) ? state.links : Object.values(state.links || {});   // Firebase는 빈 배열을 지우고 배열을 객체로 돌려주기도 한다
   S.team = state.team || {}; ensureTeam(); for (const u in S.team.contrib) { const c = S.team.contrib[u]; if (!Array.isArray(c.goals)) c.goals = c.goals ? Object.values(c.goals) : []; }
   if (S.day !== oldDay) { S.nodes = {}; S.packs = S.packs.filter(p => p.day >= S.day); }   // 하루가 바뀌면 개인 자원 노드가 다시 자란다(Sim의 newDay와 같은 개인 부분)
   P.ver = state.ver; P.prevQ = S.qDone; P.lastHash = JSON.stringify(teamOf());
+  if (P.worldSync) {   // 바뀐 덩어리만 내 월드에 반영하고, 마지막으로 받은 사본을 기억한다
+    const rw = state.world || {}; P.applyWorld(rw); P.lastWorld = Object.assign({}, rw);
+    P.lastFields = {}; const f = teamOf(); for (const k in f) P.lastFields[k] = JSON.stringify(f[k]);
+  }
   if (P.onApplied) P.onApplied();
 }
 
@@ -54,6 +62,9 @@ export const Party = {
   online() { const now = Date.now(); return Object.values(P.members).filter(m => m && now - m.t < ONLINE_MS).length || (P.pid ? 1 : 0); },
   canAdvance() { return !P.pid || P.holder; },                     // 시간은 시계 담당(lease를 가진 사람)만 흘린다
   speed() { return P.pid && Party.online() > 1 ? 1 : S.speed; },    // 접속한 팀원이 2명 이상이면 x1 고정
+  touch() { P.lastAction = Date.now(); },                                   // 연속 파기처럼 행동이 이어지는 동안 active 임대를 유지한다
+  writable() { return !P.pid || (P.holder && P.active); },                    // 월드·장치를 지금 바꿀 수 있는가
+  get stats() { return P.stats; },
   needsLease(kind) { return !!P.pid && ['dev', 'wolf', 'water', 'altar', 'fragment', 'harbor'].includes(kind); },
 
   // 시작: 저장된 팀 소속(S.party)이 있으면 서버를 듣기 시작한다
@@ -68,8 +79,10 @@ export const Party = {
     ensureTeam(); contribOf(me(), Net.nick);
     const { pid, code } = await Net.partyCreate(name, color || '#4a9ad8');
     S.party = { pid };
-    const r = await Net.partyPublish(pid, 0, teamOf());   // 만든 사람의 탐사정·장치가 팀의 처음 상태가 된다
+    const first = teamOf();
+    const r = P.worldSync ? await Net.partyPublishDelta(pid, 0, first, P.getWorld()) : await Net.partyPublish(pid, 0, first);   // 만든 사람의 탐사정·장치(와 내 월드)가 팀의 처음 상태가 된다
     if (!r.ok) throw new Error('팀 상태를 만들지 못했습니다.');
+    if (P.worldSync) { P.lastWorld = Object.assign({}, P.getWorld()); P.lastFields = {}; for (const k in first) P.lastFields[k] = JSON.stringify(first[k]); countWrite(first, P.getWorld()); }
     P.ver = r.ver; watch(pid); Store.save(true);
     return { pid, code };
   },
@@ -90,7 +103,9 @@ export const Party = {
     const fresh = Sim.newState();   // 내 몫의 새 탐사정: 팀 필드를 처음 상태로(인벤토리·개인 기록은 가져간다)
     for (const k of TEAM_KEYS) S[k] = fresh[k];
     S.links = [];
-    S.team = {}; ensureTeam(); delete S.party; if (P.onApplied) P.onApplied(); Store.save(true);
+    S.team = {}; ensureTeam(); delete S.party;
+    if (P.worldSync) { P.resetWorld(); P.lastWorld = {}; P.lastFields = {}; }   // 나는 새 빈 월드로 처음부터(가방은 가져간다)
+    if (P.onApplied) P.onApplied(); Store.save(true);
   },
 
   // 팀 필드를 바꾸는 행동 전에 부른다. 팀이 없으면 바로 통과. 못 얻으면 false(동료가 조작 중)
@@ -147,6 +162,20 @@ export const Party = {
       P.prevQ = S.qDone;
     }
     const st = teamOf(), h = JSON.stringify(st);
+    if (P.worldSync) {   // 바뀐 필드와 바뀐 덩어리만 올린다(무한 월드 전체를 매번 쓰지 않는다)
+      const cur = P.getWorld(), wd = {}, fd = {};
+      for (const k in cur) if (P.lastWorld[k] !== cur[k]) wd[k] = cur[k];
+      for (const k in P.lastWorld) if (!(k in cur)) wd[k] = null;
+      for (const k in st) if (JSON.stringify(st[k]) !== P.lastFields[k]) fd[k] = st[k];
+      if (!Object.keys(wd).length && !Object.keys(fd).length) { P.lastPub = now; return; }
+      if (Object.keys(wd).length && now - P.lastPub < WORLD_PUB_MS) return;
+      P.publishing = true;
+      Net.partyPublishDelta(P.pid, P.ver, fd, wd).then(r => {
+        if (r.ok) { P.ver = r.ver; for (const k in fd) P.lastFields[k] = JSON.stringify(fd[k]); for (const k in wd) { if (wd[k] === null) delete P.lastWorld[k]; else P.lastWorld[k] = wd[k]; } P.lastHash = h; countWrite(fd, wd); }
+        else { P.holder = false; P.active = false; P.say('동료의 변경이 먼저 반영됐어요. 방금 내 변경은 서버 상태로 바뀝니다.'); }   // 엇갈렸으면 서버 상태를 받아 팔로어가 된다
+      }).catch(() => {}).finally(() => { P.publishing = false; P.lastPub = Date.now(); });
+      return;
+    }
     if (h === P.lastHash) { P.lastPub = now; return; }
     P.publishing = true;
     Net.partyPublish(P.pid, P.ver, st).then(r => { if (r.ok) { P.ver = r.ver; P.lastHash = h; } else { P.holder = false; P.active = false; } })   // 엇갈렸으면 서버 상태를 받아 팔로어가 된다
@@ -183,6 +212,7 @@ export const Party = {
   },
 };
 
+function countWrite(fields, world) { P.stats.writes++; P.stats.bytes += JSON.stringify(fields).length + JSON.stringify(world).length; P.stats.last = Date.now(); }
 function watch(pid) {
   P.pid = pid; P.lastAction = 0; P.lastPub = 0; P.prevQ = S.qDone; ensureTeam();
   P.unsub.push(Net.partyWatch(pid, onSnap));

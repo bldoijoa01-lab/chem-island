@@ -19,12 +19,14 @@ applyDug();
 let lastPlanet = Sim.dockOf(S).island, warp = null;
 Sim.geo.ambient = World.ambientAt;   // 17-a′: 장치·플레이어 자리의 구역 온도(낮밤 없음). 옆면 화면만 켠다(fp/td·시험은 옛 식 그대로)
 const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: h === 'plaza' ? '본부' : h === 'start' ? '내 월드' : Sim.ISLANDS[h].name }; if (window.Net && Net.user) { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); } } };
+window.SideGame = { applyWorld: () => applyWorld() };   // 17-b: 옆면 팀 모듈(team.js)이 팀 상태를 받은 뒤 지도를 다시 맞춘다
 
 // ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
 const digCheck = (tx, ty) => World.digCheck(S, tx, ty);
-function stepDig(dt) { const [tx, ty] = mouseTile(); World.stepDig(S, dt, tx, ty, !$('modal').hidden || !!mode); flush(); }
-function placeBlock() { const [tx, ty] = mouseTile(); if (World.placeBlock(S, mode.slice(6), tx, ty)) mode = null; flush(); }
+// 팀이면 내 월드(공유되는 땅)를 파는 동안 쓰기 임대가 있어야 한다(없으면 얻는 동안 기다린다). 본부·원정 부지의 땅은 개인이라 임대가 필요 없다
+function stepDig(dt) { const [tx, ty] = mouseTile(); World.stepDig(S, dt, tx, ty, !$('modal').hidden || !!mode || (dig.on && World.isInfinite() && !!window.Team && digCheck(tx, ty).ok && !Team.gate())); flush(); }
+function placeBlock() { if (!mode) return; const [tx, ty] = mouseTile(); if (World.placeBlock(S, mode.slice(6), tx, ty)) mode = null; flush(); }
 function pickAt(kind) { const wx = cam.x + mouse.x, wy = cam.y + mouse.y; return World.targets(S).find(o => o.kind === kind && Math.hypot(o.x - wx, o.y - wy) < 26); }
 function useThermo() { const t = pickAt('dev'), [tx, ty] = mouseTile(); World.useThermo(S, t ? { dev: t.ref } : { tx, ty }); flush(); }
 function useShaker() { const w = pickAt('wolf'), [tx, ty] = mouseTile(); World.useShaker(S, w ? { wolf: w.ref } : { tx, ty }); flush(); }
@@ -33,8 +35,8 @@ function useShaker() { const w = pickAt('wolf'), [tx, ty] = mouseTile(); World.u
 function drawPlazaRafts(t) {
   ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
   UI.plazaRafts().slice(0, 3).forEach((r, i) => {
-    const x0 = 47 + i * 13,   // 허브 도킹 구역(옛 월드 x 153 − 오프셋 106)
-       cells = Math.max(2, Math.min(10, r.cells | 0));
+    const x0 = 59 + i * 9,   // 허브 도킹 구역(연못 x 58~85, 서쪽 x 46~57은 교류 시설)
+       cells = Math.max(2, Math.min(8, r.cells | 0));
     for (let c = 0; c < cells; c++) ctx.drawImage(Art.tiles.raft[c % 3], (x0 + c) * T - cam.x, Sim.RAFT.ROW * T - cam.y);
     for (const d of (r.devs || [])) if (d && Art.dev[d.id] && d.u >= 0 && d.u + 2 <= cells) {
       const sx = (x0 + d.u) * T - cam.x, sy = Sim.RAFT.DEV_Y * T - cam.y;
@@ -52,7 +54,9 @@ let mode = null;   // 'build:<id>' | 'demolish' | 'block:<item>' | 'tool:<id>'
 const mouse = { x: 0, y: 0 };
 const cam = { x: 0, y: 0 };
 const ghostCheck = id => World.ghostCheck(S, id, Math.floor((cam.x + mouse.x) / T - 1 + 0.5), Math.floor((cam.y + mouse.y) / T - 1 + 0.5));   // 17-a′: 장치는 월드 안 빈 2×2칸에(마우스가 가운데)
-function placeAtMouse() {
+function placeAtMouse() { if (window.Team && Team.inParty()) Team.guard(placeNow); else placeNow(); }   // 팀이면 장치·월드를 바꾸기 전에 쓰기 임대를 얻는다
+function placeNow() {
+  if (!mode) return;
   if (mode.startsWith('block:')) return placeBlock();
   if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
@@ -69,6 +73,7 @@ function placeAtMouse() {
 }
 
 // ---------- 입력 ----------
+const doInteract = t => { if (t && window.Team && Team.needsLease(t.kind)) Team.guard(() => interact(t)); else interact(t); };   // 팀이면 장치·얼음 생물·제단 등은 쓰기 임대를 얻은 뒤에 연다
 const keys = { left: false, right: false, jump: false };
 function clearKeys() { keys.left = keys.right = keys.jump = false; }
 const KEYMAP = { a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', w: 'jump', arrowup: 'jump', ' ': 'jump' };
@@ -78,7 +83,7 @@ window.addEventListener('keydown', e => {
   if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); }
-  else if (k === 'e') interact(targets()[0]);
+  else if (k === 'e') doInteract(targets()[0]);
   else if (k === 'escape' && mode) { mode = null; say('취소'); }
 });
 window.addEventListener('keyup', e => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys[k] = false; });
@@ -104,12 +109,12 @@ cv.addEventListener('click', e => {
   if (mode) return placeAtMouse();
   const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
   const t = targets().filter(o => Math.hypot(o.x - wx, o.y - wy) < 26).sort((a, b) => Math.hypot(a.x - wx, a.y - wy) - Math.hypot(b.x - wx, b.y - wy))[0];
-  if (t) interact(t);
+  if (t) doInteract(t);
 });
 // 화면 터치 패드
 document.querySelectorAll('#pad button').forEach(b => {
   const k = b.dataset.k;
-  const on = e => { e.preventDefault(); if (k === 'e') interact(targets()[0]); else keys[k] = true; };
+  const on = e => { e.preventDefault(); if (k === 'e') doInteract(targets()[0]); else keys[k] = true; };
   const off = e => { e.preventDefault(); if (k !== 'e') keys[k] = false; };
   b.addEventListener('pointerdown', on); b.addEventListener('pointerup', off); b.addEventListener('pointerleave', off); b.addEventListener('pointercancel', off);
 });
@@ -281,6 +286,8 @@ function draw(t) {
     else if (o.type === 'harbor') blit(Art.obj.harbor, sx, sy - 32);
     else if (o.type === 'board') blit(Art.obj.board, sx, sy - 28);
     else if (o.type === 'pad') blit(Art.obj.pad, sx, sy - 8);
+    else if (o.type === 'trade' || o.type === 'reports' || o.type === 'boards' || o.type === 'signs') blit(Art.obj[o.type], sx - 6, sy - 28);   // 17-b 본부 교류 시설
+    else if (o.type === 'project') blit(Art.obj.project, sx - 10, sy - 32);
     else if (o.type === 'fragment') { if (!S.f.raft) blit(Art.obj.fragment, sx - 4, sy - 12); }
     else if (o.type === 'box') { ctx.fillRect(sx, sy - 1, 16, 2); blit(Art.obj.box, sx, sy - 16); }
     else if (o.type === 'altar') { ctx.fillRect(sx, sy - 1, 32, 2); blit(Art.dev.altar, sx, sy - 32); if (!S.f.boss) { ctx.fillStyle = `rgba(255,200,120,${0.25 + 0.2 * Math.sin(t * 3)})`; ctx.fillRect(sx + 9, sy - 21, 6, 6); ctx.fillRect(sx + 19, sy - 21, 6, 6); } }
@@ -401,7 +408,7 @@ function hudBox(x, y, w, h, on) {
 const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
 const hudMenu = [
   ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
-  ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()],
+  ['scroll', '기록', () => openLog()], ['team', '팀', () => window.TeamUI ? TeamUI.open() : say('팀 기능은 웹 주소(http)로 접속해야 쓸 수 있어요.')], ['disk', '저장/계정', () => openSave()],
 ];
 function drawHUD(t) {
   HUD.hits = []; HUD.tip = '';
@@ -445,7 +452,7 @@ function drawHUD(t) {
 }
 
 // 시계: 1초 = 게임 2분 (x1)
-setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; advance(S.speed); UI.tick(); refresh(); }, 500);
+setInterval(() => { if (Store.paused || (window.Raid && Raid.active)) return; if (!window.Team || Team.canAdvance()) advance(window.Team ? Team.speed() : S.speed); UI.tick(); refresh(); }, 500);   // 팀이면 시계 담당(임대 보유자)만 시간을 흘리고, 접속한 팀원이 둘 이상이면 x1
 setInterval(() => save(), 5000);
 window.addEventListener('pagehide', () => save(true));
 function fit() {   // 게임 화면이 창 전체를 채운다: 픽셀 배율(정수)은 고정하고 보이는 월드 범위를 창에 맞춘다
@@ -461,7 +468,7 @@ UI.init({
   puff, burst, clearKeys, applyWorld,
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
-  joinMap() { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); },
+  joinMap() { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); if (window.Team) Team.online(); },
 });
 refresh(); fit(); requestAnimationFrame(frame);
 // 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말
