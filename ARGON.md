@@ -199,3 +199,19 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
   4. **11단계 교류**: 자기 팀 교역 수락 → 거부, 점수 줄이기 → 거부, 상한 초과 → 거부, 남의 팀 점수 쓰기 → 거부.
   5. 규칙 게시 직후 앱에서 로그인 → 저장 → 팀 만들기 → 본부 간판 보기가 에러 없이 되는지(브라우저 콘솔의 `PERMISSION_DENIED` 확인).
 
+### [2026-10-27] 17-c: 팀 대 팀 합치기 — 순서 충돌·끊김 복구·호스트 선정·`/merges` 규칙 검토
+- 맡길 일: (1) **합치기 순서 충돌**: 게스트 팀원 여럿이 동시에 `Party.mergeJoin` → `moved` → `switchTo` → 입금 → `partyLeave` 하는 동안, 호스트 상태에 `team.merged[from:o]`를 한 번만 넣는 짐꾼 입금(`merge.js` `step`의 `deposit`)이 두 번 입금되거나 한 번도 입금되지 않을 틈이 있는지, 짐꾼이 게스트 팀을 떠난 뒤 다른 게스트 팀원이 `view`를 못 얻어 멈추는 경로가 있는지, (2) **끊김 복구**: 장부(`S.mergeJob`, `phase` join → switch → deposit → leave → done) 각 단계가 멱등인지, 특히 deposit에서 `t.merged` 표시와 창고 가산이 **같은 한 번의 `ver` 검사 쓰기**로 서버에 가는지(`Party.dirty()` 대기 8초 뒤 `partyLeave`), 쓰기가 엇갈려 거절되면 다음 틱에 서버 상태로 덮인 뒤 다시 입금하는지, (3) **호스트 선정**: `hostOf`(인원 → 같으면 `pidOrder`: 길이 후 사전순)가 Firebase push id(20자, 앞 8자가 시각)에서 먼저 만든 팀을 맞게 고르는지, 인원이 제안 뒤에 바뀌었을 때의 처리(수락 때 호스트 재계산, 확인 때 `guestN` 비교), (4) **`/merges` 규칙**: `.write`를 `offer`·`answer`·`grant`·`ready/$uid`·`moved/$uid`에만 두고 `$from` 수준에는 두지 않은 것이 상위 `.write` 캐스케이드를 피하는지, `grant`가 두 팀원 모두에게 쓰기를 주는 한계, `/parties/$pid/merge` 추가가 기존 `$other: false`와 충돌하지 않는지.
+- 같이 붙일 파일(**채팅의 저장소 첨부는 오래된 커밋에 고정되니 파일을 직접 첨부**): `merge.js`, `shared/party.js`(`join`·`mergeJoin`·`switchTo`·`dirty`·`waitFirst`), `shared/hub.js`(`scoreOf`·`signs`), `net.js`(`merge*`), `database.rules.json`(`merges`·`parties/$pid/merge`·`partyPub`·`boards`), `tools/fakenet.js`(`merge*`), `tools/smokemerge.js`, `MULTIPLAYER.md`, `DESIGN.md` §4-26
+- 질문: (a) 장부 기반 재개에서 `Net.partyJoin`이 이미 멤버일 때 `members/{uid}`를 같은 `code`로 다시 `set` 해도 규칙(`data.exists()` 허용)이 통과하고 `t`만 갱신되는지, (b) 점수 합산(`team.bonus.water`, `envGoals` 합집합, `coreUnits` 덧셈)이 `scoreOf`와 리더보드 상한(`env` 3·`core` 60·`water` 2000·`predict` 30)을 지키며 줄지 않게 따라 오르는지, (c) 두 팀이 서로에게 동시에 제안하면(`/merges/B/A`와 `/merges/A/B`) 어떻게 되는지(현재는 각자 자기 제안과 받은 제안을 따로 처리 — 막지 않음).
+- 사람이 확인할 방법: `node tools/smokemerge.js`(가짜 서버), 두 팀을 실제 Firebase로 만들어 제안→수락→확인→합류를 해 보고 중간에 탭을 닫았다 다시 열어 이어지는지, 콘솔 규칙 시뮬레이터 점검(아래)
+
+### 규칙 시뮬레이터 점검 항목 — 17-c 추가분
+  1. **`/merges/{to}/{from}/offer`**: `from` 팀원 uid로 쓰기 → 허용 / `to` 팀원이 쓰기 → 거부 / `n` 7 → 거부 / `exp`가 `now`+1시간 초과 → 거부 / 필드 누락·`$other` 추가 → 거부.
+  2. **`answer`**: `to` 팀원 → 허용 / `from` 팀원 → 거부 / `res`가 `accept`·`reject` 밖 → 거부.
+  3. **`grant`**: 두 팀원 → 허용, 둘 다 아닌 uid → 거부, `code` 5자 → 거부.
+  4. **`ready/$uid`·`moved/$uid`**: 본인 uid + 두 팀 중 한 팀원 → 허용 / 다른 사람 uid로 쓰기 → 거부 / 아무 팀도 아닌 uid → 거부.
+  5. **읽기**: `/merges/{to}`를 `to` 팀원으로 읽기 → 허용, `from` 팀원 → 거부(`/merges/{to}/{from}`은 허용), 팀이 아닌 uid → 거부.
+  6. **`/parties/{pid}/merge`**: 팀원 쓰기 → 허용 / 남 → 거부 / `to`·`t` 누락 → 거부.
+  7. **상한 변경**: `/partyPub/{pid}/members` 6 → 허용, 7 → 거부. `/boards/{board}/{pid}/members` 6 → 허용, 7 → 거부. (팀 인원 상한 자체는 규칙이 셀 수 없음 — 허용되는 것이 정상)
+  8. 규칙 게시 직후 앱에서 팀 만들기 → 간판 → 합치기 제안이 `PERMISSION_DENIED` 없이 되는지.
+

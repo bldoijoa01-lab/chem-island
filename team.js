@@ -4,6 +4,7 @@
 import { Party } from './shared/party.js';
 import { cfg as hubCfg, tick as hubTick, startWatch } from './shared/hub.js';
 import { TeamUI, wrapActions } from './shared/hud.js';
+import * as Merge from './merge.js';
 const S = Store.S, { DEV } = Sim, esc = UI.esc;
 const atHub = () => Sim.dockOf(S).island === 'plaza';
 
@@ -35,7 +36,9 @@ window.Team = {
 hubCfg.reportNote = '모든 팀이 같은 시드로 만든 월드를 쓰므로, 같은 장치를 같은 조건에 놓으면 결과가 같아야 합니다. 다르게 나오면 "값이 다름"으로 표시하세요.';
 hubCfg.shipSummary = () => ({ cells: 1 });
 const signs = {};
-hubCfg.signAction = (p) => { signs[p.pid] = p; return `<button onclick="TeamUI.visit('${esc(p.pid)}')">방문</button>`; };
+hubCfg.signAction = (p) => { signs[p.pid] = p; Merge.notePub(p); return `<button onclick="TeamUI.visit('${esc(p.pid)}')">방문</button> ${Merge.signButton(p)}`; };
+hubCfg.signExtra = () => Merge.panelHtml();
+Merge.install(TeamUI);   // 팀 대 팀 합치기(17-c): 제안·수락·확인 창·합류 실행
 
 // ---------- 가입 확인 창: 잃는 것과 가져가는 것을 먼저 보여 준다 ----------
 const refundOf = () => { const r = {}; for (const d of S.placed) for (const k in DEV[d.id].cost) r[k] = (r[k] || 0) + DEV[d.id].cost[k]; return r; };
@@ -83,5 +86,6 @@ TeamUI.visit = async function (id) {
     <small class="mut">서버가 요약이 실제 월드와 맞는지는 검증하지 못합니다(약속에 기댄 표시). 걸어 들어가거나 고칠 수 없는 읽기 전용입니다.</small>`);
 };
 
-setInterval(() => { if (Store.paused) return; Party.tick(); hubTick(); }, 1000);
+setInterval(() => { if (Store.paused) return; Party.tick(); hubTick(); Merge.tick(); }, 1000);
+window.Merge = Merge;   // 시험·점검용
 if (window.Net && Net.user) window.Team.online();

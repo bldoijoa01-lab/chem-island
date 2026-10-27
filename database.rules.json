@@ -159,6 +159,58 @@
         ".validate": "newData.isString() && $code.matches(/^[A-Z2-9]{6}$/)"
       }
     },
+    "merges": {
+      "$to": {
+        ".read": "auth != null && root.child('parties/' + $to + '/members/' + auth.uid).exists()",
+        "$from": {
+          ".read": "auth != null && root.child('parties/' + $from + '/members/' + auth.uid).exists()",
+          "offer": {
+            ".write": "auth != null && root.child('parties/' + $from + '/members/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['fromName', 'toName', 'color', 'n', 'q', 'host', 't', 'exp'])",
+            "fromName": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 10" },
+            "toName": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 10" },
+            "color": { ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
+            "n": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 6" },
+            "q": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
+            "host": { ".validate": "newData.isString() && newData.val().length <= 40" },
+            "t": { ".validate": "newData.isNumber()" },
+            "exp": { ".validate": "newData.isNumber() && newData.val() <= now + 3600000" },
+            "$other": { ".validate": false }
+          },
+          "answer": {
+            ".write": "auth != null && root.child('parties/' + $to + '/members/' + auth.uid).exists()",
+            ".validate": "newData.hasChildren(['res', 'n', 'q', 'o', 't'])",
+            "res": { ".validate": "newData.isString() && newData.val().matches(/^(accept|reject)$/)" },
+            "n": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 6" },
+            "q": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
+            "o": { ".validate": "newData.isNumber()" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          },
+          "grant": {
+            ".write": "auth != null && (root.child('parties/' + $from + '/members/' + auth.uid).exists() || root.child('parties/' + $to + '/members/' + auth.uid).exists())",
+            ".validate": "newData.hasChildren(['code', 'o', 't'])",
+            "code": { ".validate": "newData.isString() && newData.val().length === 6" },
+            "o": { ".validate": "newData.isNumber()" },
+            "t": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          },
+          "ready": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && (root.child('parties/' + $from + '/members/' + auth.uid).exists() || root.child('parties/' + $to + '/members/' + auth.uid).exists())",
+              ".validate": "newData.isNumber()"
+            }
+          },
+          "moved": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && (root.child('parties/' + $from + '/members/' + auth.uid).exists() || root.child('parties/' + $to + '/members/' + auth.uid).exists())",
+              ".validate": "newData.isNumber()"
+            }
+          },
+          "$other": { ".validate": false }
+        }
+      }
+    },
     "parties": {
       "$pid": {
         ".read": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
@@ -209,6 +261,13 @@
             "$other": { ".validate": false }
           }
         },
+        "merge": {
+          ".write": "auth != null && root.child('parties/' + $pid + '/members/' + auth.uid).exists()",
+          ".validate": "newData.hasChildren(['to', 't'])",
+          "to": { ".validate": "newData.isString() && newData.val().length <= 40" },
+          "t": { ".validate": "newData.isNumber()" },
+          "$other": { ".validate": false }
+        },
         "$other": { ".validate": false }
       }
     },
@@ -220,7 +279,7 @@
         "name": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 10" },
         "color": { ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
         "motto": { ".validate": "newData.isString() && newData.val().length <= 30" },
-        "members": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 4" },
+        "members": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 6" },
         "qDone": { ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 20" },
         "planet": { ".validate": "newData.isString() && newData.val().length <= 12" },
         "t": { ".validate": "newData.isNumber()" },
@@ -318,7 +377,7 @@
           ".validate": "newData.hasChildren(['name', 'score', 't'])",
           "name": { ".validate": "newData.isString() && newData.val().length <= 10" },
           "color": { ".validate": "newData.isString() && newData.val().matches(/^#[0-9a-fA-F]{6}$/)" },
-          "members": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 4" },
+          "members": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 6" },
           "score": { ".validate": "newData.isNumber() && newData.val() >= (data.exists() ? data.val() : 0) && newData.val() <= (data.exists() ? data.val() : 0) + ($board === 'env' ? 3 : ($board === 'core' ? 60 : ($board === 'water' ? 2000 : 30))) && newData.val() <= 100000" },
           "t": { ".validate": "newData.isNumber()" },
           "$other": { ".validate": false }

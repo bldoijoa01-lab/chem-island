@@ -27,13 +27,13 @@ const addWh = (k, n) => { const w = wh(); w[k] = (w[k] || 0) + n; if (w[k] <= 0)
 
 // ---------- 주기: 탐사정 요약·리더보드 점수 올리기(시계 담당만) ----------
 // 화면마다 다른 것: 탐사정 요약(옆면은 장치가 탐사정 위에 있지 않으므로 빈 요약)과 팀 간판 행의 추가 동작(옆면: 방문)
-export const cfg = { shipSummary: null, signAction: null, reportNote: '' };   // reportNote: 보고서 화면에 한 줄 더 보여 줄 안내(옆면: 같은 시드라 재현이 공정하다)
+export const cfg = { shipSummary: null, signAction: null, signExtra: null, reportNote: '' };   // signExtra: 간판 창 맨 위에 넣을 HTML(옆면: 팀 합치기 상태 칸)   // reportNote: 보고서 화면에 한 줄 더 보여 줄 안내(옆면: 같은 시드라 재현이 공정하다)
 function shipSummary() { if (cfg.shipSummary) return cfg.shipSummary(); return { cells: S.raft.cells, devs: S.placed.filter(d => !d.plot).map(d => ({ id: d.id, u: d.x, z: d.y, run: !!d.s.run, broken: !!d.s.broken })) }; }
 function scoreOf(board) {
   const t = team();
   if (board === 'env') return Object.keys(t.envGoals).length;
   if (board === 'core') return Math.floor(t.coreUnits || 0);
-  if (board === 'water') return Math.floor(S.f.dW || 0);
+  if (board === 'water') return Math.floor((S.f.dW || 0) + ((t.bonus && t.bonus.water) || 0));   // bonus.water: 팀 합치기(17-c)로 가져온 게스트 팀의 증류수 기록(게임 진행 필드 f.dW는 건드리지 않는다)
   if (board === 'predict') return Math.floor(t.predictScore || 0);
   return 0;
 }
@@ -70,9 +70,10 @@ const HubUI = window.HubUI = {
   async signs() {
     modal('팀 간판', '<div class="mut">불러오는 중...</div>');
     let list = []; try { list = env() ? await Net.pubLoad(12) : []; } catch { /* 오프라인 */ }
+    list = list.filter(p => p.members !== 0);   // 합쳐진 팀의 옛 간판(members 0)은 숨긴다
     const rows = list.map(p => `<tr><td><span style="color:${esc(p.color || '#fff')}">■</span> <b>${esc(p.name || '')}</b>${p.pid === Party.pid ? ' (우리 팀)' : ''}</td><td>${esc(p.motto || '')}</td><td>${p.members || 1}명</td><td>목표 ${p.qDone || 0}/11</td><td>${esc(PLANET_NAME[p.planet] || p.planet || '')}</td><td>${(p.ship && p.ship.devs ? Object.keys(p.ship.devs).length : 0)}개 · ${(p.ship && p.ship.cells) || 0}칸</td>${cfg.signAction ? `<td>${cfg.signAction(p)}</td>` : ''}</tr>`).join('');
     const mine = Party.inParty() ? `<div class="row" style="margin-top:8px"><input id="hub-motto" maxlength="30" placeholder="우리 팀 한 줄 소개 (30자)" value="${esc((list.find(p => p.pid === Party.pid) || {}).motto || '')}"><button class="primary" onclick="HubUI.setMotto()">간판에 걸기</button></div>` : '<div class="mut">팀에 들어가면 한 줄 소개를 걸 수 있어요.</div>';
-    modal('팀 간판', `<div class="box"><table><tr><th>팀</th><th>한 줄 소개</th><th>인원</th><th>진행</th><th>있는 곳</th><th>탐사정</th>${cfg.signAction ? '<th></th>' : ''}</tr>${rows || '<tr><td colspan="7" class="mut">아직 올라온 팀이 없습니다.</td></tr>'}</table></div>${mine}<small class="mut">허브에 도킹한 다른 팀의 탐사정은 허브 앞 우주 공간에서 구경할 수 있어요(읽기 전용).</small>`);
+    modal('팀 간판', `${cfg.signExtra ? cfg.signExtra() : ''}<div class="box"><table><tr><th>팀</th><th>한 줄 소개</th><th>인원</th><th>진행</th><th>있는 곳</th><th>탐사정</th>${cfg.signAction ? '<th></th>' : ''}</tr>${rows || '<tr><td colspan="7" class="mut">아직 올라온 팀이 없습니다.</td></tr>'}</table></div>${mine}<small class="mut">허브에 도킹한 다른 팀의 탐사정은 허브 앞 우주 공간에서 구경할 수 있어요(읽기 전용).</small>`);
   },
   async setMotto() { const v = (document.getElementById('hub-motto').value || '').slice(0, 30); try { await Net.pubSet(Party.pid, { motto: v, name: (Party.meta || {}).name, color: (Party.meta || {}).color }); say('간판에 걸었습니다.'); HubUI.signs(); } catch (e) { say('간판에 걸지 못했습니다.'); } },
 

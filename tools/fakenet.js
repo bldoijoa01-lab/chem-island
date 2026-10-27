@@ -3,14 +3,14 @@
 // ---- 가짜 서버: Firebase와 같은 규칙을 코드로 흉내 낸다 ----
 const clean = (v) => { if (Array.isArray(v)) { const a = v.map(clean).filter(x => x !== undefined); return a.length ? a : undefined; } if (v && typeof v === 'object') { const o = {}; for (const k in v) { const c = clean(v[k]); if (c !== undefined) o[k] = c; } return Object.keys(o).length ? o : undefined; } return v === null ? undefined : v; };   // 빈 배열·빈 객체·null을 지운다(Firebase처럼)
 const server = { parties: {}, codes: {}, pages: new Map(), n: 0 };
-function snapOf(pid) { const p = server.parties[pid]; return p ? JSON.parse(JSON.stringify({ meta: { name: p.name, color: p.color, code: p.code, owner: p.owner }, members: p.members, state: p.state || null, lease: p.lease || null })) : null; }
+function snapOf(pid) { const p = server.parties[pid]; return p ? JSON.parse(JSON.stringify({ meta: { name: p.name, color: p.color, code: p.code, owner: p.owner }, members: p.members, state: p.state || null, lease: p.lease || null, merge: p.merge || null })) : null; }
 async function emit(pid) { for (const [page, w] of server.pages) if (w.has(pid)) { const s = snapOf(pid); await page.evaluate(([pid, s]) => window.__fakeEmit(pid, s), [pid, s]).catch(() => {}); } }
 async function emitLog(pid) { for (const [page, w] of server.pages) if (w.has(pid)) { const l = (server.parties[pid] && server.parties[pid].log || []).slice(-20); await page.evaluate(([pid, l]) => window.__fakeEmitLog(pid, l), [pid, l]).catch(() => {}); } }
 async function handle(page, uid, nick, method, a) {
   const P = (pid) => server.parties[pid];
   switch (method) {
     case 'create': { const [name, color] = a; const pid = 'p' + (++server.n); const code = 'AB' + String(server.n).padStart(4, '2'); server.parties[pid] = { name, color, code, owner: uid, members: { [uid]: { nick, t: Date.now(), code } }, log: [] }; server.codes[code] = pid; return { pid, code }; }
-    case 'join': { const pid = server.codes[String(a[0]).toUpperCase()]; if (!pid) throw new Error('없는 초대 코드입니다.'); const p = P(pid); if (!p.members[uid] && Object.keys(p.members).length >= 4) throw new Error('인원이 가득 찼습니다'); p.members[uid] = { nick, t: Date.now(), code: p.code }; await emit(pid); return pid; }
+    case 'join': { const pid = server.codes[String(a[0]).toUpperCase()]; if (!pid) throw new Error('없는 초대 코드입니다.'); const p = P(pid); p.members[uid] = { nick, t: Date.now(), code: p.code }; await emit(pid); return pid; }
     case 'leave': { const p = P(a[0]); if (p) delete p.members[uid]; for (const [pg, w] of server.pages) if (pg === page) w.delete(a[0]); await emit(a[0]); return null; }
     case 'watch': { server.pages.get(page).add(a[0]); setTimeout(() => emit(a[0]), 20); return null; }
     case 'unwatch': { server.pages.get(page).delete(a[0]); return null; }
@@ -42,6 +42,16 @@ server.bases = {};
 server.maps = {}; server.info = new Map();
 async function pushPeers(map) {   // 같은 지도에 있는 모든 화면에 나를 뺀 사람들의 위치를 보낸다(접속 표시, 10단계의 presence 흉내)
   for (const [page, inf] of server.info) if (inf.map === map) { const peers = {}; for (const [id, q] of Object.entries(server.maps[map] || {})) if (id !== inf.uid) peers[id] = q; await page.evaluate((pp) => window.__fakePeers && window.__fakePeers(pp), peers).catch(() => {}); }
+}
+// ---- 팀 대 팀 합치기(17-c): database.rules.json의 /merges와 /parties/{pid}/merge와 같은 뜻(쓰기 권한·형식)을 코드로 흉내 낸다 ----
+server.merges = {};
+const MD = (to, from) => ((server.merges[to] = server.merges[to] || {})[from] = server.merges[to][from] || { ready: {}, moved: {} });
+const cl = (v) => JSON.parse(JSON.stringify(v === undefined ? null : v));
+async function emitMerge(to, from) {
+  for (const [page, w] of server.pages) {
+    if (w.has('__m:' + to + ':' + from)) await page.evaluate(([k, d]) => window.__fakeEmitMerge && window.__fakeEmitMerge(k, d), ['m:' + to + ':' + from, cl((server.merges[to] || {})[from])]).catch(() => {});
+    if (w.has('__mi:' + to)) await page.evaluate(([k, d]) => window.__fakeEmitMerge && window.__fakeEmitMerge(k, d), ['mi:' + to, cl(server.merges[to] || {})]).catch(() => {});
+  }
 }
 const handle0 = handle;
 async function handle2(page, uid, nick, method, a) {
@@ -75,17 +85,31 @@ async function handle2(page, uid, nick, method, a) {
       server.bases[id] = Object.assign(clean(rec), { t: Date.now() }); return null;
     }
     case 'baseLoad': return Object.entries(server.bases).map(([id, v]) => Object.assign({ id }, v)).sort((x, y) => y.t - x.t).slice(0, a[0] || 20);
+    case 'mergeOffer': {
+      const [to, from, o] = a; if (!memberOf(from, uid)) throw new Error('PERMISSION_DENIED(offer)');
+      const okO = o && typeof o.fromName === 'string' && o.fromName.length >= 2 && o.fromName.length <= 10 && typeof o.toName === 'string' && o.toName.length >= 2 && o.n >= 1 && o.n <= 6 && o.q >= 0 && o.q <= 20 && typeof o.host === 'string' && typeof o.t === 'number' && o.exp <= Date.now() + 3600000;
+      if (!okO) throw new Error('PERMISSION_DENIED(validate offer)');
+      MD(to, from).offer = cl(o); server.parties[from].merge = { to, t: o.t }; await emitMerge(to, from); await emit(from); return null;
+    }
+    case 'mergeCancel': { const [to, from] = a; if (!memberOf(from, uid)) throw new Error('PERMISSION_DENIED'); delete MD(to, from).offer; delete server.parties[from].merge; await emitMerge(to, from); await emit(from); return null; }
+    case 'mergeAnswer': { const [to, from, ans] = a; if (!memberOf(to, uid)) throw new Error('PERMISSION_DENIED(answer)'); if (!ans || !['accept', 'reject'].includes(ans.res) || !(ans.n >= 1 && ans.n <= 6)) throw new Error('PERMISSION_DENIED(validate answer)'); MD(to, from).answer = cl(ans); await emitMerge(to, from); return null; }
+    case 'mergeGrant': { const [to, from, g] = a; if (!memberOf(to, uid) && !memberOf(from, uid)) throw new Error('PERMISSION_DENIED(grant)'); if (!g || typeof g.code !== 'string' || g.code.length !== 6) throw new Error('PERMISSION_DENIED(validate grant)'); MD(to, from).grant = cl(g); await emitMerge(to, from); return null; }
+    case 'mergeReady': case 'mergeMoved': { const [to, from, o] = a; if (!memberOf(to, uid) && !memberOf(from, uid)) throw new Error('PERMISSION_DENIED(' + method + ')'); MD(to, from)[method === 'mergeReady' ? 'ready' : 'moved'][uid] = o; await emitMerge(to, from); return null; }
+    case 'mergeClear': { const p = server.parties[a[0]]; if (!p || !p.members[uid]) throw new Error('PERMISSION_DENIED'); delete p.merge; await emit(a[0]); return null; }
+    case 'mergeWatch': { const [to, from] = a; if (!memberOf(to, uid) && !memberOf(from, uid)) throw new Error('PERMISSION_DENIED(read)'); server.pages.get(page).add('__m:' + to + ':' + from); setTimeout(() => emitMerge(to, from), 20); return null; }
+    case 'mergeWatchIn': { const [to] = a; if (!memberOf(to, uid)) throw new Error('PERMISSION_DENIED(read)'); server.pages.get(page).add('__mi:' + to); setTimeout(() => { for (const f of Object.keys(server.merges[to] || {})) emitMerge(to, f); if (!Object.keys(server.merges[to] || {}).length) emitMerge(to, '_'); }, 20); return null; }
+    case 'mergeUnwatch': { server.pages.get(page).delete(a[0]); return null; }
     case 'baseGet': return server.bases[a[0]] ? Object.assign({ id: a[0] }, server.bases[a[0]]) : null;
     default: return handle0(page, uid, nick, method, a);
   }
 }
 
-const rpcNames = ['publishDelta', 'baseGet', 'create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'basePublish', 'baseLoad'];
-module.exports = { server, handle: handle2, clean, initScript: null };
+const rpcNames = ['publishDelta', 'baseGet', 'mergeOffer', 'mergeCancel', 'mergeAnswer', 'mergeGrant', 'mergeReady', 'mergeMoved', 'mergeClear', 'mergeWatch', 'mergeWatchIn', 'mergeUnwatch', 'create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'basePublish', 'baseLoad'];
+module.exports = { server, handle: handle2, clean, initScript: null, emit, emitMerge };
 
 // 페이지 쪽 가짜 Net: 팀 API + 팀 간 교류 API를 모두 rpc로 서버에 넘긴다
 module.exports.initScript = ({ uid, nick }) => {
-  const watchers = {}, logw = {}; let projectCb = null;
+  const watchers = {}, logw = {}, mwatch = {}; let projectCb = null;
   const rpc = (m, a) => window.__rpc(m, a);
   const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap: (m, pk) => rpc('joinMap', [m, pk]), sendPos: (pk) => rpc('sendPos', [pk]), leaveMap: () => rpc('leaveMap', []), loadRafts: async () => [], loadBottles: async () => [],
     partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
@@ -97,10 +121,15 @@ module.exports.initScript = ({ uid, nick }) => {
     projectWatch: (cb) => { projectCb = cb; rpc('projectWatch', []); return () => { projectCb = null; }; }, projectAdd: (pid, name, color, item, n, need) => rpc('projectAdd', [pid, name, color, item, n, need]), projectTeam: (pid, o) => rpc('projectTeam', [pid, o]), projectDone: () => rpc('projectDone', []),
     reportPost: (r) => rpc('reportPost', [r]), reportsLoad: (n) => rpc('reportsLoad', [n]), reportVote: (rid, pid, v) => rpc('reportVote', [rid, pid, v]),
     boardSet: (b, pid, o) => rpc('boardSet', [b, pid, o]), boardLoad: (b, n) => rpc('boardLoad', [b, n]),
-    basePublish: (id, rec) => rpc('basePublish', [id, rec]), baseLoad: (n) => rpc('baseLoad', [n]), baseGet: (id) => rpc('baseGet', [id]) };
+    basePublish: (id, rec) => rpc('basePublish', [id, rec]), baseLoad: (n) => rpc('baseLoad', [n]), baseGet: (id) => rpc('baseGet', [id]),
+    mergeOffer: (to, from, o) => rpc('mergeOffer', [to, from, o]), mergeCancel: (to, from) => rpc('mergeCancel', [to, from]), mergeAnswer: (to, from, a) => rpc('mergeAnswer', [to, from, a]), mergeGrant: (to, from, g) => rpc('mergeGrant', [to, from, g]),
+    mergeReady: (to, from, o) => rpc('mergeReady', [to, from, o]), mergeMoved: (to, from, o) => rpc('mergeMoved', [to, from, o]), mergeClear: (from) => rpc('mergeClear', [from]),
+    mergeWatch: (to, from, cb) => { mwatch['m:' + to + ':' + from] = cb; rpc('mergeWatch', [to, from]); return () => { delete mwatch['m:' + to + ':' + from]; rpc('mergeUnwatch', ['__m:' + to + ':' + from]); }; },
+    mergeWatchIn: (to, cb) => { mwatch['mi:' + to] = cb; rpc('mergeWatchIn', [to]); return () => { delete mwatch['mi:' + to]; rpc('mergeUnwatch', ['__mi:' + to]); }; } };
   window.__fakePeers = (pp) => { for (const k of Object.keys(fake.peers)) delete fake.peers[k]; Object.assign(fake.peers, pp); };
   window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
   window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);
+  window.__fakeEmitMerge = (k, d) => { if (!mwatch[k]) return; if (k.startsWith('mi:')) { const o = d || {}; delete o._; mwatch[k](o); } else mwatch[k](d); };
   window.__fakeEmitProject = (p) => projectCb && projectCb(p);
   Object.defineProperty(window, 'Net', { get: () => fake, set: () => {} });
 };

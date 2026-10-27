@@ -160,7 +160,7 @@ window.Net = (() => {
   N.partyLeave = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid).remove();
   // cb({ meta:{name,color,code,owner}, members, state, lease })를 값이 바뀔 때마다 부른다. 반환값은 구독 해제 함수
   N.partyWatch = (pid, cb) => {
-    const ref = db.ref('parties/' + pid), fn = (s) => { const v = s.val(); if (!v) return cb(null); cb({ meta: { name: v.name, color: v.color, code: v.code, owner: v.owner }, members: v.members || {}, state: v.state || null, lease: v.lease || null }); };
+    const ref = db.ref('parties/' + pid), fn = (s) => { const v = s.val(); if (!v) return cb(null); cb({ meta: { name: v.name, color: v.color, code: v.code, owner: v.owner }, members: v.members || {}, state: v.state || null, lease: v.lease || null, merge: v.merge || null }); };
     ref.on('value', fn, () => cb(null));
     return () => ref.off('value', fn);
   };
@@ -195,6 +195,17 @@ window.Net = (() => {
   };
   N.partyLog = (pid, entry) => db.ref('parties/' + pid + '/log').push(Object.assign({ uid: N.user.uid, nick: N.nick, t: firebase.database.ServerValue.TIMESTAMP }, entry));
   N.partyBeat = (pid) => db.ref('parties/' + pid + '/members/' + N.user.uid + '/t').set(firebase.database.ServerValue.TIMESTAMP);
+  // ---- 팀 대 팀 합치기(17-c, DESIGN.md §4-26): /merges/{to}/{from}/{offer,answer,grant,ready/{uid},moved/{uid}} + /parties/{from}/merge ----
+  const MG = (to, from, k) => 'merges/' + to + '/' + from + '/' + k;
+  N.mergeOffer = (to, from, offer) => db.ref().update({ [MG(to, from, 'offer')]: offer, ['parties/' + from + '/merge']: { to, t: offer.t } });
+  N.mergeCancel = (to, from) => db.ref().update({ [MG(to, from, 'offer')]: null, ['parties/' + from + '/merge']: null });
+  N.mergeAnswer = (to, from, ans) => db.ref(MG(to, from, 'answer')).set(ans);
+  N.mergeGrant = (to, from, g) => db.ref(MG(to, from, 'grant')).set(g);
+  N.mergeReady = (to, from, o) => db.ref(MG(to, from, 'ready/' + N.user.uid)).set(o);
+  N.mergeMoved = (to, from, o) => db.ref(MG(to, from, 'moved/' + N.user.uid)).set(o);
+  N.mergeClear = (from) => db.ref('parties/' + from + '/merge').remove();
+  N.mergeWatch = (to, from, cb) => { const ref = db.ref('merges/' + to + '/' + from), fn = (s) => cb(s.val()); ref.on('value', fn, () => cb(null)); return () => ref.off('value', fn); };
+  N.mergeWatchIn = (to, cb) => { const ref = db.ref('merges/' + to), fn = (s) => cb(s.val() || {}); ref.on('value', fn, () => cb({})); return () => ref.off('value', fn); };
   N.partyMeta = (pid, meta) => db.ref('parties/' + pid).update(meta);
   // ---- 팀 간 교류(11단계: fp/ 전용): 간판·교역소·공동 프로젝트·보고서·리더보드 (DESIGN.md §4-19) ----
   const TSV = () => firebase.database.ServerValue.TIMESTAMP;   // 호출될 때만 평가(firebase가 없는 시험 환경에서 로드 오류 방지)

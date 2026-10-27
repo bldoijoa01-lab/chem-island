@@ -4,13 +4,13 @@
 const S = Store.S;
 const TEAM_KEYS = ['placed', 'raft', 'f', 'qDone', 'mobs', 'mobId', 'dusk', 'day', 'min', 'links'];   // 팀 필드(나머지 inv·caps·packs·nodes·melt·boxDay·log·fp는 개인)
 const LEASE_ACTIVE_MS = 6000, LEASE_PASSIVE_MS = 15000, PUBLISH_MS = 1000, BEAT_MS = 10000, ONLINE_MS = 30000;   // 가정(임의값)
-export const TEAM_MAX = 4, LOG_SHOW = 20;
+export const TEAM_MAX = 6, LOG_SHOW = 20;   // 가정(임의값): 팀 인원 상한 하나로 통일(9단계 4명 + 합병 6명 → 6, DESIGN.md §4-26). 서버 규칙은 인원을 셀 수 없어 클라이언트의 약속이다
 export const KINDS = { build: '건설', demolish: '철거', device: '장치 조작', deposit: '창고에 넣음', withdraw: '창고에서 꺼냄', trade: '교역', project: '프로젝트 기여', report: '보고서' };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const me = () => (window.Net && Net.user ? Net.user.uid : null);
 const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-const P = { pid: null, meta: null, members: {}, lease: null, ver: 0, holder: false, active: false, log: [], unsub: [], lastAction: 0, lastPub: 0, lastHash: '', lastBeat: 0, publishing: false, prevQ: 0, onApplied: null, say: () => {}, isModalOpen: () => false,
+const P = { pid: null, meta: null, members: {}, lease: null, ver: 0, holder: false, active: false, log: [], unsub: [], lastAction: 0, lastPub: 0, lastHash: '', lastBeat: 0, publishing: false, merge: null, probe: null, lastSnap: null, waitFirst: false, watchedAt: 0, prevQ: 0, onApplied: null, say: () => {}, isModalOpen: () => false,
   // 옆면(17-b) 월드 동기화: worldSync가 켜지면 판 칸 덩어리(S.world)도 팀 상태에 들어가고, 바뀐 필드·바뀐 덩어리만 올린다. getWorld/applyWorld/resetWorld는 화면 쪽이 넘긴다(fp/·td/는 켜지 않는다)
   worldSync: false, getWorld: () => ({}), applyWorld: () => [], resetWorld: () => {}, lastWorld: {}, lastFields: {}, stats: { writes: 0, bytes: 0, last: 0 } }
 const WORLD_PUB_MS = 2000;   // 가정(임의값) 월드가 바뀐 뒤 올리는 최소 간격(연속 파기 때 덩어리 RLE를 덜 자주 올린다);
@@ -33,7 +33,7 @@ function applyRemote(state) {
   S.links = Array.isArray(state.links) ? state.links : Object.values(state.links || {});   // Firebase는 빈 배열을 지우고 배열을 객체로 돌려주기도 한다
   S.team = state.team || {}; ensureTeam(); for (const u in S.team.contrib) { const c = S.team.contrib[u]; if (!Array.isArray(c.goals)) c.goals = c.goals ? Object.values(c.goals) : []; }
   if (S.day !== oldDay) { S.nodes = {}; S.packs = S.packs.filter(p => p.day >= S.day); }   // 하루가 바뀌면 개인 자원 노드가 다시 자란다(Sim의 newDay와 같은 개인 부분)
-  P.ver = state.ver; P.prevQ = S.qDone; P.lastHash = JSON.stringify(teamOf());
+  P.ver = state.ver; P.prevQ = S.qDone; P.lastHash = JSON.stringify(teamOf()); P.waitFirst = false;
   if (P.worldSync) {   // 바뀐 덩어리만 내 월드에 반영하고, 마지막으로 받은 사본을 기억한다
     const rw = state.world || {}; P.applyWorld(rw); P.lastWorld = Object.assign({}, rw);
     P.lastFields = {}; const f = teamOf(); for (const k in f) P.lastFields[k] = JSON.stringify(f[k]);
@@ -43,7 +43,8 @@ function applyRemote(state) {
 
 function onSnap(snap) {
   if (!snap) { stop(true); return; }   // 팀이 없어졌거나 내가 더는 팀원이 아니다
-  P.meta = snap.meta; P.members = snap.members; P.lease = snap.lease;
+  P.meta = snap.meta; P.members = snap.members; P.lease = snap.lease; P.merge = snap.merge || null; P.lastSnap = snap;
+  if (P.probe) { const f = P.probe; P.probe = null; f(Object.keys(snap.members || {}).length); return; }   // 가입 직후 첫 스냅샷: 인원만 보고 아직 상태는 받지 않는다(상한 검사 뒤에 장치를 철거하려고)
   const L = snap.lease, now = Date.now(), id = me();
   P.holder = !!(L && L.uid === id && L.exp > now); P.active = P.holder && !!L.active;
   const st = snap.state;
@@ -83,7 +84,7 @@ export const Party = {
     const r = P.worldSync ? await Net.partyPublishDelta(pid, 0, first, P.getWorld()) : await Net.partyPublish(pid, 0, first);   // 만든 사람의 탐사정·장치(와 내 월드)가 팀의 처음 상태가 된다
     if (!r.ok) throw new Error('팀 상태를 만들지 못했습니다.');
     if (P.worldSync) { P.lastWorld = Object.assign({}, P.getWorld()); P.lastFields = {}; for (const k in first) P.lastFields[k] = JSON.stringify(first[k]); countWrite(first, P.getWorld()); }
-    P.ver = r.ver; watch(pid); Store.save(true);
+    P.ver = r.ver; watch(pid); P.waitFirst = false; Store.save(true);
     return { pid, code };
   },
   // 가입: 내 개인 장치는 철거해 재료로 돌려받고(확인은 호출한 쪽이), 팀의 탐사정·장치·진행도를 이어받는다
@@ -91,11 +92,27 @@ export const Party = {
     if (!window.Net || !Net.user) throw new Error('온라인 접속이 필요합니다(저장/계정에서 접속).');
     if (P.pid) throw new Error('이미 팀에 있습니다.');
     const pid = await Net.partyJoin(code);
+    // 서버 규칙은 인원을 셀 수 없으므로(MULTIPLAYER.md) 들어간 직후 첫 스냅샷의 인원이 상한을 넘으면 내가 스스로 나간다. 장치 철거는 그 검사 뒤에 한다
+    S.party = { pid }; P.ver = 0;
+    const first = new Promise(res => { P.probe = res; });
+    watch(pid);
+    const n = await Promise.race([first, sleep(8000).then(() => -1)]);
+    P.probe = null;
+    if (n > TEAM_MAX) { await Net.partyLeave(pid).catch(() => {}); stop(false); delete S.party; Store.save(true); throw new Error(`팀이 가득 찼습니다(최대 ${TEAM_MAX}명).`); }
     for (const d of S.placed.slice()) Sim.act.demolish(S, d);   // 재료 환불(Sim.act.demolish와 같은 규칙)
     S.mobs = [];
-    S.party = { pid }; P.ver = 0; watch(pid); Store.save(true);
+    if (P.lastSnap) onSnap(P.lastSnap);   // 이제 팀 상태를 받는다
+    Store.save(true);
     return pid;
   },
+  // 17-c 팀 합치기: 호스트 팀 서버 기록(members)만 만든다(게스트 소속은 그대로). 인원 합은 제안·수락 때 이미 검사했다
+  async mergeJoin(code) { return Net.partyJoin(code); },
+  // 17-c: 지금 보고 있는 팀을 호스트 팀으로 바꾼다(감시 전환). 호스트 상태·월드가 첫 스냅샷에서 내 팀 필드를 덮어쓴다. 인벤토리·개인 기록은 그대로
+  switchTo(pid) { stop(false); S.party = { pid }; P.ver = 0; P.lastWorld = {}; P.lastFields = {}; watch(pid); P.lastPub = Date.now(); },
+  get ver() { return P.ver; },
+  get mergeInfo() { return P.merge; },
+  get ready() { return !!P.pid && !P.waitFirst; },                  // 첫 상태를 받았는가
+  dirty() { if (!P.pid) return false; const f = teamOf(); for (const k in f) if (JSON.stringify(f[k]) !== P.lastFields[k]) return true; const w = P.getWorld(); for (const k in w) if (P.lastWorld[k] !== w[k]) return true; for (const k in P.lastWorld) if (!(k in w)) return true; return false; },   // 아직 서버에 안 올린 변경이 있는가
   async leave() {
     if (!P.pid) return;
     const pid = P.pid; await Net.partyLeave(pid).catch(() => {});
@@ -154,6 +171,7 @@ export const Party = {
     } else if (!valid) {
       Net.partyLease(P.pid, false, LEASE_PASSIVE_MS).then(ok => { if (ok) { P.holder = true; P.active = false; P.lease = { uid: me(), active: false, exp: Date.now() + LEASE_PASSIVE_MS }; } });
     }
+    if (P.waitFirst && now - P.watchedAt < 10000) return;   // 새로 감시를 시작한 팀의 첫 상태를 받기 전에는 올리지 않는다(내 옛 상태로 덮어쓰지 않도록)
     if (!P.holder || P.publishing || now - P.lastPub < PUBLISH_MS) return;
     // 목표 달성 기여: 달성 순간 마지막으로 행동한 사람에게 기록한다(60초 안, 아니면 시계 담당)
     if (S.qDone > P.prevQ) {
@@ -200,7 +218,7 @@ export const Party = {
   },
   noPartyHtml() {
     const on = !!(window.Net && Net.user);
-    return `<div class="box"><h4>팀(파티)</h4><div class="mut">2~4명이 탐사정과 장치를 함께 쓰는 팀입니다. 혼자 팀을 만들어도 지금처럼 플레이할 수 있어요.${on ? '' : ' <b>온라인 접속이 필요합니다</b>(저장/계정에서 접속).'}</div></div>
+    return `<div class="box"><h4>팀(파티)</h4><div class="mut">2~${TEAM_MAX}명이 탐사정과 장치를 함께 쓰는 팀입니다. 혼자 팀을 만들어도 지금처럼 플레이할 수 있어요.${on ? '' : ' <b>온라인 접속이 필요합니다</b>(저장/계정에서 접속).'}</div></div>
       <div class="box"><h4>팀 만들기</h4><div class="row"><input id="tm-name" maxlength="10" placeholder="팀 이름 (2~10자)" autocomplete="off"><input id="tm-color" type="color" value="#4a9ad8" title="팀 색"><button class="primary" onclick="TeamUI.create()" ${on ? '' : 'disabled'}>만들기</button></div></div>
       <div class="box"><h4>초대 코드로 들어가기</h4><div class="row"><input id="tm-code" maxlength="6" placeholder="초대 코드 6자" autocomplete="off"><button onclick="TeamUI.join()" ${on ? '' : 'disabled'}>들어가기</button></div>
         <small class="mut">들어가면 내 장치는 철거되어 재료로 돌려받고, 팀의 탐사정과 진행도를 이어받습니다.</small></div><div id="tm-err" class="mut"></div>`;
@@ -214,12 +232,12 @@ export const Party = {
 
 function countWrite(fields, world) { P.stats.writes++; P.stats.bytes += JSON.stringify(fields).length + JSON.stringify(world).length; P.stats.last = Date.now(); }
 function watch(pid) {
-  P.pid = pid; P.lastAction = 0; P.lastPub = 0; P.prevQ = S.qDone; ensureTeam();
+  P.pid = pid; P.waitFirst = true; P.watchedAt = Date.now(); P.lastAction = 0; P.lastPub = 0; P.prevQ = S.qDone; ensureTeam();
   P.unsub.push(Net.partyWatch(pid, onSnap));
   if (Net.partyWatchLog) P.unsub.push(Net.partyWatchLog(pid, (list) => { P.log = list; }));
 }
 function stop(lost) {
   for (const f of P.unsub) { try { f(); } catch { /* 무시 */ } }
-  P.unsub = []; P.pid = null; P.meta = null; P.members = {}; P.lease = null; P.ver = 0; P.holder = false; P.active = false; P.log = []; P.lastHash = '';
+  P.unsub = []; P.pid = null; P.meta = null; P.members = {}; P.lease = null; P.ver = 0; P.holder = false; P.active = false; P.log = []; P.lastHash = ''; P.merge = null; P.probe = null; P.lastSnap = null; P.waitFirst = false;
   if (lost) { delete S.party; P.say('팀에서 나왔습니다.'); }
 }
