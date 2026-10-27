@@ -175,7 +175,7 @@
         "owner": { ".validate": "newData.isString()" },
         "members": {
           "$uid": {
-            ".write": "auth != null && auth.uid === $uid && (!newData.exists() || data.exists() || (newData.child('code').val() === root.child('parties/' + $pid + '/code').val() && root.child('parties/' + $pid + '/members').numChildren() < 4))",
+            ".write": "auth != null && auth.uid === $uid && (!newData.exists() || data.exists() || newData.child('code').val() === root.child('parties/' + $pid + '/code').val())",
             ".validate": "newData.hasChildren(['nick', 't', 'code'])",
             "nick": { ".validate": "newData.isString() && newData.val().length >= 2 && newData.val().length <= 8" },
             "t": { ".validate": "newData.isNumber()" },
