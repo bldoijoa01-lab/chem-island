@@ -1,5 +1,5 @@
-// 기지 코어 시험(17-a): 설치 조건 거절, 동시 설치에서 한쪽만 성공, 영역 밖 땅파기 거절, 5분 안 취소 / 5분 뒤 이동 불가, 서버 기록 복구, 콘솔 에러 0.
-// 가짜 서버(tools/fakenet.js)가 database.rules.json의 /bases·/baseClaims와 같은 뜻을 코드로 흉내 낸다. 실제 규칙은 Firebase 콘솔 규칙 시뮬레이터로 따로 확인한다(MULTIPLAYER.md).
+// 내 월드 시험(17-a′): 코어 캡슐 시작, 전송 패드(3초 대기·취소), 본부에 장치 금지, 월드 안 장치 건설, 같은 시드, 도구 단계, 천장, 저장 RLE 왕복, 저장 크기 상한, /bases 요약 쓰기.
+// 가짜 서버(tools/fakenet.js)가 database.rules.json의 /bases와 같은 뜻을 코드로 흉내 낸다. 실제 규칙은 Firebase 콘솔 규칙 시뮬레이터로 따로 확인한다(MULTIPLAYER.md).
 // 사용: node tools/smokebase.js   (Playwright가 있는 환경에서)
 const path = require('path'), { spawn } = require('child_process');
 let chromium;
@@ -30,59 +30,61 @@ const { server, handle, initScript } = require('./fakenet');
   const ev = (pg, f, a) => pg.evaluate(f, a);
   try {
     const A = await open('uA', '에이'), B = await open('uB', '비이');
-    ok('A·B: 코어가 없으면 설치 모드로 이어짐', await ev(A, () => G.debug().base === null && /설치/.test(document.getElementById('target').textContent)) && await ev(B, () => G.debug().base === null));
-    // 1. 조건 거절(순수 검사 World.coreCheck + 설치 경로 UI.installBase)
-    const chk = (pg, x, y) => ev(pg, ([x, y]) => World.coreCheck(G.debug(), x, y, UI.otherBases()), [x, y]);
-    const r1 = await chk(A, 400, 80);
-    ok('깊이 50칸 초과 거절', !r1.ok && /50칸/.test(r1.msg), JSON.stringify(r1));
-    const r2 = await chk(A, 190, 20);
-    ok('호수 가까이 거절', !r2.ok && /호수/.test(r2.msg), JSON.stringify(r2));
-    const r3 = await chk(A, 66, 36);
-    ok('단단하지 않은 바닥(동굴 위) 거절', !r3.ok && /단단한/.test(r3.msg), JSON.stringify(r3));
-    const r4 = await chk(A, 100, 40);
-    ok('추락 지점 20칸 안 거절', !r4.ok && /20칸/.test(r4.msg), JSON.stringify(r4));
-    const r5 = await chk(A, 5, 60);
-    ok('맵 가장자리(영역이 맵 밖) 거절', !r5.ok && /맵 밖/.test(r5.msg), JSON.stringify(r5));
-    const r6 = await chk(A, 400, 60);
-    ok('좋은 자리(깊이 41칸)는 허용', r6.ok && r6.depth === 41, JSON.stringify(r6));
-    ok('거절된 설치는 상태를 바꾸지 않음', !(await ev(A, () => UI.installBase(400, 80))) && await ev(A, () => G.debug().base === null) && Object.keys(server.bases).length === 0);
-    // 2. 동시 설치: 같은 자리를 A와 B가 동시에 잡는다 → 서버가 한쪽만 통과시킨다
-    const [ra, rb] = await Promise.all([ev(A, () => UI.installBase(400, 60)), ev(B, () => UI.installBase(401, 60))]);
-    ok('동시 설치: 정확히 한쪽만 성공', (ra ? 1 : 0) + (rb ? 1 : 0) === 1, JSON.stringify([ra, rb]));
-    const win = ra ? A : B, lose = ra ? B : A, winId = ra ? 'uA' : 'uB', loseId = ra ? 'uB' : 'uA';
-    ok('서버: 기지 기록 1개와 선점 칸 140개', Object.keys(server.bases).length === 1 && server.bases[winId] && Object.keys(server.claims).length === 140 && Object.values(server.claims).every(v => v === winId), JSON.stringify([Object.keys(server.bases), Object.keys(server.claims).length]));
-    ok('진 쪽: 코어가 없고 설치 모드 유지', await ev(lose, () => G.debug().base === null));
-    await sleep(300);
-    // 3. 이긴 쪽의 기지를 진 쪽이 서버에서 읽는다 → 간격 8칸 미만이면 거절, 8칸 이상이면 성공
-    ok('진 쪽이 이긴 쪽 기지를 서버에서 읽음', await ev(lose, (id) => !!UI.bases()[id], winId));
-    const near = await chk(lose, 400 + 48 + 4, 60);   // 영역 사이 간격이 8칸 미만
-    ok('간격 8칸 미만 거절(로컬 검사)', !near.ok && /8칸/.test(near.msg), JSON.stringify(near));
-    const farX = 400 + 48 + 12, okFar = await chk(lose, farX, 60);
-    ok('간격 8칸 이상은 허용', okFar.ok, JSON.stringify(okFar));
-    ok('진 쪽 재설치 성공 + 서버에 두 기지', await ev(lose, ([x]) => UI.installBase(x, 60), [farX]) && Object.keys(server.bases).length === 2 && Object.keys(server.claims).length === 280, Object.keys(server.claims).length);
-    // 4. 영역 밖 땅파기 거절 / 영역 안은 허용 (이긴 쪽 기준: 코어 (400|401, 60) 둘레)
-    const dig = await ev(win, () => { const S = G.debug(), b = S.base, a = World.areaOf(b); S.inv.pickaxe = 1; S.px = (b.x - 3) * 16; S.py = (b.y - 1) * 16; const inside = World.digCheck(S, b.x - 3, b.y); S.px = (a.x0 - 2) * 16; const outside = World.digCheck(S, a.x0 - 1, b.y); return { inside, outside, a }; });
-    ok('영역 안은 팔 수 있음(돌, 곡괭이)', dig.inside.ok === true, JSON.stringify(dig.inside));
-    ok('영역 밖은 못 팜(보기만)', dig.outside.ok === false && /영역 밖/.test(dig.outside.msg), JSON.stringify(dig.outside));
-    // 5. 5분 안 취소 / 5분 뒤 이동 불가
-    ok('취소 전: 5분 안이라 취소 가능', await ev(win, () => World.canCancelBase(G.debug())));
-    ok('5분 안 취소 성공(서버 기록·선점 칸 삭제)', await ev(win, () => UI.cancelBase()) && !server.bases[winId] && Object.keys(server.claims).length === 140 && Object.values(server.claims).every(v => v === loseId));
-    ok('취소 뒤 코어가 없고 맵에서 사라짐', await ev(win, () => G.debug().base === null && World.tileAt(402, 61) !== World.HULL));
-    ok('취소한 자리를 다시 설치할 수 있음', await ev(win, () => UI.installBase(400, 60)) && !!server.bases[winId]);
-    await ev(win, () => { G.debug().base.at -= 6 * 60 * 1000; });
-    ok('5분이 지나면 클라이언트도 이동 불가', !(await ev(win, () => World.canCancelBase(G.debug()))) && !(await ev(win, () => UI.cancelBase())) && !!server.bases[winId]);
-    server.bases[loseId].t -= 6 * 60 * 1000;
-    ok('서버도 5분 뒤 지우기 거절', await ev(lose, () => G.debug().base && World.canCancelBase(G.debug())) && !(await ev(lose, () => UI.cancelBase())) && !!server.bases[loseId]);
-    // 6. 저장은 서버 기록이 사라져도 복구된다(접속 직후 다시 올림)
-    delete server.bases[loseId]; for (const c of Object.keys(server.claims)) if (server.claims[c] === loseId) delete server.claims[c];
-    await ev(lose, () => UI.syncBase()); await sleep(300);
-    ok('서버 기록이 없으면 접속 직후 다시 올림', !!server.bases[loseId] && Object.values(server.claims).filter(v => v === loseId).length === 140);
-    // 7. 코어 칸 모양: 선체·해치·안쪽 빈 방, 저장은 S.base 한 개뿐(코어 칸은 S.dug에 없음)
-    const shape = await ev(win, () => { const S = G.debug(), b = S.base, W = World; return { hull: W.tileAt(b.x + 2, b.y) === W.HULL, hatchL: W.tileAt(b.x, b.y + 2) === W.HATCH, hatchR: W.tileAt(b.x + 5, b.y + 2) === W.HATCH, inner: [1, 2, 3, 4].every(i => [1, 2].every(j => W.tileAt(b.x + i, b.y + j) === W.AIR)), dug: Object.keys(S.dug).length, solidHatch: W.solidAt(b.x, b.y + 2) }; });
-    ok('코어 모양(선체·해치 2개·안쪽 4×2) + 코어 칸은 저장하지 않음', shape.hull && shape.hatchL && shape.hatchR && shape.inner && shape.dug === 0 && !shape.solidHatch, JSON.stringify(shape));
-    ok('설치 직후 플레이어 위치·저장 형식', await ev(win, () => { const S = G.debug(); return typeof S.base.x === 'number' && typeof S.base.at === 'number' && S.base.id === 'uA' || S.base.id === 'uB'; }));
+    // 1. 두 사람이 각자 코어 캡슐 안에서 시작한다(각자 자기 월드, 같은 시드)
+    ok('A·B: 코어 (0, 0) 캡슐 안에서 시작', await ev(A, () => G.debug().base.x === 0 && World.tileAt(0, 0) === World.HULL) && await ev(B, () => G.debug().base.x === 0 && World.tileAt(0, 0) === World.HULL));
+    const hash = (pg) => ev(pg, () => { let h = 0; for (const [cx, cy] of [[-1, 0], [1, 0], [0, 1], [-1, 1], [5, 3], [-40, 9], [3, 20], [-2, 11]]) { const c = World.getChunk(cx, cy); for (let i = 0; i < c.t.length; i++) h = (Math.imul(h, 31) + c.t[i]) | 0; h = (Math.imul(h, 31) + c.objs.length) | 0; } return h; });
+    ok('같은 시드: 두 브라우저의 같은 덩어리가 칸·오브젝트까지 같음', (await hash(A)) === (await hash(B)));
+    // 2. 전송 패드: 3초 대기, 창을 닫으면 취소
+    await ev(A, () => { UI.openPad(); G.padGo('plaza'); }); await sleep(1500);
+    await ev(A, () => document.getElementById('mclose').click()); await sleep(2500);
+    ok('패드: 전송 중 창을 닫으면 취소(이동 없음)', await ev(A, () => Sim.dockOf(G.debug()).island === 'start' && document.getElementById('modal').hidden));
+    await ev(A, () => { UI.openPad(); G.padGo('plaza'); }); await sleep(1200);
+    ok('패드: 3초가 지나기 전에는 이동하지 않음', await ev(A, () => Sim.dockOf(G.debug()).island === 'start'));
+    await sleep(2600);
+    ok('패드: 3초 뒤 본부로 전송', await ev(A, () => Sim.dockOf(G.debug()).island === 'plaza'));
+    // 3. 본부에는 장치를 지을 수 없다
+    ok('본부에는 장치를 지을 수 없음', await ev(A, () => { const S = G.debug(); S.px = 30 * 16; S.py = 24 * 16 - 18; const g = World.ghostCheck(S, 'fire', 30, 22); return !g.ok && /본부/.test(g.msg); }));
+    await ev(A, () => { Sim.act.teleport(G.debug(), 'start'); UI.flush(); }); await sleep(500);
+    // 4. 월드 안 장치 건설: 코어 옆을 파서 방을 만들고(2칸 높이) 2×2 장치를 짓는다
+    const room = await ev(A, () => { const S = G.debug(); S.inv.stick = 30; S.inv.sand = 30; S.inv.bottle = 5; for (let x = -12; x <= -1; x++) for (const y of [5, 6]) World.setTile(S, x, y, World.AIR); const f = (id, x, y) => { S.px = x * 16 + 3; S.py = (y + 2) * 16 - 18; return World.ghostCheck(S, id, x, y); }; return { fire: f('fire', -6, 5), over: f('still', -5, 5), floor: f('fire', -6, 4), far: (() => { S.px = 3 * 16; S.py = 3 * 16 - 18; return World.ghostCheck(S, 'fire', -11, 5); })(), solid: f('fire', -20, 5) }; });
+    ok('방 안 빈 2×2칸 + 단단한 바닥에는 지을 수 있음', room.fire.ok === true, JSON.stringify(room.fire));
+    ok('땅속(빈 칸 아님)·너무 먼 곳은 지을 수 없음', !room.solid.ok && /빈 공간/.test(room.solid.msg) && !room.far.ok && /멉니다/.test(room.far.msg), JSON.stringify([room.solid, room.far]));
+    const built = await ev(A, () => { const S = G.debug(); S.px = -5 * 16; S.py = 7 * 16 - 18; Sim.act.placeFree(S, 'fire', -6, 5, 'start'); return S.placed.length; });
+    const overlap = await ev(A, () => { const S = G.debug(); S.px = -5 * 16; S.py = 7 * 16 - 18; return World.ghostCheck(S, 'fire', -5, 5); });
+    ok('장치는 칸 좌표와 행성(d.pl)으로 저장됨, 겹치는 칸에는 못 지음', built === 1 && !overlap.ok && /겹칩니다/.test(overlap.msg) && await ev(A, () => G.debug().placed[0].pl === 'start' && G.debug().placed[0].x === -6 && G.debug().placed[0].y === 5), JSON.stringify(overlap));
+    // 5. 도구 단계와 천장
+    const tiers = await ev(A, () => { const S = G.debug(); const out = {}; S.inv.pickaxe = 0; S.inv.ironpick = 0; S.px = 40 * 16 + 3; S.py = 61 * 16 - 18; S.vx = S.vy = 0;
+      World.setTile(S, 38, 60, World.STONE); World.setTile(S, 39, 60, World.HARD); World.setTile(S, 41, 60, World.RARE); World.setTile(S, 42, 60, World.IRON); World.setTile(S, 40, 60, World.AIR);
+      out.stone0 = World.digCheck(S, 38, 60).msg; out.iron0 = World.digCheck(S, 42, 60).msg;
+      S.inv.pickaxe = 1; out.stone1 = World.digCheck(S, 38, 60).ok; out.iron1 = World.digCheck(S, 42, 60).ok; out.hard1 = World.digCheck(S, 39, 60).msg;
+      S.inv.ironpick = 1; out.hard2 = World.digCheck(S, 39, 60).ok; out.rare = World.digCheck(S, 41, 60).msg;
+      S.px = 3 * 16 + 3; S.py = -19 * 16; out.ceil = World.digCheck(S, 3, -21).msg; out.tier = World.toolTier(S); out.time = [World.DIG[World.DIRT].t, World.DIG[World.STONE].t, World.DIG[World.HARD].t]; return out; });
+    ok('맨손: 암반·철 광맥은 곡괭이가 필요', /곡괭이/.test(tiers.stone0) && /곡괭이/.test(tiers.iron0), JSON.stringify(tiers));
+    ok('곡괭이(단계 1): 암반·철 광맥은 파고 경암은 철 곡괭이가 필요', tiers.stone1 && tiers.iron1 && /철 곡괭이/.test(tiers.hard1), JSON.stringify(tiers));
+    ok('철 곡괭이(단계 2)는 경암을 파고, 희귀 광물은 아직 못 팜', tiers.hard2 && /아직 이 단단함/.test(tiers.rare) && tiers.tier === 2, JSON.stringify(tiers));
+    ok('천장 암반은 팔 수 없음, 파는 시간 흙 0.5·암반 2·경암 4초', /암반/.test(tiers.ceil) && tiers.time.join() === '0.5,2,4', JSON.stringify([tiers.ceil, tiers.time]));
+    // 6. 저장 RLE 왕복: 파낸 칸이 S.world에 덩어리별로 압축되고, 새로 읽으면 같은 칸이 복원된다
+    const rt = await ev(A, () => { const S = G.debug(); const before = []; for (let y = 5; y <= 6; y++) for (let x = -12; x <= -1; x++) before.push(World.tileAt(x, y)); const js = JSON.stringify(S.world), S2 = Sim.merge(JSON.parse(JSON.stringify(S))); World.applyDug(S2); const after = []; for (let y = 5; y <= 6; y++) for (let x = -12; x <= -1; x++) after.push(World.tileAt(x, y)); const same = before.join() === after.join(); World.applyDug(S); const dec = World.rleDecode(Object.values(S.world)[0], new Uint8Array(1024)); return { same, keys: Object.keys(S.world).length, js: js.length, ok: Object.values(S.world).every(v => /^\d+\*\d+(,\d+\*\d+)*$/.test(v)), dec: dec.length === 1024, enc: World.rleEncode(dec) === Object.values(S.world)[0] }; });
+    ok('저장 RLE 왕복: 새로 읽어도 같은 칸, 인코딩·디코딩이 서로 역', rt.same && rt.ok && rt.dec && rt.enc && rt.keys > 0, JSON.stringify(rt));
+    // 7. 저장 크기 상한: 잡음처럼 많이 바꿔 상한(200,000자)에 닿으면 더 파지 못한다
+    const cap = await ev(A, () => { const S = G.debug(); let n = 0, s = 7; const r = () => (s = (s * 1664525 + 1013904223) >>> 0) / 4294967296; let reached = null;
+      for (let cx = 20; cx < 400 && World.worldSize() < World.SAVE_CAP; cx++) for (let i = 0; i < 700 && World.worldSize() < World.SAVE_CAP; i++) { const x = cx * 32 + Math.floor(r() * 32), y = 200 + Math.floor(r() * 32); if (World.tileAt(x, y) !== World.AIR) World.setTile(S, x, y, World.AIR); n++; }
+      S.inv.pickaxe = 1; World.setTile(S, 3, 60, World.DIRT); const px = 3 * 16 + 3; S.px = px; S.py = 59 * 16 - 18; const c = World.digCheck(S, 3, 60); return { size: World.worldSize(), cap: World.SAVE_CAP, msg: c.msg, ok: c.ok, json: JSON.stringify(S.world).length }; });
+    ok('저장 크기 상한(200,000자)에서 파기 거절', cap.size >= cap.cap && cap.ok === false && /상한/.test(cap.msg), JSON.stringify(cap));
+    // 8. /bases 공개 요약: 본인 id로만 쓰고, 코어 위치·칸 내용은 올리지 않는다
+    await ev(A, () => UI.publishBase(true)); await sleep(300);
+    const rec = server.bases.uA;
+    ok('/bases/uA 요약(이름·색·팀원·단계·요약, 코어 위치 없음)', rec && /에이/.test(rec.name) && /^#[0-9a-f]{6}$/i.test(rec.color) && rec.members.uA === '에이' && rec.tech === 0 && /장치 1개/.test(rec.summary) && !('cx' in rec) && !('x' in rec) && !('world' in rec), JSON.stringify(rec));
+    const deny = await ev(B, async () => { const out = {}; try { await Net.basePublish('uA', { name: '해킹', color: '#112233', members: {}, tech: 0, summary: 'x' }); out.other = 'allowed'; } catch (e) { out.other = 'denied'; }
+      try { await Net.basePublish('uB', { name: '비이 월드', color: '#112233', members: { uB: '비이' }, tech: 9, summary: 'x' }); out.tech = 'allowed'; } catch (e) { out.tech = 'denied'; }
+      try { await Net.basePublish('uB', { name: '비이 월드', color: '#112233', members: { uB: '비이' }, tech: 0, summary: 'y'.repeat(201) }); out.long = 'allowed'; } catch (e) { out.long = 'denied'; }
+      try { await Net.basePublish('uB', { name: '비이 월드', color: '#112233', members: { uB: '비이' }, tech: 0, summary: '정상', cx: 3 }); out.pos = 'allowed'; } catch (e) { out.pos = 'denied'; }
+      return out; });
+    ok('남의 id·단계 범위 밖·200자 초과·코어 위치 필드는 서버가 거절', deny.other === 'denied' && deny.tech === 'denied' && deny.long === 'denied' && deny.pos === 'denied' && server.bases.uB.name === '비이 월드' && server.bases.uA.name !== '해킹', JSON.stringify([deny, server.bases.uB]));
+    await ev(B, () => UI.publishBase(true)); await sleep(300);
+    ok('방문 목록용 요약 2개(에이·비이)', Object.keys(server.bases).sort().join() === 'uA,uB' && (await ev(A, async () => (await Net.baseLoad(10)).length)) === 2);
   } finally { await browser.close(); srv.kill(); }
   console.log(checks.join(' · '));
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
-  console.log('기지 시험 통과');
+  console.log('내 월드 시험 통과');
 })();

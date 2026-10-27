@@ -134,6 +134,11 @@ window.Art = (() => {
     p(4, 8, 8, 1, '#3b2412'); p(10, 7, 1, 3, '#3b2412'); p(11, 8, 1, 1, '#3b2412'); p(2, 14, 4, 1, '#c9b98a'); p(3, 15, 1, 6, '#c9b98a'); p(2, 21, 4, 1, '#c9b98a');
     return outline(c);
   })();
+  A.obj.pad = (() => {   // 17-a′ 전송 패드: 바닥에 놓인 원형 발판과 푸른 빛
+    const c = mk(16, 8), p = painter(c);
+    p(1, 4, 14, 4, '#59647d'); p(1, 4, 14, 1, '#9aa5bd'); p(3, 2, 10, 3, '#2d3550'); p(4, 2, 8, 1, '#4aa3d8'); p(6, 0, 4, 2, 'rgba(120,210,255,.8)'); p(2, 6, 12, 1, '#37405a');
+    return outline(c);
+  })();
   A.obj.rocksalt = (() => {   // 암염: 희고 푸른빛이 도는 NaCl 결정 덩어리
     const c = mk(16, 14), p = painter(c);
     p(3, 6, 10, 8, '#c9d4e0'); p(1, 9, 14, 5, '#b6c3d2'); p(5, 2, 6, 6, '#e4ecf6'); p(6, 0, 4, 3, '#ffffff'); p(4, 5, 2, 6, '#ffffff'); p(10, 7, 2, 5, '#a9bbd0'); p(2, 11, 3, 2, '#9fb2c8');
@@ -276,6 +281,10 @@ window.Art = (() => {
   A.icon.scroll = I(['.wwwwww.', 'wWWWWWWw', 'wWkkkkWw', 'wWWWWWWw', 'wWkkkWWw', 'wWWWWWWw', 'wWkkkkWw', '.wwwwww.'], { w: '#c9b98a', W: '#efe3bd', k: '#6a5a3a' });
   A.icon.disk = I(['bbbbbbbb', 'bsssssbb', 'bsssssbb', 'bbbbbbbb', 'bwwwwwwb', 'bwkkkkwb', 'bwwwwwwb', 'bbbbbbbb'], { b: '#3a4a7a', s: '#c9d4e8', w: '#e8ecf4', k: '#3a4a7a' });
   A.icon.core = I(['..bbbbbb', '.bBBBBBB', 'bBwwwwwB', 'bBwkkkwB', 'bBwkkkwB', 'bBwwwwwB', '.bBBBBBB', '..bbbbbb'], { b: '#3a4a6a', B: '#8f9bb8', w: '#cfe9f5', k: '#4aa3d8' });   // 17-a: 기지 코어(밀폐 캡슐) 아이콘
+  A.icon.iron = I(['........', '..gggg..', '.gGGGGg.', 'gGrGGGGg', 'gGGGGrGg', 'gGrGGGGg', '.gggggg.', '........'], { g: '#5e6672', G: '#8b95a3', r: '#c0673a' });   // 철 광석
+  A.icon.gold = I(['........', '...yy...', '..yYYy..', '.yYwYYy.', '.yYYYYy.', '..yYYy..', '...yy...', '........'], { y: '#c9971c', Y: '#f4cc4a', w: '#fff4b8' });   // 금
+  A.icon.rare = I(['...pp...', '..pPPp..', '.pPwPPp.', 'pPPPPwPp', '.pPPPPp.', '..pPPp..', '...pp...', '........'], { p: '#7a3fb0', P: '#c08cf0', w: '#ffffff' });   // 희귀 광물
+  A.icon.ironpick = I(['..hhhh..', '.hHHHHh.', 'hH.bB.Hh', 'h..bB..h', '...bB...', '...bB...', '...bB...', '...bB...'], { h: '#5e86b0', H: '#b8d4f0', b: '#b9834a', B: '#7a4f25' });   // 철 곡괭이
   A.icon.still = A.dev.still; A.icon.cooker = A.dev.cooker; A.icon.cooler = A.dev.cooler; A.icon.collector = A.dev.collector; A.icon.fire = A.dev.fire;
   for (const k in A.icon) A.iconURL[k] = A.icon[k].toDataURL();
 
@@ -355,6 +364,24 @@ window.Art = (() => {
     if (r() < 0.5) p(6, 7, 4, 2, '#4aa3d8');
     return c;
   }, 1);
+  A.tiles.bedrock = variants(i => {   // 17-a′ 가장자리 암반: 어둡고 금이 간 못 파는 바위
+    const c = mk(16, 16), p = painter(c), r = rng(79 * i);
+    p(0, 0, 16, 16, '#2b2f3a'); clumps(p, r, ['#222630', '#343948', '#1c1f28'], 14, 2, 5); p(0, 7, 16, 1, '#181b22'); p(5, 0, 1, 16, '#181b22'); p(11, 4, 1, 12, '#181b22');
+    return c;
+  });
+  // 17-a′ 새 타일: 경암(HARD) · 암염 광맥(SALT) · 철 광맥(IRON) · 금 광맥(GOLD) · 뜨거운 바위(HOT) · 희귀 광물(RARE). 모두 암반 바탕에 점·결정 무늬를 얹는다
+  const oreTile = (base, spots, seedN) => variants(i => {
+    const c = mk(16, 16), p = painter(c), r = rng(seedN * i);
+    p(0, 0, 16, 16, base[0]); clumps(p, r, base.slice(1), 22, 2, 5);
+    for (let k = 0; k < 7; k++) { const x = 1 + ((r() * 12) | 0), y = 1 + ((r() * 12) | 0); p(x, y, 2, 2, spots[0]); p(x, y, 1, 1, spots[1]); }
+    return c;
+  });
+  A.tiles.hard = variants(i => { const c = mk(16, 16), p = painter(c), r = rng(83 * i); p(0, 0, 16, 16, '#4a4f5c'); clumps(p, r, ['#3d424e', '#585e6c', '#343845'], 26, 2, 5); p(0, 5, 16, 1, '#2a2d37'); p(8, 0, 1, 16, '#2a2d37'); return c; });
+  A.tiles.salt = oreTile(['#8b919c', '#777d89', '#9ca2ae'], ['#dfe9f5', '#ffffff'], 85);
+  A.tiles.iron = oreTile(['#8b919c', '#777d89', '#9ca2ae'], ['#b8663a', '#e08a58'], 87);
+  A.tiles.gold = oreTile(['#4a4f5c', '#3d424e', '#585e6c'], ['#d9a81f', '#fff0a0'], 89);
+  A.tiles.hot = variants(i => { const c = mk(16, 16), p = painter(c), r = rng(91 * i); p(0, 0, 16, 16, '#5a2f2a'); clumps(p, r, ['#6e3a30', '#48241f', '#7c4535'], 22, 2, 5); for (let k = 0; k < 4; k++) p(1 + ((r() * 12) | 0), 1 + ((r() * 12) | 0), 2, 1, '#ff8a3d'); return c; });
+  A.tiles.rare = oreTile(['#3a2f55', '#2e2547', '#463a66'], ['#c08cf0', '#ffffff'], 93);
   A.tiles.hatch = variants(i => {
     const c = mk(16, 16), p = painter(c);
     p(0, 0, 16, 16, '#3a4256'); p(3, 0, 10, 16, '#59647d'); p(4, 1, 8, 14, '#2d3550'); p(7, 1, 2, 14, '#7d889f'); p(5, 7, 1, 3, '#ffb347'); p(10, 7, 1, 3, '#ffb347');

@@ -5,7 +5,7 @@
 const C = Chem, Art = window.Art;
 let VW = 384, VH = 224, K = 3;   // 창 크기에 맞춰 fit()이 정한다
 const S = Store.S;               // 상태는 store.js, 지형·땅 규칙은 world.js, 계산은 sim.js (2D와 3D가 같이 쓴다)
-const { T, dim, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
+const { T, dim, PW, PH, REACH, ITEM, AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, BEDROCK, HARD, SALT, IRON, GOLD, HOT, RARE, GY, OBJS, NODE, tileAt, solidAt, isOpen, BLOCK, TOOL, dig } = World;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
 const save = Store.save;
 // 공용 UI(ui.js): 말풍선·모달·패널·메뉴·접속. 화면마다 다른 것은 맨 아래 UI.init(host)로 넘긴다
@@ -17,7 +17,8 @@ const applyDug = () => World.applyDug(S);
 applyDug();
 // 궤도 이동 연출(16-c, 보이기만): 도착한 행성 맵을 불러온 직후 검은 화면에서 별 줄무늬가 퍼지며 밝아지고 행성 이름이 뜬다
 let lastPlanet = Sim.dockOf(S).island, warp = null;
-const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: Sim.ISLANDS[h].name }; } };
+Sim.geo.ambient = World.ambientAt;   // 17-a′: 장치·플레이어 자리의 구역 온도(낮밤 없음). 옆면 화면만 켠다(fp/td·시험은 옛 식 그대로)
+const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: h === 'plaza' ? '본부' : h === 'start' ? '내 월드' : Sim.ISLANDS[h].name }; if (window.Net && Net.user) { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); } } };
 
 // ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
@@ -47,19 +48,11 @@ function drawPlazaRafts(t) {
 }
 
 // ---------- 건설 (평평한 땅에 2x2 장치) ----------
-let mode = null;   // 'build:<id>' | 'demolish' | 'block:<item>' | 'tool:<id>' | 'core'(기지 코어 설치, 17-a)
-// 기지 코어 미리보기: 가로는 걷고 있는 칸을 따라가고, 깊이(지표 기준 0..50칸 아래)는 ↑ ↓ 키·마우스 휠로 정한다
-let coreDepth = 0;
-function coreGhost() {
-  const cx = Math.floor((S.px + PW / 2) / T), x = cx - 2, gy = GY[Math.max(0, Math.min(dim.W - 1, cx))], y = gy - World.CORE.CH + coreDepth;
-  return Object.assign({ x, y }, World.coreCheck(S, x, y, UI.otherBases()));
-}
-function enterCore() { if (S.base || Sim.dockOf(S).island !== 'start') return; mode = 'core'; coreDepth = 0; say('기지 코어를 놓을 자리를 고르세요: A/D로 걷고 ↑↓로 깊이를 정한 뒤 클릭(Enter). ESC로 잠시 멈춰요. (B)'); }
+let mode = null;   // 'build:<id>' | 'demolish' | 'block:<item>' | 'tool:<id>'
 const mouse = { x: 0, y: 0 };
 const cam = { x: 0, y: 0 };
-const ghostCheck = id => World.ghostCheck(S, id, Math.floor((cam.x + mouse.x) / T - 1 + 0.5));
+const ghostCheck = id => World.ghostCheck(S, id, Math.floor((cam.x + mouse.x) / T - 1 + 0.5), Math.floor((cam.y + mouse.y) / T - 1 + 0.5));   // 17-a′: 장치는 월드 안 빈 2×2칸에(마우스가 가운데)
 function placeAtMouse() {
-  if (mode === 'core') { const g = coreGhost(); return UI.installBase(g.x, g.y).then(ok => { if (ok && mode === 'core') mode = null; }); }
   if (mode.startsWith('block:')) return placeBlock();
   if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
@@ -71,7 +64,7 @@ function placeAtMouse() {
   }
   const id = mode.slice(6), g = ghostCheck(id);
   if (!g.ok) return say(g.msg);
-  if (Sim.act.build(S, id, g.u)) mode = null;
+  if (Sim.act.placeFree(S, id, g.tx, g.ty, Sim.dockOf(S).island)) mode = null;
   flush(); refresh();
 }
 
@@ -84,18 +77,14 @@ window.addEventListener('keydown', e => {
   if (!$('title').hidden) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); } return; }
   if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
-  if (KEYMAP[k] && !(mode === 'core' && (k === 'arrowup' || k === 'arrowdown'))) { keys[KEYMAP[k]] = true; e.preventDefault(); }
-  else if (mode === 'core' && (k === 'arrowup' || k === 'arrowdown')) { coreDepth = Math.max(0, Math.min(World.CORE.DEPTH, coreDepth + (k === 'arrowdown' ? 1 : -1))); e.preventDefault(); }
-  else if (mode === 'core' && k === 'enter') placeAtMouse();
+  if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); }
   else if (k === 'e') interact(targets()[0]);
-  else if (k === 'b') { if (mode === 'core') { mode = null; say('설치 모드를 멈췄습니다. (B로 다시)'); } else UI.openBase(); }
-  else if (k === 'escape' && mode) { mode = null; say(S.base ? '취소' : '설치 모드를 멈췄습니다. (B로 다시)'); }
+  else if (k === 'escape' && mode) { mode = null; say('취소'); }
 });
 window.addEventListener('keyup', e => { const k = KEYMAP[e.key.toLowerCase()]; if (k) keys[k] = false; });
 const cv = $('cv'), ctx = cv.getContext('2d');
 function canvasPos(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / r.width * VW, y: (e.clientY - r.top) / r.height * VH }; }
 cv.addEventListener('mousemove', e => Object.assign(mouse, canvasPos(e)));
-cv.addEventListener('wheel', e => { if (mode === 'core') { coreDepth = Math.max(0, Math.min(World.CORE.DEPTH, coreDepth + (e.deltaY > 0 ? 1 : -1))); e.preventDefault(); } }, { passive: false });
 // 마우스를 꾹 누르면 그 자리의 땅을 판다(클릭할 대상·HUD·건설 모드가 아닐 때)
 cv.addEventListener('pointerdown', e => {
   Object.assign(mouse, canvasPos(e));
@@ -141,13 +130,10 @@ function physics(dt) {
 const parts = [];
 function puff(x, y, col, n) { for (let i = 0; i < n; i++) parts.push({ x, y, vx: (Math.random() - 0.5) * 20, vy: -10 - Math.random() * 14, life: 0.6 + Math.random() * 0.5, col, s: 2 }); }
 function burst(d) { puff(d.x * T + 16, d.y * T + 8, '#ff7a3d', 14); puff(d.x * T + 16, d.y * T + 8, '#4a4f56', 10); }
-const birds = Array.from({ length: 6 }, (_, i) => ({ x: i * 210 + Math.random() * 90, y: 24 * T - 150 - Math.random() * 70, vx: 16 + Math.random() * 12, ph: Math.random() * 6 }));
-const flies = Array.from({ length: 22 }, (_, i) => ({ x: 30 * T + i * 52 + Math.random() * 30, y: 24 * T - 14 - Math.random() * 44, ph: Math.random() * 6 }));
 function stepParts(dt) {
   for (const p of parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
   if (parts.length > 200) parts.splice(0, 50);
-  for (const b of birds) { b.x += b.vx * dt; b.ph += dt * 9; if (b.x > cam.x + VW + 60) b.x = cam.x - 40; else if (b.x < cam.x - 120) b.x = cam.x + VW * Math.random(); }   // 800칸 맵: 화면 둘레에서 되돌린다
 }
 
 // ---------- 그리기 ----------
@@ -156,12 +142,12 @@ let stars = [];
 const makeStars = () => { stars = Array.from({ length: Math.max(30, Math.floor(VW * VH / 1500)) }, (_, i) => [((i * 97.31) % 1000) / 1000, ((i * 53.77) % 1000) / 1000]); };
 let last = performance.now(), tt = 0;
 // ---------- 다른 플레이어(presence) ----------
-const MAPID = 'main';
+const mapNow = () => Sim.dockOf(S).island === 'plaza' ? 'hub' : null;   // 17-a′: 사람 위치는 본부에서만 서로 보인다(내 월드·원정 부지는 혼자)
 const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !pst.onGround });
 let lastPos = '', lastPosAt = 0;
 const ghosts = {};   // uid -> { x, y, face, vx, air, nick, seen } (보간되는 화면 위치)
 function netStep(dt, now) {
-  if (!(window.Net && Net.user) || Store.paused) return;
+  if (!(window.Net && Net.user) || Store.paused || !mapNow()) return;
   if (now - lastPosAt >= 100) {           // 10 Hz, 변화가 없으면 생략(5초마다 생존 신호)
     const p = posPacket(), k = JSON.stringify(p);
     if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(p); }
@@ -205,73 +191,83 @@ const PLANET_VIEW = {
 };
 const blit = (img, x, y) => { const p = img.pad || 0; ctx.drawImage(img, Math.round(x - p), Math.round(y - p)); };
 const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
+// 타일 하나를 g(메인 캔버스 또는 덩어리 캐시 캔버스)의 (sx, sy)에 그린다. 무한 월드(불시착)는 모든 빈 칸이 동굴 배경이고 깊을수록 어둡다
+function paintTile(g, tx, ty, sx, sy, V, waters) {
+  const id = tileAt(tx, ty), v = (((tx * 7 + ty * 13) % 3) + 3) % 3, inf = World.isInfinite();
+  if (id === AIR) {
+    if (inf || (tx >= 0 && tx < dim.W && ty > GY[tx])) {
+      g.drawImage(Art.tiles.wall[v], sx, sy); g.fillStyle = `rgba(0,0,0,${inf ? Math.min(0.6, 0.25 + Math.max(0, ty) * 0.004) : Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; g.fillRect(sx, sy, T, T);
+      if (World.inCore(S, tx, ty)) { g.fillStyle = 'rgba(150,200,230,.22)'; g.fillRect(sx, sy, T, T); }
+    }
+    return;
+  }
+  if (id === WATER) {
+    g.fillStyle = V.water[inf ? 1 : Math.min(2, Math.floor((ty - 25) / 2))]; g.fillRect(sx, sy, T, T);
+    if (waters) waters.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]);
+    else { g.fillStyle = 'rgba(60,150,225,.42)'; g.fillRect(sx, sy, T, T); if (tileAt(tx, ty - 1) !== WATER) { g.fillStyle = 'rgba(210,238,255,.9)'; g.fillRect(sx, sy, T, 2); } }
+    return;
+  }
+  const hub = V.hub && (id === GRASS || id === SAND || id === DIRT);   // 허브 정거장: 풀·모래·흙 자리에 금속 바닥판과 선체
+  const TS = Art.tiles, tset = hub ? (id === DIRT ? TS.hubhull : TS.hubtop) : id === GRASS ? TS.grass : id === DIRT ? TS.dirt : id === STONE ? TS.stone : id === SAND ? TS.sand : id === SNOWTOP ? TS.snowtop : id === RAFT ? TS.raft : id === HULL ? TS.hull : id === HATCH ? TS.hatch : id === BEDROCK ? TS.bedrock : id === HARD ? TS.hard : id === SALT ? TS.salt : id === IRON ? TS.iron : id === GOLD ? TS.gold : id === HOT ? TS.hot : id === RARE ? TS.rare : TS.ice;
+  g.drawImage(tset[v % tset.length], sx, sy);
+  if (V.tint && !hub && id !== RAFT && id !== HULL && id !== HATCH) { g.fillStyle = `rgba(${V.tint},.2)`; g.fillRect(sx, sy, T, T); }   // 행성 지형 색조
+  const dark = inf ? Math.min(0.5, Math.max(0, ty) * 0.004) : ty > 26 ? Math.min(0.6, (ty - 26) * 0.03) : 0;
+  if (dark > 0) { g.fillStyle = `rgba(0,0,0,${dark})`; g.fillRect(sx, sy, T, T); }
+  if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { g.fillStyle = 'rgba(255,255,255,.2)'; g.fillRect(sx, sy, T, 1); }
+  if (isOpen(tx - 1, ty)) { g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(sx, sy, 1, T); }
+  if (isOpen(tx + 1, ty)) { g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(sx + T - 1, sy, 1, T); }
+  if (isOpen(tx, ty + 1)) { g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(sx, sy + T - 1, T, 1); }
+  if (id === GRASS && !V.hub && tileAt(tx, ty - 1) === AIR) {   // 풀 다발·꽃·돌
+    const h = hash(tx, ty);
+    if (h % 2 === 0) g.drawImage(Art.tuft[h % 3], sx, sy - 5);
+    if (h % 9 === 0) g.drawImage(Art.flower[(h >>> 3) % 3], sx + (h % 9), sy - 6);
+    else if (h % 23 === 1) g.drawImage(Art.rock, sx + 4, sy - 4);
+  }
+}
+// 무한 월드: 덩어리(32×32칸 = 512 px) 캔버스를 한 번 그려 캐시한다. 칸이 바뀌면 world.js가 dirty를 켜서 그 덩어리만 다시 그린다. 최근 40개만 유지한다
+const CK = World.CHUNK * T, chunkCanvases = [];
+function chunkCanvas(c, V) {
+  if (!c.canvas) { c.canvas = document.createElement('canvas'); c.canvas.width = c.canvas.height = CK; c.dirty = true; chunkCanvases.push(c); }
+  if (c.dirty) {
+    const g = c.canvas.getContext('2d'); g.imageSmoothingEnabled = false; g.clearRect(0, 0, CK, CK);
+    for (let ly = 0; ly < World.CHUNK; ly++) for (let lx = 0; lx < World.CHUNK; lx++) paintTile(g, c.cx * World.CHUNK + lx, c.cy * World.CHUNK + ly, lx * T, ly * T, V, null);
+    c.dirty = false;
+  }
+  return c.canvas;
+}
+function evictChunks() {
+  if (chunkCanvases.length <= 40) return;
+  chunkCanvases.sort((a, b) => b.used - a.used);
+  for (const c of chunkCanvases.splice(32)) c.canvas = null;
+}
 function draw(t) {
-  const hour = S.min / 60, night = nightOf(hour);
-  cam.x = Math.max(0, Math.min(dim.W * T - VW, Math.round(S.px + PW / 2 - VW / 2)));
-  cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round(S.py + PH / 2 - VH * 0.6)));
-  const cg = mode === 'core' ? coreGhost() : null;
-  if (cg) cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round((cg.y + 2) * T - VH * 0.5)));   // 코어 설치 모드: 카메라가 미리보기를 따라간다
-  // 행성 배경(16-c, 보이기만): 대기 두께 atm이 얇을수록 우주색에 가깝고 별이 낮에도 보인다. 시각별 하늘색(Art.sky)은 그대로 쓰고 우주색·행성 색조를 섞는다
-  const here = Sim.dockOf(S).island, V = PLANET_VIEW[here], space = night > 0 || V.atm < 1;
-  const bands = Art.sky(hour, 18).map(s => { const c = s.match(/\d+/g).map(Number), m = (a, b2, k) => a + (b2 - a) * k, sp = [3, 6, 16]; let r = [m(sp[0], c[0], V.atm), m(sp[1], c[1], V.atm), m(sp[2], c[2], V.atm)]; if (V.tint) r = r.map((x, i) => m(x, V.tint[i], 0.3 * V.atm)); return `rgb(${r.map(Math.round)})`; });
-  for (let i = 0; i < bands.length; i++) { ctx.fillStyle = bands[i]; ctx.fillRect(0, Math.floor(i * VH / bands.length), VW, Math.ceil(VH / bands.length) + 1); }
-  const starA = Math.max(night, 1 - V.atm * 0.9), starH = V.atm === 0 ? VH : VH * 0.6;
-  if (starA > 0) for (let i = 0; i < stars.length; i++) { ctx.fillStyle = `rgba(255,255,255,${starA * (0.45 + 0.55 * Math.abs(Math.sin(t * 1.5 + i)))})`; ctx.fillRect(Math.floor(((stars[i][0] * VW - cam.x * 0.02) % VW + VW) % VW), Math.floor(stars[i][1] * starH), 1 + (i % 7 === 0 ? 1 : 0), 1); }
-  if (V.nebula) for (const [fx, fy, rx, ry, col] of V.nebula) { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(((fx * VW - cam.x * 0.03) % (VW + 200) + VW + 200) % (VW + 200) - 100, fy * VH, rx, ry, 0.4, 0, 7); ctx.fill(); }   // 성운 띠(옅은 반투명 타원)
-  { const d = Art.bgDisc(V.disc[0], V.disc[1]), dx = Math.round(V.disc[2] * VW - cam.x * 0.03), dy = Math.round(V.disc[3] * VH - cam.y * 0.02); ctx.globalAlpha = V.discA * (0.55 + 0.45 * Math.max(night, 1 - V.atm)); ctx.drawImage(d, dx - d.width / 2, dy - d.height / 2); ctx.globalAlpha = 1; }   // 하늘의 먼 행성
-  const sunT = (hour - 6) / 12, moonT = ((hour + 6) % 24) / 12, arcY = Math.max(50, VH * 0.28);
-  const sunX = Math.round(sunT * (VW - 18)), sunY = Math.round(arcY + 14 - Math.sin(sunT * Math.PI) * (arcY - 6));
-  if (V.atm > 0 && sunT >= 0 && sunT <= 1) {
-    for (const [r, a] of [[30, 0.08], [22, 0.12], [15, 0.18]]) { ctx.fillStyle = `rgba(255,240,160,${a})`; ctx.beginPath(); ctx.arc(sunX + 9, sunY + 9, r, 0, 7); ctx.fill(); }
-    ctx.drawImage(Art.sun, sunX, sunY);
-  }
-  if (V.atm === 0) { ctx.fillStyle = 'rgba(255,240,170,.9)'; ctx.fillRect(Math.round(VW * 0.12), Math.round(VH * 0.1), 2, 2); ctx.fillStyle = 'rgba(255,240,170,.25)'; ctx.beginPath(); ctx.arc(VW * 0.12 + 1, VH * 0.1 + 1, 7, 0, 7); ctx.fill(); }   // 허브: 먼 항성 하나(해·달 호는 없다)
-  else if (moonT >= 0 && moonT <= 1) ctx.drawImage(Art.moon, Math.round(moonT * (VW - 16)), Math.round(arcY + 14 - Math.sin(moonT * Math.PI) * (arcY - 6)));
-  for (let i = 0; i < Math.round(5 * V.atm * V.atm); i++) {   // 구름은 대기가 두꺼울수록 많다
-    const w = VW + 80, cx = ((i * 170 - t * 3 * (1 + i % 3 * 0.4) - cam.x * 0.08) % w + w) % w - 50;
-    ctx.globalAlpha = (1 - night * 0.75) * 0.9; ctx.drawImage(Art.clouds[i % 3], Math.round(cx), 14 + (i * 23) % Math.max(30, VH * 0.35)); ctx.globalAlpha = 1;
-  }
-  // 시차 배경: 먼 산 → 언덕 → 숲(허브 정거장은 진공이라 없다)
-  const horizon = 24 * T - cam.y;
-  if (V.atm > 0) for (const [img, f, base, sink] of [[Art.farHills, 0.12, 100, 8], [Art.midHills, 0.28, 74, 6], [Art.forest, 0.5, 54, 4]]) {
-    const off = -Math.floor((cam.x * f) % 512);
-    for (let x = off; x < VW; x += 512) ctx.drawImage(img, x, Math.round(horizon - base + sink));
-  }
-  if (V.tint && V.atm > 0) { ctx.fillStyle = `rgba(${V.tint},.16)`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }   // 행성 색조(산·숲 위에 옅게)
-  if (night > 0 && V.atm > 0) { ctx.fillStyle = `rgba(6,10,40,${night * 0.55})`; ctx.fillRect(0, 0, VW, Math.max(0, horizon + 8)); }
+  const here = Sim.dockOf(S).island, V = PLANET_VIEW[here], hub = here === 'plaza', inf = World.isInfinite();
+  const hour = S.min / 60;
+  if (inf) { cam.x = Math.round(S.px + PW / 2 - VW / 2); cam.y = Math.round(S.py + PH / 2 - VH * 0.5); }   // 무한 월드: 카메라 제한 없음
+  else { cam.x = Math.max(0, Math.min(dim.W * T - VW, Math.round(S.px + PW / 2 - VW / 2))); cam.y = Math.max(0, Math.min(dim.H * T - VH, Math.round(S.py + PH / 2 - VH * 0.6))); }
+  const night = 0;   // 17-a′: 낮밤이 없다(지하, 허브는 우주 정거장)
+  if (hub) {
+    // 허브 배경(우주 정거장): 우주색 하늘, 별, 성운, 하늘의 먼 행성, 먼 항성(해·달·구름·산 없음)
+    ctx.fillStyle = 'rgb(3,6,16)'; ctx.fillRect(0, 0, VW, VH);
+    for (let i = 0; i < stars.length; i++) { ctx.fillStyle = `rgba(255,255,255,${0.45 + 0.55 * Math.abs(Math.sin(t * 1.5 + i))})`; ctx.fillRect(Math.floor(((stars[i][0] * VW - cam.x * 0.02) % VW + VW) % VW), Math.floor(stars[i][1] * VH), 1 + (i % 7 === 0 ? 1 : 0), 1); }
+    if (V.nebula) for (const [fx, fy, rx, ry, col] of V.nebula) { ctx.fillStyle = col; ctx.beginPath(); ctx.ellipse(((fx * VW - cam.x * 0.03) % (VW + 200) + VW + 200) % (VW + 200) - 100, fy * VH, rx, ry, 0.4, 0, 7); ctx.fill(); }
+    { const d = Art.bgDisc(V.disc[0], V.disc[1]), dx = Math.round(V.disc[2] * VW - cam.x * 0.03), dy = Math.round(V.disc[3] * VH - cam.y * 0.02); ctx.globalAlpha = V.discA; ctx.drawImage(d, dx - d.width / 2, dy - d.height / 2); ctx.globalAlpha = 1; }
+    ctx.fillStyle = 'rgba(255,240,170,.9)'; ctx.fillRect(Math.round(VW * 0.12), Math.round(VH * 0.1), 2, 2); ctx.fillStyle = 'rgba(255,240,170,.25)'; ctx.beginPath(); ctx.arc(VW * 0.12 + 1, VH * 0.1 + 1, 7, 0, 7); ctx.fill();
+  } else { ctx.fillStyle = '#07080d'; ctx.fillRect(0, 0, VW, VH); }   // 지하: 빛이 없는 암반 속
   // 타일
   const x0 = Math.floor(cam.x / T), y0 = Math.floor(cam.y / T), drawW = [];
-  for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) {
-    const id = tileAt(tx, ty), sx = tx * T - cam.x, sy = ty * T - cam.y, v = (tx * 7 + ty * 13) % 3;
-    if (id === AIR) { if (tx >= 0 && tx < dim.W && ty > GY[tx]) { ctx.drawImage(Art.tiles.wall[v], sx, sy); ctx.fillStyle = `rgba(0,0,0,${Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; ctx.fillRect(sx, sy, T, T); if (World.inCore(S, tx, ty)) { ctx.fillStyle = 'rgba(150,200,230,.22)'; ctx.fillRect(sx, sy, T, T); } } continue; }
-    if (id === WATER) {
-      ctx.fillStyle = V.water[Math.min(2, Math.floor((ty - 25) / 2))]; ctx.fillRect(sx, sy, T, T);
-      drawW.push([sx, sy, tileAt(tx, ty - 1) !== WATER, tx]); continue;
+  if (inf) {
+    const cx0 = Math.floor(cam.x / CK), cx1 = Math.floor((cam.x + VW) / CK), cy0 = Math.floor(cam.y / CK), cy1 = Math.floor((cam.y + VH) / CK);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      if (cy < -1) continue;
+      ctx.drawImage(chunkCanvas(World.getChunk(cx, cy), V), cx * CK - cam.x, cy * CK - cam.y);
     }
-    const hub = V.hub && (id === GRASS || id === SAND || id === DIRT);   // 허브 정거장: 풀·모래·흙 자리에 금속 바닥판과 선체
-    const tset = hub ? (id === DIRT ? Art.tiles.hubhull : Art.tiles.hubtop) : id === GRASS ? Art.tiles.grass : id === DIRT ? Art.tiles.dirt : id === STONE ? Art.tiles.stone : id === SAND ? Art.tiles.sand : id === SNOWTOP ? Art.tiles.snowtop : id === RAFT ? Art.tiles.raft : id === HULL ? Art.tiles.hull : id === HATCH ? Art.tiles.hatch : Art.tiles.ice;
-    ctx.drawImage(tset[v % tset.length], sx, sy);
-    if (V.tint && !hub && id !== RAFT && id !== HULL && id !== HATCH) { ctx.fillStyle = `rgba(${V.tint},.2)`; ctx.fillRect(sx, sy, T, T); }   // 행성 지형 색조
-    if (ty > 26) { ctx.fillStyle = `rgba(0,0,0,${Math.min(0.6, (ty - 26) * 0.03)})`; ctx.fillRect(sx, sy, T, T); }
-    if (isOpen(tx, ty - 1) && id !== GRASS && id !== SNOWTOP) { ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(sx, sy, T, 1); }
-    if (isOpen(tx - 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy, 1, T); }
-    if (isOpen(tx + 1, ty)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx + T - 1, sy, 1, T); }
-    if (isOpen(tx, ty + 1)) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(sx, sy + T - 1, T, 1); }
-    if (id === GRASS && !V.hub && tileAt(tx, ty - 1) === AIR) {   // 풀 다발·꽃·돌
-      const h = hash(tx, ty);
-      if (h % 2 === 0) ctx.drawImage(Art.tuft[h % 3], sx, sy - 5);
-      if (h % 9 === 0) ctx.drawImage(Art.flower[(h >>> 3) % 3], sx + (h % 9), sy - 6);
-      else if (h % 23 === 1) ctx.drawImage(Art.rock, sx + 4, sy - 4);
-    }
+    evictChunks();
+  } else {
+    for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) paintTile(ctx, tx, ty, tx * T - cam.x, ty * T - cam.y, V, drawW);
   }
   // 오브젝트
-  // 하늘 경계 줄: 이 줄 위는 행성의 외기(압력·조성·기온)가 그대로 있는 "하늘"이다. 칸 시뮬(18단계)에서 이 줄이 외기 저수조가 된다. 줄 위치는 가정(임의값)
-  { const ly = World.SKY_ROW * T - cam.y;
-    if (ly > -2 && ly < VH + 2) {
-      ctx.fillStyle = 'rgba(130,225,255,.38)'; for (let x = -(cam.x % 10); x < VW; x += 10) ctx.fillRect(Math.round(x), Math.round(ly), 6, 1);
-      ctx.font = '8px sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(160,235,255,.55)'; ctx.fillText('외기 경계 (가정) — 이 줄 위는 행성의 외기', 4, Math.round(ly) - 3);
-    } }
-  for (const o of OBJS) {
+  for (const o of World.objsIn(x0 - 3, y0 - 4, x0 + Math.ceil(VW / T) + 3, y0 + Math.ceil(VH / T) + 4)) {
     const sx = o.x * T - cam.x, sy = o.y * T - cam.y, n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
     if (sx < -48 || sx > VW + 48) continue;
     ctx.globalAlpha = spent ? 0.4 : 1;
@@ -284,6 +280,7 @@ function draw(t) {
     else if (o.type === 'rocksalt') blit(Art.obj.rocksalt, sx, sy - 14);
     else if (o.type === 'harbor') blit(Art.obj.harbor, sx, sy - 32);
     else if (o.type === 'board') blit(Art.obj.board, sx, sy - 28);
+    else if (o.type === 'pad') blit(Art.obj.pad, sx, sy - 8);
     else if (o.type === 'fragment') { if (!S.f.raft) blit(Art.obj.fragment, sx - 4, sy - 12); }
     else if (o.type === 'box') { ctx.fillRect(sx, sy - 1, 16, 2); blit(Art.obj.box, sx, sy - 16); }
     else if (o.type === 'altar') { ctx.fillRect(sx, sy - 1, 32, 2); blit(Art.dev.altar, sx, sy - 32); if (!S.f.boss) { ctx.fillStyle = `rgba(255,200,120,${0.25 + 0.2 * Math.sin(t * 3)})`; ctx.fillRect(sx + 9, sy - 21, 6, 6); ctx.fillRect(sx + 19, sy - 21, 6, 6); } }
@@ -291,7 +288,7 @@ function draw(t) {
   }
   // 장치
   const tg = targets()[0];
-  for (const d of S.placed) {
+  for (const d of World.devHere(S)) {
     const sx = d.x * T - cam.x, sy = d.y * T - cam.y;
     ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx, sy + 31, 32, 2);
     blit(Art.dev[d.id], sx, sy);
@@ -304,6 +301,7 @@ function draw(t) {
   }
   // 얼음 생물
   for (const m of S.mobs) {
+    if (!World.mobHere(S, m)) continue;
     const [wx, wy] = wolfPos(m), face = (m.id % 2 ? -1 : 1), sx = Math.round(wx - 11 - cam.x), sy = Math.round(wy - 12 - cam.y), fr = Math.floor(t * 3 + m.id) % 2;
     ctx.fillStyle = 'rgba(0,0,0,.22)'; ctx.fillRect(sx + 2, sy + 12, 18, 2);
     ctx.globalAlpha = 0.45 + 0.55 * Math.max(0, m.M / m.M0);
@@ -320,8 +318,7 @@ function draw(t) {
   if (S.face < 0) { ctx.translate(Math.round(px - cam.x) + 16, 0); ctx.scale(-1, 1); blit(Art.playerFrames[fr], 0, py); } else blit(Art.playerFrames[fr], px - cam.x, py);
   ctx.restore();
   drawPeers(t);
-  // 새·파티클
-  if (hour > 7 && hour < 18) for (const b of birds) ctx.drawImage(Art.bird[Math.floor(b.ph) % 2], Math.round(b.x - cam.x), Math.round(b.y - cam.y + Math.sin(b.ph * 0.4) * 5));
+  // 파티클
   for (const p of parts) { ctx.fillStyle = p.col; ctx.globalAlpha = Math.min(1, p.life * 2); ctx.fillRect(Math.round(p.x - cam.x), Math.round(p.y - cam.y), p.s, p.s); }
   ctx.globalAlpha = 1;
   // 물 (반투명 + 물결·거품)
@@ -333,17 +330,10 @@ function draw(t) {
     } else if ((tx * 5 + Math.floor(t)) % 7 === 0) { ctx.fillStyle = 'rgba(210,238,255,.18)'; ctx.fillRect(sx + 5, sy + 6, 1, 4); }
   }
   if (Sim.dockOf(S).island === 'plaza') drawPlazaRafts(t);   // 물 위에 떠 있으니 물 색칠 뒤에 그린다
-  // 밤 어둠 + 불빛 + 반딧불
-  if (night > 0) {
-    ctx.fillStyle = `rgba(8,12,40,${night * 0.5})`; ctx.fillRect(0, 0, VW, VH);
-    for (const d of S.placed) if (d.id === 'fire' && d.s.level > 0) {
-      const cx = d.x * T + 16 - cam.x, cy = d.y * T + 14 - cam.y;
-      for (const [r, a] of [[52, 0.07], [38, 0.09], [24, 0.12]]) { ctx.fillStyle = `rgba(255,170,70,${a * night})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
-    }
-    for (const f of flies) {
-      const fx = (((f.x - cam.x) % (VW + 60)) + VW + 60) % (VW + 60) - 30 + Math.sin(t * 0.8 + f.ph) * 14, fy = f.y - cam.y + Math.cos(t * 0.6 + f.ph * 2) * 8, a = night * (0.4 + 0.6 * Math.abs(Math.sin(t * 2 + f.ph)));
-      ctx.fillStyle = `rgba(220,255,120,${a * 0.25})`; ctx.fillRect(Math.round(fx) - 1, Math.round(fy) - 1, 4, 4); ctx.fillStyle = `rgba(240,255,170,${a})`; ctx.fillRect(Math.round(fx), Math.round(fy), 2, 2);
-    }
+  // 지하는 어두워서 화덕 불빛이 번진다
+  if (!hub) for (const d of World.devHere(S)) if (d.id === 'fire' && d.s.level > 0) {
+    const cx = d.x * T + 16 - cam.x, cy = d.y * T + 14 - cam.y;
+    for (const [r, a] of [[52, 0.07], [38, 0.09], [24, 0.12]]) { ctx.fillStyle = `rgba(255,170,70,${a * 2})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill(); }
   }
   // 가장자리 어둡게(비네트)
   const vg = ctx.createRadialGradient(VW / 2, VH / 2, Math.min(VW, VH) * 0.45, VW / 2, VH / 2, Math.max(VW, VH) * 0.75);
@@ -357,7 +347,6 @@ function draw(t) {
       if (dig.on && dig.p > 0) { ctx.fillStyle = '#000'; ctx.fillRect(sx, sy - 4, T, 3); ctx.fillStyle = '#ffd84a'; ctx.fillRect(sx + 1, sy - 3, Math.round((T - 2) * Math.min(1, dig.p / dig.need)), 1); }
     }
   }
-  drawBases(cg);
   drawHUD(t);
   // 상호작용 표시(픽셀 화살표)
   if (tg && $('modal').hidden) {
@@ -365,7 +354,7 @@ function draw(t) {
     ctx.fillStyle = '#000'; ctx.fillRect(ax - 4, ay - 1, 9, 3); ctx.fillRect(ax - 3, ay + 2, 7, 2); ctx.fillRect(ax - 1, ay + 4, 3, 2);
     ctx.fillStyle = '#ffd84a'; ctx.fillRect(ax - 3, ay, 7, 1); ctx.fillRect(ax - 2, ay + 2, 5, 1); ctx.fillRect(ax, ay + 4, 1, 1);
   }
-  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode === 'core' ? (cg.ok ? `기지 코어 설치 가능 — 깊이 ${cg.depth}칸 · 클릭/Enter 설치 · ↑↓ 깊이 · ESC 멈춤` : `설치 불가: ${cg.msg} (↑↓ 깊이, A/D 걷기)`) : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
+  const lbl = $('target'); const want = HUD.tip ? HUD.tip : mode && mode.startsWith('block:') ? `${ITEM[mode.slice(6)][1]} 놓기 — 빈 칸을 클릭, ESC 취소` : mode && mode.startsWith('tool:') ? `${mode === 'tool:salt' ? '소금 뿌리개' : '온도계'} — 대상을 클릭, ESC 취소` : mode ? '건설/철거 모드 — 클릭해서 실행, ESC 취소' : tg ? `[E] ${tg.label}` : '이동: A/D · 점프: W/스페이스 · 상호작용: E 또는 클릭';
   if (lbl.textContent !== want) lbl.textContent = want;
   if (warp) {   // 궤도 이동 연출 1.4초
     const k = (performance.now() - warp.at) / 1400;
@@ -380,39 +369,9 @@ function draw(t) {
   // 건설 고스트
   if (mode && mode.startsWith('build:')) {
     const id = mode.slice(6), g = ghostCheck(id);
-    const gx = g.tx * T - cam.x, gy = Sim.RAFT.DEV_Y * T - cam.y;
+    const gx = g.tx * T - cam.x, gy = g.ty * T - cam.y;
     ctx.globalAlpha = 0.65; blit(Art.dev[id], gx, gy); ctx.globalAlpha = 1;
     ctx.strokeStyle = g.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(gx + 0.5, gy + 0.5, 31, 31);
-  }
-}
-
-// ---------- 기지 표시 (17-a): 다른 기지(서버 요약)·내 기지 영역·코어 설치 미리보기 ----------
-function outlined(txt, x, y, col) { ctx.font = '8px sans-serif'; ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.strokeText(txt, x, y); ctx.fillStyle = col; ctx.fillText(txt, x, y); }
-function drawBases(cg) {
-  if (Sim.dockOf(S).island !== 'start') return;
-  const K = World.CORE, me = UI.myBaseId();
-  ctx.textAlign = 'left';
-  for (const [id, b] of Object.entries(UI.bases())) {
-    if (id === me || !b) continue;
-    const sx = b.x * T - cam.x, sy = b.y * T - cam.y;
-    if (sx > VW || sy > VH || sx + b.w * T < 0 || sy + b.h * T < 0) continue;
-    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = b.color || '#ffffff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, b.w * T, b.h * T); ctx.restore();
-    const cx = b.cx * T - cam.x, cy = b.cy * T - cam.y;   // 코어: 팀 색 캡슐(칸 내용은 서버에 올라오지 않는다)
-    ctx.fillStyle = b.color || '#ffffff'; ctx.fillRect(cx, cy, K.CW * T, K.CH * T); ctx.fillStyle = 'rgba(8,14,34,.75)'; ctx.fillRect(cx + T, cy + T, (K.CW - 2) * T, (K.CH - 2) * T);
-    outlined(`${b.name || '기지'} (${Object.keys(b.members || {}).length}명)`, Math.round(cx), Math.round(cy) - 3, '#ffffff');
-  }
-  if (S.base) {
-    const a = World.areaOf(S.base), sx = a.x0 * T - cam.x, sy = a.y0 * T - cam.y;
-    ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = 'rgba(120,255,160,.45)'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, a.w * T, a.h * T); ctx.restore();
-    if (sx > -a.w * T && sx < VW && sy > -a.h * T && sy < VH) outlined(`내 기지 영역 ${a.w}x${a.h} (가정) — 밖은 보기만`, Math.round(Math.max(2, sx + 2)), Math.round(Math.max(10, sy + 9)), 'rgba(160,255,190,.8)');
-  }
-  if (cg) {
-    const sx = cg.x * T - cam.x, sy = cg.y * T - cam.y, a = World.areaOf(cg);
-    ctx.save(); ctx.setLineDash([3, 5]); ctx.strokeStyle = cg.ok ? 'rgba(120,255,160,.45)' : 'rgba(255,120,100,.4)'; ctx.strokeRect(Math.round(a.x0 * T - cam.x) + 0.5, Math.round(a.y0 * T - cam.y) + 0.5, a.w * T, a.h * T); ctx.restore();
-    ctx.fillStyle = cg.ok ? 'rgba(76,255,122,.28)' : 'rgba(255,90,74,.32)'; ctx.fillRect(sx, sy, K.CW * T, K.CH * T);
-    ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(sx + T, sy + T, (K.CW - 2) * T, (K.CH - 2) * T);
-    ctx.strokeStyle = cg.ok ? '#4cff7a' : '#ff5a4a'; ctx.lineWidth = 1; ctx.strokeRect(Math.round(sx) + 0.5, Math.round(sy) + 0.5, K.CW * T - 1, K.CH * T - 1);
-    outlined(`코어 ${K.CW}x${K.CH} · 깊이 ${cg.depth !== undefined ? cg.depth : coreDepth}칸`, Math.round(sx), Math.round(sy) - 3, cg.ok ? '#b8ffcb' : '#ffb0a6');
   }
 }
 
@@ -441,7 +400,7 @@ function hudBox(x, y, w, h, on) {
 }
 const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
 const hudMenu = [
-  ['core', '기지 코어 (B)', () => UI.openBase()], ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
+  ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
   ['scroll', '기록', () => openLog()], ['disk', '저장/계정', () => openSave()],
 ];
 function drawHUD(t) {
@@ -466,7 +425,7 @@ function drawHUD(t) {
   const ts = `D${S.day} ${hh}:${mm}`, pw = textW(ts) + 20, px = VW - 4 - pw;
   hudBox(px, 4, pw, 14); ctx.drawImage(S.min >= 360 && S.min < 1080 ? Art.sun : Art.moon, px + 3, 6, 9, 9); drawText(ts, px + 16, 9);
   const tempS = Math.round(airTemp()) + 'C';
-  if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · ${Sim.ISLANDS[Sim.dockOf(S).island].name} 외기 ${Math.round(airTemp())}℃ · ${fmt(pAtm(), 2)} atm`;
+  if (over(px, 4, pw, 14)) HUD.tip = `${S.day}일차 ${hh}:${mm} · ${Sim.ISLANDS[Sim.dockOf(S).island].name} 구역 온도 ${Math.round(airTemp())}℃ · ${fmt(pAtm(), 2)} atm`;
   // 메뉴 버튼
   hudMenu.forEach(([icon, label, fn], i) => {
     const x = VW - 4 - (hudMenu.length - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);
@@ -502,8 +461,7 @@ UI.init({
   puff, burst, clearKeys, applyWorld,
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
-  startCore() { enterCore(); },
-  joinMap() { Net.joinMap(MAPID, posPacket()); },
+  joinMap() { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); },
 });
 refresh(); fit(); requestAnimationFrame(frame);
 // 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말
@@ -512,7 +470,7 @@ $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}
 function startGame() {
   if ($('title').hidden) return;
   $('title').hidden = true; Store.paused = false; loadPlaza();
-  boot().then(() => UI.syncBase()).then(() => { if (!S.base) enterCore(); let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
 }
 $('t-start').onclick = startGame;
 $('t-help').onclick = () => openHelp();

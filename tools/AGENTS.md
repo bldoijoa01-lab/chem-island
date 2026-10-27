@@ -19,7 +19,9 @@ Node 점검·시험 스크립트(의존성 없음, 브라우저 시험은 Playwr
 ## 브라우저(Playwright)
 | 파일 | 대상 |
 |---|---|
-| `smoke.js` | 옆면 `index.html` 시작 → 이동, 콘솔 에러 0 |
+| `smoke.js` | 옆면 `index.html` 시작(코어 캡슐) → 이동 → 패드 3초 → 본부 → 턱 점프, 콘솔 에러 0 |
+| `smoketut.js` | 옆면 튜토리얼 목표 1~11을 무한 지하에서 끝까지(도구 단계·건설·증류·보스·원정 행성) |
+| `smokebase.js` | 내 월드: 같은 시드, 패드, 건설, 도구 단계, RLE 저장, 저장 상한, `/bases` 요약(`fakenet.js`) |
 | `ui-check.js` | 옆면 UI 점검(증류·밥솥·한제·캡슐·골렘·땅 파기·늑대 등) |
 | `smokefp.js` | `fp/` (CDN이 막히면 `THREE_MODULE=`) |
 | `smoketd.js` | `td/` |

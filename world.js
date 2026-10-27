@@ -3,7 +3,6 @@
 // 화면에 보여 줄 말·효과는 sim.js의 이벤트 통로(Sim.say / Sim.emit)로 내보낸다.
 window.World = (() => {
   const T = 16, PW = 10, PH = 18, REACH = 40;
-  const SKY_ROW = 16;   // 가정(임의값) 하늘 경계 줄(타일 y): 이 줄 위는 행성 외기가 그대로 있는 "하늘", 아래는 18단계 칸 시뮬 범위. 지표(GY ≈ 24)보다 8칸 위
   const C = Chem;
   const { DEV, FIRE_T, FIRE_NAME } = Sim;
   const say = (t) => Sim.say(t), logEv = (S, type, text) => Sim.logEv(S, type, text);
@@ -15,140 +14,47 @@ const ITEM = {
   sugar: ['sugar', '설탕', 'g'], salt: ['salt', '소금', 'g'], water: ['water', '증류수', 'g'],
   noodle: ['noodle', '면', '개'], ramen: ['ramen', '라면', '개'],
   dirt: ['dirt', '흙', '개'], stone: ['stone', '돌', '개'],
-  pickaxe: ['pickaxe', '곡괭이', '개'], shaker: ['shaker', '소금 뿌리개', '개'], thermo: ['thermo', '온도계', '개'],
+  pickaxe: ['pickaxe', '곡괭이', '개'], ironpick: ['ironpick', '철 곡괭이', '개'], iron: ['iron', '철 광석', '개'], gold: ['gold', '금', '개'], rare: ['rare', '희귀 광물', '개'], shaker: ['shaker', '소금 뿌리개', '개'], thermo: ['thermo', '온도계', '개'],
 };
 const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량(g) = 얼음 아이템 1개
   const SHAKE_G = 10;       // 가정(임의값) 소금 뿌리개로 한 번에 뿌리는 소금(g)
   const UNDER_T = 12;       // 가정(임의값) 지하 온도(℃): 깊이와 상관없이 일정하다고 가정
 
   // ---------- 월드 (단면 타일맵) ----------
-  const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7, RAFT = 8, HULL = 9, HATCH = 10;   // HULL: 기지 코어 선체(단단하고 못 판다), HATCH: 코어 해치(지나갈 수 있음, 19단계에서 열고 닫는 문)
-  const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0];
-  // 행성 맵 하나(16단계): 현재 불러온 행성의 크기 dim, 타일 MAP, 열별 지표 높이 GY, 자원 OBJS. 행성이 바뀌면 applyDug가 같은 배열을 제자리에서 다시 채운다(다른 모듈이 GY·OBJS를 잡고 있다).
-  const dim = { W: 120, H: 56 };
+  // 17-a′(DESIGN.md §4-24): 불시착 행성 = 코어가 원점인 **무한 지하 월드**(32×32 덩어리를 시드로 필요할 때 만든다, 모든 팀이 같은 시드).
+  // 허브 정거장(plaza)과 원정 행성(alpine·polar)은 옛 방식의 유한 맵(MAP 배열 + S.dug)이다. 모든 크기·확률·좌표는 가정(임의값)이다.
+  const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7, RAFT = 8, HULL = 9, HATCH = 10, BEDROCK = 11, HARD = 12, SALT = 13, IRON = 14, GOLD = 15, HOT = 16, RARE = 17;
+  // HULL: 코어 선체(단단하고 못 판다) · HATCH: 코어 해치(지나갈 수 있음) · BEDROCK: 천장·가장자리 암반(못 판다) · HARD 경암 · SALT 암염 광맥 · IRON 철 광맥 · GOLD 금 광맥 · HOT 뜨거운 바위 · RARE 희귀 광물
+  const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1];
+  // 유한 맵(허브·원정 행성): 크기 dim, 타일 MAP, 자연 지형 BASE, 열별 지표 높이 GY(지하 맵은 0), 자원 OBJS. 행성이 바뀌면 applyDug가 같은 배열을 제자리에서 다시 채운다.
+  const dim = { W: 112, H: 56 };
   let MAP = new Uint8Array(dim.W * dim.H), BASE = MAP, loaded = '';
   const GY = [], OBJS = [];
-  const tileAt = (x, y) => (y < 0 ? AIR : (x < 0 || x >= dim.W || y >= dim.H) ? STONE : MAP[y * dim.W + x]);
+  const CHUNK = 32, LIMIT = 100000, CEIL = -21;   // 덩어리 한 변(칸), 월드 범위 ±LIMIT, y ≤ CEIL은 천장 암반
+  const SEED = 20261027;                           // 가정(임의값) 모든 팀이 같은 시드
+  const SAVE_CAP = 200000;                         // 가정(임의값) 판 칸 저장 상한: S.world JSON 길이(약 200 KB)
+  let inf = false, curS = null, worldRef = null, worldBytes = 0;
+  const chunks = new Map();
+  const infTile = (x, y) => {
+    if (y <= CEIL || y > LIMIT || x < -LIMIT || x > LIMIT) return BEDROCK;
+    return getChunk(x >> 5, y >> 5).t[((y & 31) << 5) | (x & 31)];
+  };
+  const tileAt = (x, y) => inf ? infTile(x, y) : (y < 0 ? AIR : (x < 0 || x >= dim.W || y >= dim.H) ? STONE : MAP[y * dim.W + x]);
   const solidAt = (x, y) => SOLID[tileAt(x, y)] === 1;
   const isOpen = (x, y) => { const t = tileAt(x, y); return t === AIR || t === WATER; };
-  // 행성 지형 생성: 크기(W, H)를 인자로 받는다. off = 옛 월드 x 창의 시작(옛 지형 식을 그대로 옮겨 쓰는 데 필요). 17단계에서 불시착 행성은 800 × 110 새 생성기로 바꾼다.
-  // 지형 식은 그 행성의 옛 x 범위에서만 적용하고 나머지는 물(바다 바닥 높이 30)이다. 오브젝트 id는 옛 월드 x를 그대로 쓴다(하루 채집 기록 S.nodes가 깨지지 않게).
-  const SPAN = { start: [0, 112], plaza: [118, 202], alpine: [213, 286], polar: [303, 376] };
-  const OBJ_SPEC = {
-    start: [['tree', [29, 32, 35, 68, 77, 80, 85, 98]], ['cane', [26, 27]], ['wheat', [36, 37, 38]], ['sandpile', [24, 25, 106]], ['icecrystal', [86, 89, 95, 97, 100]], ['harbor', [102]], ['fragment', [104]]],
-    plaza: [['tree', [143, 146]], ['wheat', [147, 148]], ['cane', [149]], ['harbor', [129]], ['box', [133]], ['board', [137]], ['altar', [140]]],
-    alpine: [['harbor', [223]], ['tree', [226, 231, 236, 252, 262, 270]], ['rocksalt', [241, 255, 267]]],
-    polar: [['harbor', [313]], ['icecrystal', [316, 319, 323, 327, 346, 350, 354, 358]]],
-  };
-  // 불시착 행성 동쪽 대륙(17-a, 모두 가정(임의값)): x 113..122 만(바다 밑 30), 123..129 해안 경사, 130.. 시드 17 고정 지표. 호수 4·얼음 연못 3·지하 동굴 18, 자원 배치.
-  // 옛 120칸 영역(x 0..119)의 좌표는 바꾸지 않는다. 지표 인접 열 높이 차는 1 이하(자동 오르기가 없으므로 점프로 넘을 수 있게).
-  const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  function startExt(W, H) {
-    const r = mulberry(17), g = new Array(W).fill(30), sand = new Array(W).fill(false), ice = new Array(W).fill(false), caves = [], objs = [];
-    const lakes = [], ponds = [];
-    for (let i = 0; i < 4; i++) { const c = Math.round(190 + i * 165 + r() * 50 - 25), w = 18 + Math.floor(r() * 11); lakes.push([c - (w >> 1), c + (w >> 1), 3 + (r() < 0.5 ? 1 : 0)]); }
-    for (let i = 0; i < 3; i++) { const c = Math.round(272 + i * 170 + r() * 40 - 20), w = 8 + Math.floor(r() * 5); ponds.push([c - (w >> 1), c + (w >> 1)]); }
-    const dist = (x, [a, b]) => x < a ? a - x : x > b ? x - b : 0;
-    for (let x = 123; x < W; x++) {
-      if (x < 130) { g[x] = Math.round(30 - 6 * (x - 122) / 7); sand[x] = true; continue; }
-      const n = 24 + 1.6 * Math.sin(x / 37) + 1.2 * Math.sin(x / 13 + 1) + 0.9 * Math.sin(x / 5.3 + 2);
-      const d = Math.min(...lakes.map(l => dist(x, l)), ...ponds.map(p => dist(x, p))), k = Math.min(1, d / 6);
-      g[x] = Math.max(21, Math.min(27, Math.round(24 + (n - 24) * k)));
-      if (d <= 3) sand[x] = true;
-    }
-    for (const [a, b, depth] of lakes) for (let x = a; x <= b; x++) g[x] = 24 + Math.round(depth * Math.sin(Math.PI * (x - a) / (b - a)));
-    for (const [a, b] of ponds) for (let x = a; x <= b; x++) { g[x] = 24; ice[x] = true; sand[x] = false; }
-    for (let x = 131; x < W; x++) g[x] = Math.max(g[x - 1] - 1, Math.min(g[x - 1] + 1, g[x]));   // 왼쪽에서 오른쪽, 그다음 반대로: 이웃 열 차이 1 이하
-    for (let x = W - 2; x >= 130; x--) g[x] = Math.max(g[x + 1] - 1, Math.min(g[x + 1] + 1, g[x]));
-    for (let i = 0; i < 18; i++) caves.push([Math.round(150 + r() * 640), Math.round(40 + r() * 44), 5 + Math.floor(r() * 8), 2 + Math.floor(r() * 3)]);
-    const inWater = (x) => lakes.some(l => dist(x, l) <= 1) || ponds.some(p => dist(x, p) <= 1);
-    for (let x = 136; x < W - 6; x += 7 + Math.floor(r() * 8)) {
-      if (inWater(x)) continue;
-      const roll = r(), nearPond = ponds.some(p => dist(x, p) <= 12);
-      const type = nearPond && roll < 0.5 ? 'icecrystal' : roll < 0.55 ? 'tree' : roll < 0.67 ? 'wheat' : roll < 0.77 ? 'cane' : roll < 0.9 ? 'sandpile' : 'rocksalt';
-      objs.push({ type, x, pine: type === 'tree' && r() < 0.3 });
-    }
-    return { g, sand, ice, caves, objs };
-  }
-  function genPlanet(name, W, H, off) {
-    const map = new Uint8Array(W * H), gy = [], objs = [], [s0, s1] = SPAN[name];
-    const ext = name === 'start' && W > 130 ? startExt(W, H) : null;
-    for (let x = 0; x < W; x++) {
-      const gx = x + off;
-      let g = 30;                                                                       // 바다 밑바닥
-      if (ext && x >= 113) g = ext.g[x];
-      else if (gx >= s0 && gx <= s1) {
-        if (name === 'start') {
-          if (gx <= 13) g = 30; else if (gx <= 27) g = Math.round(30 - 6 * (gx - 13) / 14); else if (gx <= 34) g = 24 - Math.round(1.2 * Math.sin((gx - 28) / 2.5)); else if (gx <= 66) g = 24;
-          else if (gx <= 70) g = 24 - (gx - 66); else if (gx <= 74) g = 20; else if (gx <= 78) g = 20 + (gx - 74); else if (gx <= 82) g = 24;
-          else if (gx <= 105) g = 24 - Math.round(1.5 * Math.sin((gx - 83) / 3)); else g = Math.round(24 + 6 * (gx - 105) / 7);
-        } else if (name === 'plaza') {
-          if (gx <= 125) g = Math.round(24 + 6 * (125 - gx) / 7);                        // 허브 서쪽 접안 구역
-          else if (gx <= 194) g = 24; else g = Math.round(24 + 6 * (gx - 195) / 7);
-        } else if (name === 'alpine') {
-          if (gx <= 220) g = Math.round(24 + 6 * (220 - gx) / 7);                        // 고원 서쪽 접안 구역
-          else if (gx <= 278) g = 24 - Math.round(2 * Math.abs(Math.sin((gx - 221) / 4)));   // 위로만 솟은 완만한 언덕(물웅덩이가 생기지 않게)
-          else g = Math.round(24 + 6 * (gx - 279) / 7);
-        } else {
-          if (gx <= 310) g = Math.round(24 + 6 * (310 - gx) / 7);                        // 얼음 위성 서쪽 접안 구역
-          else if (gx <= 368) g = 24; else g = Math.round(24 + 6 * (gx - 369) / 7);
-        }
-      }
-      gy[x] = g;
-      const plaza = name === 'plaza', alpine = name === 'alpine', polar = name === 'polar';
-      const beach = (name === 'start' && (gx <= 27 || (gx >= 106 && gx <= 122) || (ext && x > 122 && ext.sand[x]))) || (plaza && (gx <= 126 || gx >= 194)) || (alpine && (gx <= 220 || gx >= 279)),
-        snow = (name === 'start' && gx >= 83 && gx <= 105) || polar, pond = (name === 'start' && ((gx >= 90 && gx <= 94) || (ext && x > 122 && ext.ice[x]))) || (polar && gx >= 330 && gx <= 340);
-      for (let y = g; y < H; y++) {
-        const d = y - g;
-        map[y * W + x] = d === 0 ? (pond ? ICE : beach ? SAND : snow ? SNOWTOP : GRASS)
-          : d <= (alpine ? 1 : 4) ? (pond && d <= 1 ? ICE : beach ? SAND : DIRT) : STONE;   // 고원은 흙이 얇고 바위가 많다
-      }
-      for (let y = 25; y < g; y++) map[y * W + x] = WATER;
-    }
-    if (name === 'plaza') for (let gx = 152; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 허브의 도킹 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
-    if (name === 'start') for (const [gcx, cy, r] of [[50, 37, 5], [70, 41, 6], [92, 38, 5], [30, 45, 6], [60, 48, 4]]) {
-      for (let y = cy - r; y <= cy + r; y++) for (let x = gcx - r * 2; x <= gcx + r * 2; x++) {
-        if (((x - gcx) / 2) ** 2 + (y - cy) ** 2 <= r * r) map[y * W + x - off] = AIR;
-      }
-    }
-    if (ext) for (const [cx, cy, rx, ry] of ext.caves) for (let y = cy - ry; y <= cy + ry; y++) for (let x = cx - rx; x <= cx + rx; x++) {
-      if (x >= 123 && x < W && y > gy[x] + 3 && y < H - 2 && ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1) map[y * W + x] = AIR;
-    }
-    for (const [type, xs] of OBJ_SPEC[name]) for (const gx of xs) objs.push({ id: type[0] + type[1] + gx, type, x: gx - off, gx, y: gy[gx - off], pine: (gx >= 83 && gx <= 112) || gx >= 213 });
-    if (ext) for (const o of ext.objs) objs.push({ id: o.type[0] + o.type[1] + o.x, type: o.type, x: o.x, gx: o.x, y: gy[o.x], pine: o.pine });
-    return { map, gy, objs };
-  }
-  function loadPlanet(name) {
-    const P = Sim.ISLANDS[name], g = genPlanet(name, P.W, P.H, P.off);
-    dim.W = P.W; dim.H = P.H; MAP = g.map; BASE = g.map.slice(); loaded = name;
-    GY.length = 0; GY.push(...g.gy); OBJS.length = 0; OBJS.push(...g.objs);
-  }
-  // 땅 파기/놓기로 바뀐 타일만 S.dug(키 `행성id:y*W+x` → 새 종류)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
-  const DK = (k) => loaded + ':' + k;
-  function applyDug(S) {
-    const here = Sim.dockOf(S).island;
-    if (here !== loaded) loadPlanet(here); else MAP.set(BASE);
-    const pre = loaded + ':';
-    for (const k in S.dug) { if (!k.startsWith(pre)) continue; const v = S.dug[k], i = +k.slice(pre.length); if (v != null && i >= 0 && i < MAP.length) MAP[i] = v; }
-    Sim.syncRaft(S);   // 탐사정 바닥 타일: 접안 쪽 끝에서 바깥쪽으로 cells칸 (저장하지 않고 S.raft에서 계산)
-    for (const x of Sim.raftXs(S)) MAP[Sim.RAFT.ROW * dim.W + x] = RAFT;
-    stampCore(S);   // 기지 코어(17-a): 저장하지 않고 S.base에서 땅 파기 기록 위에 다시 찍는다
-  }
-  // 종류별 [얻는 아이템, 1회 양, 하루 횟수, 이름, 중심 y 오프셋(위로 몇 px)]
-  const NODE = {
-    tree: ['stick', 2, 2, '나무', 16], cane: ['sugar', 50, 2, '사탕수수', 8], wheat: ['noodle', 1, 2, '밀', 8],
-    sandpile: ['sand', 2, 4, '모래 더미', 4], icecrystal: ['ice', 1, 3, '얼음 결정', 10],
-    rocksalt: ['salt', 30, 2, '암염', 8],   // NaCl 결정(이온 결정이라 녹는점이 높아 곡괭이로 캔다)   [#24]
-  };
 
-  // ---------- 기지 코어 · 기지 영역 (17-a, DESIGN.md §4-23, 모든 숫자는 가정(임의값)) ----------
-  // 코어: 6 × 4칸 밀폐 캡슐(테두리 선체 + 안쪽 4 × 2 빈 방 + 양쪽 벽 아랫줄 해치). 영역: 코어 중심 48 × 32, 원점을 4칸 격자에 맞춤. 영역 밖은 팔 수 없다.
-  const CORE = { CW: 6, CH: 4, AW: 48, AH: 32, DEPTH: 50, GAP: 8, KEEP: 20, CELL: 4, CANCEL_MS: 300000 };
-  const KEEP_PTS = [[104, 24], [102, 24], [107, 25]];   // 추락 지점 · 궤도 이동 단말 · 접안 구역: 둘레 20칸에는 코어를 놓지 못한다
-  const areaOf = (c) => ({ x0: Math.floor((c.x + 3 - CORE.AW / 2) / CORE.CELL) * CORE.CELL, y0: Math.floor((c.y + 2 - CORE.AH / 2) / CORE.CELL) * CORE.CELL, w: CORE.AW, h: CORE.AH });
-  // 서버 선점 칸(/baseClaims): 영역 + 사방 한 칸(4칸). 키는 `cx_cy`(음수가 없게 +1)
-  const claimCells = (a) => { const out = []; for (let cx = a.x0 / CORE.CELL - 1; cx <= (a.x0 + a.w) / CORE.CELL; cx++) for (let cy = a.y0 / CORE.CELL - 1; cy <= (a.y0 + a.h) / CORE.CELL; cy++) out.push((cx + 1) + '_' + (cy + 1)); return out; };
-  const cellKey = (a) => (a.x0 / CORE.CELL) + '_' + (a.y0 / CORE.CELL);
+  // ---- 시드 잡음·해시 ----
+  const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const hash3 = (a, b, c) => { let h = Math.imul(a ^ SEED, 0x85ebca6b) ^ Math.imul(b + 0x9e3779b9, 0xc2b2ae35) ^ Math.imul(c + 0x165667b1, 0x27d4eb2f); h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15; return (h >>> 0) / 4294967296; };
+  const noise = (x, y) => Math.sin(x / 19 + Math.sin(y / 23) * 2) + Math.sin(y / 13 + x / 37) + Math.sin((x + y) / 29);   // −3..3
+  // 바닥 암석: D < 50 퇴적토, 50 ≤ D < 140 암반, D ≥ 140 경암(경계는 완만하게 구불거린다). D = y + 20
+  function bulk(x, y) {
+    const D = y + 20 + Math.round(3 * Math.sin(x / 17) + 2 * Math.sin(x / 7 + 1)), v = noise(x, y);
+    return D < 50 ? (v > 1.6 ? STONE : DIRT) : D < 140 ? STONE : HARD;
+  }
+
+  // ---- 코어(원점 6 × 4 캡슐) ----
+  const CORE = { CW: 6, CH: 4 };
   // 코어 칸 종류: -1 = 코어 밖, 아니면 타일 번호(안쪽 AIR, 해치, 선체)
   function coreTile(c, tx, ty) {
     const dx = tx - c.x, dy = ty - c.y;
@@ -156,64 +62,236 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     if (dx > 0 && dx < CORE.CW - 1 && dy > 0 && dy < CORE.CH - 1) return AIR;
     return dy === CORE.CH - 2 && (dx === 0 || dx === CORE.CW - 1) ? HATCH : HULL;
   }
-  const hasBase = (S) => loaded === 'start' && !!S.base;
-  const inCore = (S, tx, ty) => hasBase(S) && coreTile(S.base, tx, ty) !== -1;
-  function inArea(S, tx, ty) { if (!hasBase(S)) return false; const a = areaOf(S.base); return tx >= a.x0 && tx < a.x0 + a.w && ty >= a.y0 && ty < a.y0 + a.h; }
-  function stampCore(S) {
-    if (!hasBase(S)) return;
-    const c = S.base;
-    for (let ty = c.y; ty < c.y + CORE.CH; ty++) for (let tx = c.x; tx < c.x + CORE.CW; tx++) if (tx >= 0 && tx < dim.W && ty >= 0 && ty < dim.H) MAP[ty * dim.W + tx] = coreTile(c, tx, ty);
+  const ORIGIN = { x: 0, y: 0 };
+  const inCore = (S, tx, ty) => inf && coreTile(ORIGIN, tx, ty) !== -1;
+
+  // ---- 지대와 특징(덩어리당 최대 1개, 덩어리 안쪽 [3, 29]칸) ----
+  // 시작 특징: 덩어리 → [종류, 중심 x(월드), 바닥 y(월드), 반폭 rx, 높이 h]. 코어에서 55칸 안에 목표 1~3 자원이 확실히 있게 고정한다
+  const STARTERS = {
+    '-1,0': ['brine', -16, 18, 12, 6], '1,0': ['tree', 48, 14, 12, 6], '0,1': ['wheat', 16, 52, 12, 6], '-1,1': ['cane', -16, 52, 12, 6],
+    '1,1': ['sandpile', 48, 52, 10, 5], '0,2': ['icecrystal', 16, 84, 10, 5], '-2,0': ['rocksalt', -48, 14, 10, 5], '0,0': null,
+  };
+  // 지대: [이름, 위치 조건(D, ax), 확률, [[종류, 비율]…]]
+  const ZONES = [
+    ['시작 지대', (D, ax) => D <= 60 && ax <= 96, 0.45, [['brine', .2], ['tree', .25], ['wheat', .2], ['cane', .15], ['sandpile', .15], ['icecrystal', .05]]],
+    ['가스 포켓 지대', (D) => D >= 60 && D <= 260, 0.30, [['gas', 1]]],
+    ['얼음·한랭 지대', (D) => D >= 80 && D <= 180, 0.30, [['icecrystal', 1]]],
+    ['암염·염호 지대', (D, ax) => ax >= 96 && D >= 20 && D <= 300, 0.35, [['saltlake', 1]]],
+    ['금속 지대(철)', (D) => D >= 90 && D <= 300, 0.30, [['iron', 1]]],
+    ['지열·간헐천 지대', (D) => D >= 140 && D <= 400, 0.25, [['geyser', 1]]],
+    ['금속 지대(금)', (D) => D >= 160 && D <= 400, 0.25, [['gold', 1]]],
+    ['심층', (D) => D >= 300, 0.25, [['rare', 1]]],
+  ];
+  function pickFeature(cx, cy) {
+    const key = cx + ',' + cy;
+    if (key in STARTERS) { const st = STARTERS[key]; return st ? { kind: st[0], cxw: st[1], floor: st[2], rx: st[3], h: st[4] } : null; }
+    if (cy < 0) return null;
+    const D = cy * CHUNK + 16 + 20, ax = Math.abs(cx * CHUNK + 16), el = ZONES.filter(z => z[1](D, ax));
+    if (!el.length) return null;
+    const z = el[Math.floor(hash3(cx, cy, 2) * el.length)];
+    if (hash3(cx, cy, 3) > z[2]) return null;
+    let r = hash3(cx, cy, 4), kind = z[3][z[3].length - 1][0];
+    for (const [k, w] of z[3]) { if (r < w) { kind = k; break; } r -= w; }
+    const big = kind === 'iron' || kind === 'gold' || kind === 'rare';
+    const rx = (big ? 4 : 6) + Math.floor(hash3(cx, cy, 5) * (big ? 6 : 7)), h = 4 + Math.floor(hash3(cx, cy, 6) * 4);
+    const lx = rx + 3 + Math.floor(hash3(cx, cy, 7) * (27 - 2 * rx)), floorL = h + 3 + Math.floor(hash3(cx, cy, 8) * (27 - h));
+    return { kind, cxw: cx * CHUNK + lx, floor: cy * CHUNK + floorL, rx, h };
   }
-  // 설치 조건 검사: others = 서버에서 읽은 다른 기지 [{x, y, w, h}](영역). 반환 { ok, msg, area, depth }
-  function coreCheck(S, x, y, others) {
-    const fail = (msg) => ({ ok: false, msg });
-    if (loaded !== 'start') return fail('기지는 불시착 행성에만 설치할 수 있습니다.');
-    const a = areaOf({ x, y });
-    if (a.x0 < 0 || a.x0 + a.w > dim.W || a.y0 < 0 || a.y0 + a.h > dim.H || y + CORE.CH + 1 >= dim.H) return fail('기지 영역이 맵 밖으로 나갑니다.');
-    const body = [AIR, GRASS, DIRT, STONE, SAND], hard = [GRASS, DIRT, STONE, SAND], liquid = [WATER, ICE, SNOWTOP];
-    for (let ty = y - 2; ty < y + CORE.CH + 2; ty++) for (let tx = x - 2; tx < x + CORE.CW + 2; tx++) if (liquid.includes(tileAt(tx, ty))) return fail('물·얼음 호수 가까이(2칸 안)에는 설치할 수 없습니다.');
-    for (let ty = y; ty < y + CORE.CH; ty++) for (let tx = x; tx < x + CORE.CW; tx++) if (!body.includes(tileAt(tx, ty))) return fail('코어 자리에 설치할 수 없는 칸(탐사정·장치 등)이 있습니다.');
-    for (let tx = x; tx < x + CORE.CW; tx++) if (!hard.includes(tileAt(tx, y + CORE.CH))) return fail('코어 바로 아래가 단단한 땅(흙·돌·모래)이 아닙니다.');
-    let depth = -99; for (let tx = x; tx < x + CORE.CW; tx++) depth = Math.max(depth, y + CORE.CH - GY[tx]);
-    if (depth > CORE.DEPTH) return fail(`지표 아래 ${CORE.DEPTH}칸을 넘습니다. (지금 ${depth}칸)`);
-    for (const [px, py] of KEEP_PTS) { const dx = Math.max(x - px, px - (x + CORE.CW - 1), 0), dy = Math.max(y - py, py - (y + CORE.CH - 1), 0); if (Math.max(dx, dy) < CORE.KEEP) return fail(`추락 지점·궤도 이동 단말에서 ${CORE.KEEP}칸 이상 떨어져야 합니다.`); }
-    if (OBJS.some(o => o.x >= x - 1 && o.x <= x + CORE.CW && o.y - 3 <= y + CORE.CH - 1 && o.y >= y)) return fail('자원 위에는 설치할 수 없습니다.');
-    for (const b of others || []) { if (!(a.x0 + a.w + CORE.GAP <= b.x || b.x + b.w + CORE.GAP <= a.x0 || a.y0 + a.h + CORE.GAP <= b.y || b.y + b.h + CORE.GAP <= a.y0)) return fail(`다른 기지와 겹치거나 ${CORE.GAP}칸 이내입니다.`); }
-    return { ok: true, area: a, depth };
+  const GAS_MIX = [{ N2: .78, O2: .21, He: .01 }, { N2: .5, O2: .5, He: 0 }, { N2: .2, O2: .05, He: .75 }, { N2: .95, O2: .02, He: .03 }];   // 가정(임의값) 가스 포켓 조성(몰분율), 19단계 칸 시뮬이 읽는다
+  const ICE_ZONE_T = -15, HOT_ZONE_T = 45;   // 가정(임의값) 얼음 광맥 방·뜨거운 바위 방의 온도(℃). 칸 시뮬(19단계) 전까지는 구역 상수
+  function genChunk(cx, cy) {
+    const t = new Uint8Array(CHUNK * CHUNK), objs = [], x0 = cx * CHUNK, y0 = cy * CHUNK;
+    for (let ly = 0; ly < CHUNK; ly++) for (let lx = 0; lx < CHUNK; lx++) { const x = x0 + lx, y = y0 + ly; t[(ly << 5) | lx] = y <= CEIL ? BEDROCK : bulk(x, y); }
+    const f = pickFeature(cx, cy); let feat = null;
+    if (f) {
+      const { kind, cxw, floor, rx, h } = f, xa = cxw - rx, xb = cxw + rx;
+      const put = (x, y, id) => { const lx = x - x0, ly = y - y0; if (lx >= 0 && lx < CHUNK && ly >= 0 && ly < CHUNK && t[(ly << 5) | lx] !== BEDROCK) t[(ly << 5) | lx] = id; };
+      const veins = kind === 'iron' || kind === 'gold' || kind === 'rare';
+      if (veins) {   // 광맥: 암반 속의 타원 덩어리(칸마다 70 %)
+        const ore = kind === 'iron' ? IRON : kind === 'gold' ? GOLD : RARE, ry = Math.max(3, h);
+        for (let y = floor - ry; y <= floor + ry; y++) for (let x = xa; x <= xb; x++) if (((x - cxw) / rx) ** 2 + ((y - floor) / ry) ** 2 <= 1 && hash3(x, y, 9) < 0.7) put(x, y, ore);
+      } else {
+        const lining = kind === 'icecrystal' ? ICE : kind === 'saltlake' || kind === 'rocksalt' ? SALT : kind === 'geyser' ? HOT : -1;
+        for (let x = xa; x <= xb; x++) {
+          const hh = Math.max(2, Math.round(h * Math.sqrt(Math.max(0, 1 - ((x - cxw) / rx) ** 2))));
+          for (let y = floor - hh; y < floor; y++) put(x, y, AIR);
+          put(x, floor, kind === 'sandpile' ? SAND : lining >= 0 ? lining : DIRT);
+          if (lining >= 0) { put(x, floor + 1, lining); put(x, floor - hh - 1, lining); }
+          if ((kind === 'brine' || kind === 'saltlake') && Math.abs(x - cxw) <= Math.round(rx * 0.6)) for (let y = floor - 3; y < floor; y++) put(x, y, WATER);
+          if (kind === 'geyser' && Math.abs(x - cxw) <= 2) for (let y = floor - 2; y < floor; y++) put(x, y, WATER);
+        }
+        if (lining >= 0) for (let y = floor - h; y <= floor; y++) { put(xa - 1, y, lining); put(xb + 1, y, lining); }
+        if (['tree', 'wheat', 'cane', 'sandpile', 'icecrystal', 'rocksalt'].includes(kind)) for (let x = xa + 3; x <= xb - 3; x += 5) { const lx = x - x0; if (lx >= 0 && lx < CHUNK) objs.push({ id: kind.slice(0, 2) + x + 'y' + floor, type: kind, x, gx: x, y: floor, pine: false }); }
+      }
+      feat = { kind, x0: xa, x1: xb, y0: floor - h, y1: floor, gas: kind === 'gas' ? GAS_MIX[Math.floor(hash3(cx, cy, 10) * GAS_MIX.length)] : undefined };
+    }
+    if (cx === 0 && cy === 0) {
+      for (let y = 0; y < CORE.CH; y++) for (let x = 0; x < CORE.CW; x++) t[(y << 5) | x] = coreTile(ORIGIN, x, y);
+      objs.push({ id: 'padcore', type: 'pad', x: 2, gx: 2, y: 3, pine: false });   // 코어 전송 패드(안쪽 바닥)
+    }
+    return { cx, cy, t, nat: t.slice(), diff: null, objs, feat, canvas: null, dirty: true, used: 0 };
   }
-  const canCancelBase = (S, now) => !!S.base && (now === undefined ? Date.now() : now) - S.base.at < CORE.CANCEL_MS;
+  // ---- 판 칸 저장(DESIGN §4-24): 덩어리별 줄 단위 런 길이 부호화. 값 0 = 자연 그대로, 그 외 = 새 타일 번호 + 1 ----
+  const rleEncode = (a) => { const out = []; let v = a[0], n = 1; for (let i = 1; i < a.length; i++) { if (a[i] === v) n++; else { out.push(v + '*' + n); v = a[i]; n = 1; } } out.push(v + '*' + n); return out.join(','); };
+  const rleDecode = (s, into) => { let i = 0; for (const part of s.split(',')) { const [v, n] = part.split('*'); const vv = +v, nn = +n; for (let k = 0; k < nn && i < into.length; k++) into[i++] = vv; } return into; };
+  const chunkBytes = (key, str) => key.length + str.length + 6;
+  function getChunk(cx, cy) {
+    const key = cx + ',' + cy; let c = chunks.get(key);
+    if (c) { c.used = ++useTick; return c; }
+    if (chunks.size > 6000) for (const [k, v] of chunks) { if (!v.diff) chunks.delete(k); }   // 메모리 한계: 자연 그대로인 덩어리는 다시 만들 수 있으니 비운다
+    c = genChunk(cx, cy); c.used = ++useTick;
+    const saved = curS && curS.world && curS.world[key];
+    if (saved) { c.diff = rleDecode(saved, new Uint8Array(CHUNK * CHUNK)); for (let i = 0; i < c.diff.length; i++) if (c.diff[i]) c.t[i] = c.diff[i] - 1; }
+    chunks.set(key, c);
+    return c;
+  }
+  let useTick = 0;
+  const resetInf = (S) => { chunks.clear(); curS = S; worldRef = S.world; worldBytes = 0; for (const k in S.world) worldBytes += chunkBytes(k, S.world[k]); };
+  // 월드 칸 하나를 바꾸고 저장 형식(S.world)에 반영한다
+  function setInfTile(S, x, y, id) {
+    const c = getChunk(x >> 5, y >> 5), i = ((y & 31) << 5) | (x & 31), key = c.cx + ',' + c.cy;
+    c.t[i] = id;
+    if (!c.diff) c.diff = new Uint8Array(CHUNK * CHUNK);
+    c.diff[i] = c.nat[i] === id ? 0 : id + 1;
+    const old = S.world[key]; if (old !== undefined) worldBytes -= chunkBytes(key, old);
+    if (c.diff.some(v => v)) { const s = rleEncode(c.diff); S.world[key] = s; worldBytes += chunkBytes(key, s); } else { delete S.world[key]; c.diff = null; }
+    c.dirty = true;
+    const lx = x & 31, ly = y & 31;   // 가장자리 칸이면 이웃 덩어리의 윤곽도 다시 그린다
+    for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if ((dx < 0 && lx === 0) || (dx > 0 && lx === 31) || (dy < 0 && ly === 0) || (dy > 0 && ly === 31)) { const n = chunks.get((c.cx + dx) + ',' + (c.cy + dy)); if (n) n.dirty = true; }
+  }
+  // 구역 온도(가정(임의값)): 행성 암반 12 ℃(UNDER_T) + 행성 보정(ENV.dT), 얼음 광맥 방 −15 ℃, 뜨거운 바위 방 45 ℃. d가 없으면 플레이어가 서 있는 자리. 칸 시뮬(19단계)이 오면 칸 온도로 바뀐다
+  function ambientAt(S, d, tx, ty) {
+    const pl = d ? (d.pl || 'start') : Sim.dockOf(S).island;
+    const x = d ? d.x : tx !== undefined ? tx : Math.floor((S.px + PW / 2) / T), y = d ? d.y : ty !== undefined ? ty : Math.floor((S.py + PH / 2) / T);
+    if (pl === 'start') { const f = getChunk(x >> 5, y >> 5).feat; if (f && x >= f.x0 && x <= f.x1 && y >= f.y0 && y <= f.y1 + 1) { if (f.kind === 'icecrystal') return ICE_ZONE_T; if (f.kind === 'geyser') return HOT_ZONE_T; } }
+    else if (pl !== 'plaza') for (const z of FIN_ZONES[pl] || []) if (z.kind === 'icecrystal' && x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1 + 1) return ICE_ZONE_T;
+    return UNDER_T + Sim.ENV[pl].dT;
+  }
+  // 덩어리 안 자원 오브젝트(보이는 범위): (tx0..tx1, ty0..ty1) 칸 범위에 걸친 덩어리들의 것
+  function objsIn(tx0, ty0, tx1, ty1) {
+    if (!inf) return OBJS;
+    const out = [];
+    for (let cy = Math.max(0, ty0 >> 5); cy <= (ty1 >> 5); cy++) for (let cx = tx0 >> 5; cx <= (tx1 >> 5); cx++) for (const o of getChunk(cx, cy).objs) out.push(o);
+    return out;
+  }
+  const objsNearTile = (tx, ty) => objsIn(tx - 8, ty - 8, tx + 8, ty + 8);
+  const featureAt = (tx, ty) => inf ? getChunk(tx >> 5, ty >> 5).feat : null;
+
+  // ---- 유한 맵: 허브 정거장(plaza)·원정 행성(alpine·polar) ----
+  const SPAN = { plaza: [118, 202] };
+  const OBJ_SPEC = {   // 허브: [종류, [옛 월드 x(= 맵 x + 106)]]. 재배 선반(나무·밀·사탕수수)·모래 비축·얼음 저장고는 첫 목표를 본부에서 할 수 있게 둔 소량이다
+    plaza: [['fragment', [126]], ['harbor', [129]], ['pad', [131]], ['box', [133]], ['tree', [135, 143, 145, 146]], ['board', [137]], ['altar', [140]], ['wheat', [144, 147, 148]], ['cane', [149]], ['sandpile', [150]], ['icecrystal', [151]]],
+  };
+  // 원정 행성(102 × 56): 착륙 캡슐 동굴(전송 패드) + 자원 동굴. [종류, 중심 x, 바닥 y, 반폭 rx, 높이 h]
+  const FIN_DEF = {
+    alpine: [['landing', 14, 30, 8, 6], ['tree', 45, 38, 9, 5], ['tree', 75, 30, 9, 5], ['rocksalt', 60, 46, 8, 4], ['rocksalt', 88, 24, 7, 4]],
+    polar: [['landing', 14, 30, 8, 6], ['icecrystal', 45, 40, 10, 5], ['icecrystal', 75, 28, 10, 5], ['icecrystal', 60, 48, 8, 4]],
+  };
+  const FIN_ZONES = {};
+  function genUnder(name, W, H) {
+    const map = new Uint8Array(W * H), objs = [], zones = [], E = 4;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const v = noise(x, y);
+      map[y * W + x] = (x < E || x >= W - E || y < E || y >= H - E) ? BEDROCK : name === 'alpine' ? (v > 0.2 ? STONE : DIRT) : (v > 0.6 ? ICE : STONE);
+    }
+    for (const [kind, cx, floor, rx, h] of FIN_DEF[name]) {
+      for (let x = cx - rx; x <= cx + rx; x++) {
+        const hh = Math.max(2, Math.round(h * Math.sqrt(Math.max(0, 1 - ((x - cx) / rx) ** 2))));
+        for (let y = floor - hh; y < floor; y++) map[y * W + x] = AIR;
+        map[floor * W + x] = kind === 'icecrystal' ? ICE : kind === 'rocksalt' ? SALT : DIRT;
+        if (kind === 'icecrystal') map[(floor + 1) * W + x] = ICE;
+      }
+      zones.push({ kind, x0: cx - rx, x1: cx + rx, y0: floor - h, y1: floor });
+      if (kind === 'landing') continue;
+      for (let x = cx - rx + 3; x <= cx + rx - 3; x += 5) objs.push({ id: kind.slice(0, 2) + x + 'y' + floor, type: kind, x, gx: x, y: floor, pine: false });
+    }
+    FIN_ZONES[name] = zones;
+    objs.push({ id: 'pad' + name, type: 'pad', x: 14, gx: 14, y: 30, pine: false });
+    return { map, gy: new Array(W).fill(0), objs, zones };
+  }
+  function genPlanet(name, W, H, off) {   // 유한 맵 생성(시험도 부른다): 크기를 인자로 받는다
+    if (name !== 'plaza') return genUnder(name, W, H);
+    const map = new Uint8Array(W * H), gy = [], objs = [], [s0, s1] = SPAN[name];
+    for (let x = 0; x < W; x++) {
+      const gx = x + off;
+      let g = 30;                                                                       // 도킹 구역 바닥
+      if (gx >= s0 && gx <= s1) {
+        if (gx <= 125) g = Math.round(24 + 6 * (125 - gx) / 7);                        // 허브 서쪽 접안 구역
+        else if (gx <= 194) g = 24; else g = Math.round(24 + 6 * (gx - 195) / 7);
+      }
+      gy[x] = g;
+      const beach = gx <= 126 || gx >= 194;
+      for (let y = g; y < H; y++) { const d = y - g; map[y * W + x] = d === 0 ? (beach ? SAND : GRASS) : d <= 4 ? (beach ? SAND : DIRT) : STONE; }
+      for (let y = 25; y < g; y++) map[y * W + x] = WATER;
+    }
+    for (let gx = 152; gx <= 191; gx++) { const x = gx - off; map[24 * W + x] = AIR; for (let y = 25; y <= 27; y++) map[y * W + x] = WATER; map[28 * W + x] = SAND; }   // 도킹 구역(다른 사람의 탐사정이 떠 있는 곳): 윗줄은 비우고 물을 채운다
+    for (const [type, xs] of OBJ_SPEC[name]) for (const gx of xs) objs.push({ id: type[0] + type[1] + gx, type, x: gx - off, gx, y: gy[gx - off], pine: false });
+    return { map, gy, objs, zones: [] };
+  }
+  function loadPlanet(name) {
+    const P = Sim.ISLANDS[name], g = genPlanet(name, P.W, P.H, P.off);
+    dim.W = P.W; dim.H = P.H; MAP = g.map; BASE = g.map.slice(); loaded = name;
+    GY.length = 0; GY.push(...g.gy); OBJS.length = 0; OBJS.push(...g.objs);
+  }
+  // 땅 파기/놓기로 바뀐 타일: 유한 맵은 S.dug(키 `행성id:y*W+x` → 새 종류), 무한 월드는 S.world(덩어리별 RLE)에 저장한다. S가 바뀔 때마다 기본 지형 위에 다시 입힌다.
+  const DK = (k) => loaded + ':' + k;
+  function applyDug(S) {
+    const here = Sim.dockOf(S).island;
+    curS = S;
+    if (here === 'start') {
+      if (!inf || worldRef !== S.world) resetInf(S);
+      inf = true; loaded = 'start'; return;
+    }
+    inf = false;
+    if (here !== loaded) loadPlanet(here); else MAP.set(BASE);
+    const pre = loaded + ':';
+    for (const k in S.dug) { if (!k.startsWith(pre)) continue; const v = S.dug[k], i = +k.slice(pre.length); if (v != null && i >= 0 && i < MAP.length) MAP[i] = v; }
+    Sim.syncRaft(S);   // 탐사정 바닥 타일: 접안 쪽 끝에서 바깥쪽으로 cells칸 (저장하지 않고 S.raft에서 계산)
+    if (loaded === 'plaza') for (const x of Sim.raftXs(S)) MAP[Sim.RAFT.ROW * dim.W + x] = RAFT;   // 탐사정은 본부 도킹 구역에만 있다
+  }
+  // 종류별 [얻는 아이템, 1회 양, 하루 횟수, 이름, 중심 y 오프셋(위로 몇 px)]
+  const NODE = {
+    tree: ['stick', 2, 2, '나무', 16], cane: ['sugar', 50, 2, '사탕수수', 8], wheat: ['noodle', 1, 2, '밀', 8],
+    sandpile: ['sand', 2, 4, '모래 더미', 4], icecrystal: ['ice', 1, 3, '얼음 결정', 10],
+    rocksalt: ['salt', 30, 2, '암염', 8],   // NaCl 결정(이온 결정이라 곡괭이로 캔다)   [#24]
+  };
+  // 옆면 화면의 지하 이름(17-a′, 내부 id·수치는 그대로). fp/·td/는 NODE의 옛 이름을 쓴다
+  const UG_NAME = { tree: '결정 줄기 군락', cane: '당 결정', wheat: '균사 군락', sandpile: '모래 층', icecrystal: '얼음 광맥' };
 
   // ---------- 땅 파기 · 블록 놓기 ----------
-  // 타일별 [얻는 아이템, 파는 데 걸리는 시간(초, 꾹 누르기)]. 시간은 모두 가정(임의값): 흙·모래 짧게, 눈·얼음 중간, 돌은 곡괭이가 필요하고 오래
+  // 타일별 [얻는 아이템, 1회 양, 파는 데 걸리는 시간(초, 꾹 누르기), 필요한 도구 단계]. 시간·단계는 가정(임의값), DESIGN.md §4-24 표.
+  // 도구 단계: 0 맨손 · 1 곡괭이 · 2 철 곡괭이(기술 노드 T4가 여는 제작법) · 3 아직 없음
   const DIG = {
-    [GRASS]: { item: 'dirt', t: 0.5 }, [DIRT]: { item: 'dirt', t: 0.5 }, [SAND]: { item: 'sand', t: 0.4 },
-    [SNOWTOP]: { item: 'ice', t: 0.8 }, [ICE]: { item: 'ice', t: 1.0 },
-    [STONE]: { item: 'stone', t: 2.0, tool: 'pickaxe' },
+    [GRASS]: { item: 'dirt', t: 0.5, tier: 0 }, [DIRT]: { item: 'dirt', t: 0.5, tier: 0 }, [SAND]: { item: 'sand', t: 0.4, tier: 0 },
+    [SNOWTOP]: { item: 'ice', t: 0.8, tier: 0 }, [ICE]: { item: 'ice', t: 1.0, tier: 0 },
+    [STONE]: { item: 'stone', t: 2.0, tier: 1 }, [SALT]: { item: 'salt', n: 30, t: 2.0, tier: 1 }, [IRON]: { item: 'iron', t: 3.0, tier: 1 },
+    [HARD]: { item: 'stone', t: 4.0, tier: 2 }, [GOLD]: { item: 'gold', t: 5.0, tier: 2 }, [HOT]: { item: 'stone', t: 4.0, tier: 2 },
+    [RARE]: { item: 'rare', t: 6.0, tier: 3 },
   };
+  const toolTier = (S) => S.inv.ironpick > 0 ? 2 : S.inv.pickaxe > 0 ? 1 : 0;
   const BLOCK = { dirt: DIRT, stone: STONE, sand: SAND };   // 가방에서 꺼내 놓을 수 있는 블록
   const TOOL = { shaker: 'salt', thermo: 'thermo' };        // 가방 슬롯을 누르면 켜지는 도구 모드
   const dig = { on: false, tx: -1, ty: -1, p: 0, need: 0 };
   const inReach = (S, tx, ty) => Math.hypot(tx * T + T / 2 - (S.px + PW / 2), ty * T + T / 2 - (S.py + PH / 2)) <= REACH;
+  const devHere = (S) => S.placed.filter(d => (d.pl || 'start') === loaded);   // 지금 보이는 행성에 서 있는 장치(17-a′: 장치는 d.pl 행성에 남는다)
   // 장치·오브젝트가 서 있는 바로 아래 땅은 파지 못한다
   function holdsThing(S, tx, ty) {
-    if (S.placed.some(d => ty === d.y + 2 && (tx === d.x || tx === d.x + 1))) return true;
-    return OBJS.some(o => ty === o.y && (tx === o.x || (o.type === 'altar' && tx === o.x + 1)));
+    if (devHere(S).some(d => ty === d.y + 2 && (tx === d.x || tx === d.x + 1))) return true;
+    return objsNearTile(tx, ty).some(o => ty === o.y && (tx === o.x || (o.type === 'altar' && tx === o.x + 1)));
   }
   function digCheck(S, tx, ty) {
     const id = tileAt(tx, ty);
-    if (!DIG[id]) return { ok: false, msg: id === WATER ? '물은 팔 수 없습니다.' : '' };
-    if (ty >= dim.H - 1) return { ok: false, msg: '맨 아래는 팔 수 없습니다.' };
+    if (!DIG[id]) return { ok: false, msg: id === WATER ? '물은 팔 수 없습니다.' : id === BEDROCK ? '천장·가장자리 암반은 팔 수 없습니다.' : '' };
+    if (!inf && ty >= dim.H - 1) return { ok: false, msg: '맨 아래는 팔 수 없습니다.' };
     if (!inReach(S, tx, ty)) return { ok: false, msg: '' };
     if (holdsThing(S, tx, ty)) return { ok: false, msg: '장치나 자원 바로 아래 땅은 팔 수 없습니다.' };
-    if (loaded === 'start') {   // 17-a: 불시착 행성은 기지 영역 안에서만 판다(영역 밖은 보기만)
-      if (!S.base) return { ok: false, msg: '기지 코어를 먼저 설치하세요. (B)' };
-      if (!inArea(S, tx, ty)) return { ok: false, msg: '기지 영역 밖은 팔 수 없습니다. (보기만 가능)' };
-    }
-    const def = DIG[id];
-    if (def.tool && !(S.inv[def.tool] > 0)) return { ok: false, msg: '돌은 곡괭이가 있어야 팔 수 있어요.' };
+    const def = DIG[id], tier = toolTier(S);
+    if (def.tier > tier) return { ok: false, msg: def.tier === 1 ? '돌은 곡괭이가 있어야 팔 수 있어요.' : def.tier === 2 ? '이 단단함은 철 곡괭이(도구 단계 2)가 있어야 팔 수 있어요.' : '아직 이 단단함을 파는 도구가 없어요.' };
+    if (inf && worldBytes >= SAVE_CAP) return { ok: false, msg: `판 칸 저장 크기가 상한(${Math.round(SAVE_CAP / 1000)} KB)에 닿았어요. 칸을 메우거나 기술 트리로 늘리세요.` };
     return { ok: true, def };
   }
   function setTile(S, tx, ty, id) {
+    if (inf) { setInfTile(S, tx, ty, id); delete S.melt['start:' + tx + ',' + ty]; return; }
     const k = ty * dim.W + tx;
     MAP[k] = id; delete S.melt[DK(k)];
     if (BASE[k] === id) delete S.dug[DK(k)]; else S.dug[DK(k)] = id;
@@ -227,29 +305,27 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     if (!c.ok) { dig.p = 0; if (c.msg && !dig.msg) { dig.msg = true; say(c.msg); } return; }
     dig.need = c.def.t; dig.p += dt;
     if (dig.p < c.def.t) return;
-    const id = tileAt(tx, ty);
-    setTile(S, tx, ty, AIR); S.inv[c.def.item] = (S.inv[c.def.item] || 0) + 1; dig.p = 0;
-    Sim.emit({ t: 'puff', x: tx * T + 8, y: ty * T + 8, col: id === STONE ? '#8b919c' : id === SAND ? '#f6e7b0' : id === ICE || id === SNOWTOP ? '#d8f3ff' : '#8a5a35', n: 6 });
-    say(`${ITEM[c.def.item][1]} +1`);
+    const id = tileAt(tx, ty), n = c.def.n || 1;
+    setTile(S, tx, ty, AIR); S.inv[c.def.item] = (S.inv[c.def.item] || 0) + n; dig.p = 0;
+    Sim.emit({ t: 'puff', x: tx * T + 8, y: ty * T + 8, col: id === DIRT || id === GRASS ? '#8a5a35' : id === SAND ? '#f6e7b0' : id === ICE || id === SNOWTOP ? '#d8f3ff' : id === GOLD ? '#f4cc4a' : id === IRON ? '#c0673a' : '#8b919c', n: 6 });
+    say(`${ITEM[c.def.item][1]} +${n}`);
   }
   // 블록 놓기. 놓기 모드를 끝내야 하면 true(가방에 없을 때·다 썼을 때)
   function placeBlock(S, item, tx, ty) {
     if (!(S.inv[item] >= 1)) { say(`${ITEM[item][1]}이(가) 없습니다.`); return true; }
-    if (tileAt(tx, ty) !== AIR || ty >= dim.H || tx < 0 || tx >= dim.W) { say('빈 공간에만 놓을 수 있습니다.'); return false; }
+    if (tileAt(tx, ty) !== AIR || (!inf && (ty >= dim.H || tx < 0 || tx >= dim.W))) { say('빈 공간에만 놓을 수 있습니다.'); return false; }
     if (!inReach(S, tx, ty)) { say('너무 멉니다.'); return false; }
-    if (loaded === 'start') {   // 17-a: 블록도 기지 영역 안에만 놓는다(코어 칸은 제외)
-      if (!S.base) { say('기지 코어를 먼저 설치하세요. (B)'); return false; }
-      if (!inArea(S, tx, ty) || inCore(S, tx, ty)) { say('기지 영역 밖이거나 코어 자리에는 놓을 수 없습니다.'); return false; }
-    }
+    if (inCore(S, tx, ty)) { say('코어 자리에는 놓을 수 없습니다.'); return false; }
     if (tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) { say('내가 서 있는 자리에는 놓을 수 없습니다.'); return false; }
-    if (S.placed.some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || OBJS.some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) { say('장치나 자원 자리에는 놓을 수 없습니다.'); return false; }
+    if (devHere(S).some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || objsNearTile(tx, ty).some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) { say('장치나 자원 자리에는 놓을 수 없습니다.'); return false; }
     if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) { say('땅에 닿은 곳에만 놓을 수 있습니다.'); return false; }
     S.inv[item]--; setTile(S, tx, ty, BLOCK[item]);
     return S.inv[item] < 1;
   }
 
   // ---------- 도구: 소금 뿌리개 · 온도계 (곡괭이는 돌을 팔 때 자동으로 쓰인다) ----------
-  const tileTemp = (S, tx, ty) => (tx >= 0 && tx < dim.W && ty > GY[tx] ? UNDER_T : Sim.airTemp(S));
+  const tileTemp = (S, tx, ty) => ambientAt(S, null, tx, ty);
+  const meltKey = (tx, ty) => inf ? 'start:' + tx + ',' + ty : DK(ty * dim.W + tx);
   // sel = { dev } (장치) 또는 { tx, ty } (칸)
   function useThermo(S, sel) {
     const airTemp = () => Sim.airTemp(S);
@@ -263,9 +339,8 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     } else {
       const { tx, ty } = sel;
       if (!inReach(S, tx, ty)) return say('너무 멉니다. 가까이 가서 재세요.');
-      const under = tx >= 0 && tx < dim.W && ty > GY[tx];
-      val = tileTemp(S, tx, ty); name = under ? `지하 (${tx}, ${ty})` : `외기 (${tx}, ${ty})`;
-      note = under ? `가정: 지하는 깊이와 상관없이 ${UNDER_T} ℃로 일정` : '시각에 따라 변하는 외기 온도';
+      val = tileTemp(S, tx, ty); name = `칸 (${tx}, ${ty})`;
+      note = val === ICE_ZONE_T ? `가정: 얼음 광맥 방은 ${ICE_ZONE_T} ℃로 일정` : val === HOT_ZONE_T ? `가정: 뜨거운 바위 방은 ${HOT_ZONE_T} ℃로 일정` : `가정: 지하는 낮밤 없이 구역 온도 ${fmt(val, 0)} ℃로 일정(칸 시뮬 전까지)`;
     }
     say(`온도계: ${name} ${fmt(val, 1)} ℃ — ${note}`);
     logEv(S, '온도 측정', `${name} ${fmt(val, 1)}℃ (${note})`);
@@ -278,7 +353,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     const { tx, ty } = sel, id = tileAt(tx, ty);
     if (id !== ICE && id !== SNOWTOP) return say('얼음·눈 타일이나 얼음 생물에게 뿌리세요.');
     if (!inReach(S, tx, ty)) return say('너무 멉니다.');
-    const k = DK(ty * dim.W + tx), had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T0, s);
+    const k = meltKey(tx, ty), had = S.melt[k] || 0, left = ICE_TILE_G - had, melt = C.iceMeltBySalt(T0, s);
     if (melt <= 0) return say('기온이 0 ℃ 이상이라 소금이 필요 없어요.');
     const used = melt >= left ? Math.min(s, C.saltForIce(T0, left)) : s, done = Math.min(melt, left);
     S.inv.salt -= used; S.melt[k] = had + done;
@@ -295,32 +370,36 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (let x = tx - 1; x <= tx + 1; x++) for (let y = ty - 1; y <= ty + 2; y++) if (tileAt(x, y) === WATER) return true;   // 탐사정 위에서는 바로 아래 물까지
     return false;
   }
+  const mobHere = (S, m) => { const d = S.placed.find(x => x.x === m.dx && x.y === m.dy); return !!d && (d.pl || 'start') === loaded; };
   const wolfPos = m => [m.dx * T + (m.id % 2 ? 44 : -12), m.dy * T + 26];   // 장치 옆 땅 위
   function targets(S) {
     const cx = S.px + PW / 2, cy = S.py + PH / 2, out = [];
     const add = (kind, ref, x, y, label) => { const d = Math.hypot(x - cx, (y - cy) * 0.7); if (d <= REACH) out.push({ kind, ref, x, y, d, label }); };
-    for (const o of OBJS) {
+    const ptx = Math.floor(cx / T), pty = Math.floor(cy / T);
+    for (const o of objsIn(ptx - 4, pty - 4, ptx + 4, pty + 4)) {
       if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
       const [x, y] = objCenter(o), n = NODE[o.type];
-      const label = { box: '허브 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)' }[o.type];
-      add(o.type, o, x, y, n ? `${n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
+      const label = { box: '본부 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)', pad: '전송 패드' }[o.type];
+      add(o.type, o, x, y, n ? `${UG_NAME[o.type] || n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
     }
-    for (const d of S.placed) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
-    for (const m of S.mobs) { const [x, y] = wolfPos(m); add('wolf', m, x, y, `얼음 생물 ${fmt(m.M, 0)} g`); }
-    if (nearWater(S)) add('water', null, cx, cy + 4, '바닷물 뜨기');
+    for (const d of devHere(S)) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));
+    for (const m of S.mobs) { if (!mobHere(S, m)) continue; const [x, y] = wolfPos(m); add('wolf', m, x, y, `얼음 생물 ${fmt(m.M, 0)} g`); }
+    if (nearWater(S)) add('water', null, cx, cy + 4, '염수 뜨기 (바닷물)');
     return out.sort((a, b) => a.d - b.d);
   }
-  // 장치는 탐사정 위에만 짓는다: 왼쪽 타일 tx → 탐사정의 해안 쪽 끝에서 u칸 떨어진 자리(2칸 폭)
-  function ghostCheck(S, id, tx) {
-    const def = DEV[id], u = Sim.raftU(S, tx);
-    if (u < 0 || u + 2 > S.raft.cells) return { ok: false, tx, msg: '탐사정 위에 지어야 합니다. (탐사정이 모자라면 건설 메뉴에서 넓히세요)' };
-    const dev = { x: tx, y: Sim.RAFT.DEV_Y };
-    if (S.placed.some(d => Math.abs(d.u - u) < 2)) return { ok: false, tx, msg: '다른 장치와 겹칩니다.' };
-    if (Math.abs(tx * T - S.px) > 8 * T) return { ok: false, tx, msg: '너무 멉니다. 가까이 가서 지으세요.' };
-    if (def.needFire && !Sim.fireNear(S, dev).length) return { ok: false, tx, msg: `${def.name}은(는) 화덕 바로 옆에 지어야 합니다. (열 전달)` };
-    return { ok: true, tx, ty: dev.y, u };
+  // 장치 건설(17-a′): 월드 안 어디든 2×2칸. (tx, ty) = 왼쪽 위 칸. 네 칸이 비어 있고 바로 아래가 단단해야 한다. 본부에는 짓지 않는다
+  function ghostCheck(S, id, tx, ty) {
+    const def = DEV[id], bad = (msg) => ({ ok: false, tx, ty, msg });
+    if (loaded === 'plaza') return bad('본부는 공용 시설이라 장치를 지을 수 없어요. 내 월드나 원정 부지에 지으세요.');
+    for (let x = tx; x < tx + 2; x++) { for (let y = ty; y < ty + 2; y++) if (tileAt(x, y) !== AIR) return bad('빈 공간 2×2칸이 필요합니다.'); if (!solidAt(x, ty + 2)) return bad('바닥이 단단해야 합니다.'); }
+    if (inf && [0, 1].some(i => [0, 1].some(j => inCore(S, tx + i, ty + j)))) return bad('코어 안에는 지을 수 없어요.');
+    if (devHere(S).some(d => Math.abs(d.x - tx) < 2 && Math.abs(d.y - ty) < 2)) return bad('다른 장치와 겹칩니다.');
+    if (Math.hypot((tx + 1) * T - (S.px + PW / 2), (ty + 1) * T - (S.py + PH / 2)) > 8 * T) return bad('너무 멉니다. 가까이 가서 지으세요.');
+    const dev = { x: tx, y: ty, pl: loaded };
+    if (def.needFire && !Sim.fireNear(S, dev).length) return bad(`${def.name}은(는) 화덕 바로 옆에 지어야 합니다. (열 전달)`);
+    return { ok: true, tx, ty };
   }
-  const deviceAt = (S, wx, wy) => S.placed.find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
+  const deviceAt = (S, wx, wy) => devHere(S).find(p => wx >= p.x * T && wx < p.x * T + 32 && wy >= p.y * T && wy < p.y * T + 32);
   const collides = (x, y) => {
     const x0 = Math.floor(x / T), x1 = Math.floor((x + PW - 0.01) / T), y0 = Math.floor(y / T), y1 = Math.floor((y + PH - 0.01) / T);
     for (let tx = x0; tx <= x1; tx++) for (let ty = y0; ty <= y1; ty++) if (solidAt(tx, ty)) return true;
@@ -353,10 +432,15 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     st.onGround = collides(S.px, S.py + 1);
   }
 
+  // 무한 월드 보조(그리기·시험·저장 크기): 덩어리 접근, 오브젝트 범위, 저장 바이트
+  const worldSize = () => worldBytes;
+  const isInfinite = () => inf;
+  const planet = () => loaded;
   return {
-    T, SKY_ROW, dim, genPlanet, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T,
-    AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
-    tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock,
-    CORE, areaOf, claimCells, cellKey, coreTile, inArea, inCore, coreCheck, canCancelBase, tileTemp, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
+    T, dim, genPlanet, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T, ICE_ZONE_T, HOT_ZONE_T, CHUNK, LIMIT, CEIL, SEED, SAVE_CAP,
+    AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, BEDROCK, HARD, SALT, IRON, GOLD, HOT, RARE, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
+    tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, UG_NAME, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock, toolTier,
+    CORE, coreTile, inCore, ambientAt, tileTemp, devHere, mobHere, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
+    getChunk, objsIn, featureAt, worldSize, isInfinite, planet, rleEncode, rleDecode, pickFeature, ZONES, STARTERS,
   };
 })();

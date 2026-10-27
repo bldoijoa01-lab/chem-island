@@ -14,13 +14,24 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   if (!title) errors.push('시작 화면이 보이지 않습니다');
   await page.click('#t-start'); await page.waitForTimeout(400);
   if (await page.evaluate(() => !document.getElementById('modal').hidden)) await page.click('#mclose');   // 처음 접속 도움말
-  await page.waitForTimeout(1200);   // 허공에서 떨어져 땅에 앉을 때까지
-  const x0 = await page.evaluate(() => G.debug().px);
-  await page.keyboard.down('a'); await page.waitForTimeout(800); await page.keyboard.up('a');
+  await page.waitForTimeout(800);   // 코어 캡슐 안에서 시작한다(17-a′)
+  const st = await page.evaluate(() => { const S = G.debug(); return { base: S.base, ver: S.ver, island: Sim.dockOf(S).island, hull: World.tileAt(0, 0) === World.HULL, inner: World.tileAt(2, 1) === World.AIR, pad: World.targets(S).some(t => t.kind === 'pad'), inf: World.isInfinite(), px: S.px }; });
+  if (!(st.base && st.base.x === 0 && st.base.y === 0 && st.ver === 5 && st.island === 'start' && st.hull && st.inner && st.pad && st.inf)) errors.push('코어 캡슐 안에서 시작하지 않았습니다: ' + JSON.stringify(st));
+  const x0 = st.px;
+  await page.keyboard.down('d'); await page.waitForTimeout(500); await page.keyboard.up('d');
   const moved = await page.evaluate(() => G.debug().px) - x0;
-  if (!(Math.abs(moved) > 20)) errors.push(`이동하지 않았습니다(${moved.toFixed(1)} px)`);
-  // 자동 오르기 없음: 한 칸 턱 앞에서 오른쪽으로만 걸으면 멈추고, 점프하면 넘는다
-  const step = await page.evaluate(() => { const W = World, S = G.debug(); for (let x = 30; x < 100; x++) if (W.GY[x] - 1 === W.GY[x + 1] && W.tileAt(x, W.GY[x]) !== W.WATER && W.tileAt(x + 1, W.GY[x + 1]) !== W.WATER) { S.px = x * 16 + 2; S.py = (W.GY[x] - 2) * 16; S.vx = S.vy = 0; return x; } return -1; });
+  if (!(Math.abs(moved) > 12)) errors.push(`이동하지 않았습니다(${moved.toFixed(1)} px)`);
+  // 전송 패드: E → 3초 대기 → 본부
+  await page.keyboard.press('e'); await page.waitForTimeout(300);
+  if (!(await page.evaluate(() => /전송 패드/.test(document.getElementById('mtitle').textContent)))) errors.push('전송 패드 창이 열리지 않았습니다');
+  await page.evaluate(() => G.padGo('plaza')); await page.waitForTimeout(1200);
+  if ((await page.evaluate(() => Sim.dockOf(G.debug()).island)) !== 'start') errors.push('3초 대기 전에 전송되었습니다');
+  await page.waitForTimeout(2900);
+  const hub = await page.evaluate(() => ({ island: Sim.dockOf(G.debug()).island, modal: !document.getElementById('modal').hidden }));
+  if (hub.island !== 'plaza' || hub.modal) errors.push('3초 뒤 본부로 전송되지 않았습니다: ' + JSON.stringify(hub));
+  await page.waitForTimeout(1000);
+  // 자동 오르기 없음: 한 칸 턱 앞에서 오른쪽으로만 걸으면 멈추고, 점프하면 넘는다(허브 서쪽 접안 구역 경사)
+  const step = await page.evaluate(() => { const W = World, S = G.debug(); for (let x = 8; x < 60; x++) if (W.GY[x] - 1 === W.GY[x + 1] && W.tileAt(x, W.GY[x]) !== W.WATER && W.tileAt(x + 1, W.GY[x + 1]) !== W.WATER && W.tileAt(x, W.GY[x] - 1) === W.AIR) { S.px = x * 16 + 2; S.py = (W.GY[x] - 2) * 16; S.vy = 0; S.vx = 0; return x; } return -1; });
   await page.waitForTimeout(600);
   await page.keyboard.down('d'); await page.waitForTimeout(900); await page.keyboard.up('d');
   const stuckAt = await page.evaluate(() => G.debug().px);
@@ -30,5 +41,5 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   await page.waitForTimeout(500);
   await browser.close();
   if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
-  console.log(`연기 시험 통과: 시작 화면 → 시작 → 이동(${moved.toFixed(0)} px), 에러 없음`);
+  console.log(`연기 시험 통과: 시작 화면 → 코어 캡슐 시작 → 이동(${moved.toFixed(0)} px) → 패드 3초 → 본부 → 턱 점프, 에러 없음`);
 })();

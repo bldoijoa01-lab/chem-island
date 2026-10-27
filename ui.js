@@ -7,7 +7,7 @@ const { ITEM, NODE } = World;
 const { FIRE_T, FIRE_BURN, FIRE_NAME, DEV, RECIPES, QUESTS, VALVE_NAME, SEA_BUCKET } = Sim;
 const save = Store.save;
 // 화면별 훅(기본은 아무 일도 하지 않는다): puff(x,y,색,개수) · burst(장치) · clearKeys() · startBuild(id) · startDemolish() · joinMap() · applyWorld()
-let H = { puff() {}, burst() {}, clearKeys() {}, startBuild() {}, startDemolish() {}, startCore() {}, joinMap() {}, applyWorld() {} };
+let H = { puff() {}, burst() {}, clearKeys() {}, startBuild() {}, startDemolish() {}, joinMap() {}, applyWorld() {} };
 Store.onWarn = (m) => say(m);
 
 // ---------- 유틸 ----------
@@ -45,11 +45,11 @@ const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cooker
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function uiFragment() {
   const R = Sim.RAFT;
-  openModal('탐사정 잔해', `<div class="box"><p>해안에 걸린 탐사정 잔해입니다. 고치면 탐사정이 이륙할 수 있게 되어 허브 정거장으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
+  openModal('탐사정 잔해', `<div class="box"><p>본부 도킹 구역에 놓인 탐사정 잔해입니다. 고치면 탐사정이 이륙할 수 있게 되어 다른 행성(저기압 고원 행성·얼음 위성)으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
     <div class="kv"><span>필요한 재료</span><b>${costText(R.REPAIR_COST)}</b></div>
     <div class="kv"><span>증류 기록 (직접 얻은 양)</span><b>증류수 ${Math.floor(S.f.dW)} / ${R.REPAIR_NEED.dW} g · 소금 ${Math.floor(S.f.dS)} / ${R.REPAIR_NEED.dS} g</b></div>
     <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) && S.f.dW >= R.REPAIR_NEED.dW && S.f.dS >= R.REPAIR_NEED.dS ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
-    <div class="warnbox">고치면 튜토리얼이 끝납니다: 밤에 얼음 생물이 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·조건·칸 수는 가정(임의값))</div>`);
+    <div class="warnbox">고치면 튜토리얼이 끝납니다: 온도가 0 ℃ 미만인 자리의 장치에 얼음 생물이 나타나고, 압력 밥솥은 3 atm을 넘으면 터집니다. (재료·조건·칸 수는 가정(임의값))</div>`);
 }
 function uiSail() {
   const here = Sim.dockOf(S).island;
@@ -61,8 +61,8 @@ function uiSail() {
     return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? (locked ? `<span class="no">목표 ${need}개 달성 시 열림</span>` : `<span class="mut">${Sim.SAIL_MIN[h.dock] || 30}분</span>`) : '<span class="no">아직 갈 수 없음</span>'}${info}</div>
       <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">이륙</button></div>`;
   }).join('');
-  openModal(`궤도 관문 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요. (불시착 행성 동쪽 해안)</div>')
-    + rows + `<div class="mut">궤도 이동 시간은 가정(임의값)이고, 내 탐사정과 그 위의 장치가 함께 옮겨 갑니다. 행성마다 외기 압력·기온이 달라 같은 장치도 다르게 동작합니다.</div>`);
+  openModal(`궤도 관문 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">본부의 탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요. (도킹 구역 옆)</div>')
+    + rows + `<div class="mut">궤도 이동 시간은 가정(임의값)이고, 도착하면 착륙 캡슐에서 시작하고 전송 패드로 본부에 돌아옵니다. 행성마다 외기 압력·구역 온도가 달라 같은 장치도 다르게 동작합니다.</div>`);
 }
 const NPC_BOTTLES = [
   { nick: '선배1', text: '증류기는 화덕 옆에! 약불(105 ℃)로는 끝까지 못 끓여요.' },
@@ -91,71 +91,37 @@ async function loadPlaza() {
 }
 setInterval(() => { if (!Store.paused) loadPlaza(); }, 60000);
 
-// ---------- 기지 코어 (17-a, DESIGN.md §4-23) ----------
-// 서버(/bases)의 다른 기지 요약을 읽어 두고(칸 내용은 오지 않는다), 설치 조건 검사에 쓴다. 개인 기지의 id = uid(한 사람 팀).
-let bases = {}, baseUnwatch = null, installing = false;
-const myBaseId = () => (window.Net && Net.user) ? Net.user.uid : 'local';
-const otherBases = () => Object.entries(bases).filter(([id]) => id !== myBaseId()).map(([, b]) => b);
+// ---------- 전송 패드 · 내 월드 (17-a′, DESIGN.md §4-24) ----------
+// 코어 패드(내 월드) ↔ 본부 패드. E → 목적지 → 3초 대기(창을 닫으면 취소) → 이동. 시간은 흐르지 않는다.
+let padWait = null;   // { to, at(ms) }
+const PAD_MS = 3000;  // 가정(임의값) 전송 대기
+function openPad() {
+  const here = Sim.dockOf(S).island, to = here === 'start' ? 'plaza' : here === 'plaza' ? 'start' : 'plaza';
+  const toName = to === 'start' ? '내 월드 (기지 코어)' : '본부 (허브 정거장)';
+  padWait = null;
+  openModal('전송 패드', `<div class="box"><p>${here === 'plaza' ? '본부' : here === 'start' ? '내 월드' : Sim.ISLANDS[here].name}의 전송 패드입니다. 본부와 내 월드를 무료로 오갑니다. 전송 중에는 창을 닫지 마세요(닫으면 취소).</p>
+    <div class="row"><button class="primary" onclick="G.padGo('${to}')">${toName}로 전송 (${PAD_MS / 1000}초)</button></div><div id="pad-st" class="mut"></div></div>
+    <div class="warnbox">내 월드는 팀(혼자면 1인 팀)마다 따로 있어서 다른 사람은 들어올 수 없습니다. 본부에서만 서로 만나고 교류합니다. (전송 시간은 게임 설정, 가정)</div>`, padTick, () => { padWait = null; });
+}
+function padTick() {
+  if (!padWait) return;
+  const left = padWait.at - Date.now();
+  if (left <= 0) { const to = padWait.to; padWait = null; if (Sim.act.teleport(S, to)) { closeModal(); save(true); } flush(); refresh(); return; }
+  set('pad-st', `전송 중... ${Math.ceil(left / 1000)}초`);
+}
+// 방문 목록용 공개 요약(/bases/{id}): 이름·색·팀원·연구 단계·요약 한 줄. 코어 위치·칸 내용은 올리지 않는다
 const COLORS = ['#ff8a5b', '#5bc0ff', '#9be564', '#e0a3ff', '#ffd84a', '#ff6b9a', '#6fe0c8', '#c0c8d8'];
-const baseName = () => ((window.Net && Net.nick) ? Net.nick + ' 기지' : '내 기지').slice(0, 10);
-const baseColor = () => COLORS[[...myBaseId()].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
-function watchBases() { if (baseUnwatch || !(window.Net && Net.user && Net.baseWatch)) return; baseUnwatch = Net.baseWatch((b) => { bases = b || {}; }); }
-function unwatchBases() { if (baseUnwatch) baseUnwatch(); baseUnwatch = null; bases = {}; }
-async function installBase(x, y) {
-  if (S.base) return say('이미 기지 코어가 있습니다.'), false;
-  if (installing) return false;
-  const c = World.coreCheck(S, x, y, otherBases());
-  if (!c.ok) return say(c.msg), false;
-  installing = true;
-  try {
-    const a = c.area, id = myBaseId();
-    if (window.Net && Net.user && Net.baseClaim) {
-      const rec = { x: a.x0, y: a.y0, w: a.w, h: a.h, cx: x, cy: y, name: baseName(), color: baseColor(), members: { [Net.user.uid]: Net.nick }, tech: 0, cell: World.cellKey(a) };
-      const r = await Net.baseClaim(id, rec, World.claimCells(a));
-      if (!r.ok) return say(`서버가 이 자리를 거절했습니다. 다른 팀이 먼저 잡았거나 간격이 모자랍니다. (${r.err})`), false;
-    }
-    S.base = { x, y, at: Date.now(), id };
-    H.applyWorld(); logEv('기지', `코어 설치: 칸 (${x}, ${y}), 지표 아래 ${c.depth}칸, 기지 영역 ${a.w}×${a.h} (왼쪽 위 ${a.x0}, ${a.y0})`);
-    save(true); say('기지 코어를 설치했습니다. 기지 영역 안에서만 땅을 팔 수 있어요. 5분 안에는 취소할 수 있습니다. (B)'); refresh();
-    return true;
-  } finally { installing = false; }
+let lastPub = '', lastPubAt = 0;
+function publishBase(force) {
+  if (!(window.Net && Net.user && Net.basePublish)) return;
+  const id = Net.user.uid, name = ((Net.nick || '내') + ' 월드').slice(0, 10);
+  const summary = `장치 ${S.placed.length}개 · 목표 ${S.qDone}/${QUESTS.length} · 판 칸 ${Math.round(World.worldSize() / 1000)} KB`.slice(0, 200);
+  const rec = { name, color: COLORS[[...id].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length], members: { [id]: Net.nick }, tech: 0, summary }, k = JSON.stringify(rec), now = Date.now();
+  if (!force && (k === lastPub || now - lastPubAt < 60000)) return;
+  lastPub = k; lastPubAt = now;
+  Net.basePublish(id, rec).catch(() => {});
 }
-async function cancelBase() {
-  if (!S.base) return false;
-  if (!World.canCancelBase(S)) return say('설치한 지 5분이 지나 코어를 옮길 수 없습니다.'), false;
-  if (window.Net && Net.user && Net.baseRelease) {
-    try { await Net.baseRelease(S.base.id, World.claimCells(World.areaOf(S.base))); } catch { return say('서버에서 기지 기록을 지우지 못했습니다. (설치 후 5분이 지났거나 연결이 끊겼습니다)'), false; }
-  }
-  S.base = null; H.applyWorld(); logEv('기지', '코어 설치 취소(5분 안)'); save(true); refresh();
-  return true;
-}
-// 접속 직후: 서버 기지 목록을 구독하고, 내 코어는 있는데 서버에 기록이 없으면(재게시 전에 설치했거나 지워진 경우) 한 번 다시 올린다
-async function syncBase() {
-  watchBases();
-  if (!S.base || !(window.Net && Net.user && Net.baseGet)) return;
-  try {
-    if (await Net.baseGet(S.base.id)) return;
-    const a = World.areaOf(S.base), cells = World.claimCells(a);
-    await Net.baseRelease(S.base.id, cells).catch(() => {});
-    const r = await Net.baseClaim(S.base.id, { x: a.x0, y: a.y0, w: a.w, h: a.h, cx: S.base.x, cy: S.base.y, name: baseName(), color: baseColor(), members: { [Net.user.uid]: Net.nick }, tech: 0, cell: World.cellKey(a) }, cells);
-    if (!r.ok) say('내 기지 자리가 서버에서 다른 기지와 겹쳐 공개하지 못했습니다. (진행은 그대로입니다)');
-  } catch { /* 오프라인 */ }
-}
-function openBase() {
-  const K = World.CORE, onStart = Sim.dockOf(S).island === 'start';
-  const rules = `<div class="warnbox">설치 조건(모든 숫자는 게임 설정, 가정): 지표 아래 ${K.DEPTH}칸 이내 · 물·얼음 호수 가까이 불가 · 단단한 땅 위 · 다른 기지와 ${K.GAP}칸 이상 간격 · 추락 지점·궤도 이동 단말 둘레 ${K.KEEP}칸 비움. 코어는 ${K.CW}×${K.CH}칸 밀폐 캡슐(안쪽 4×2, 양쪽 해치)이고, 기지 영역(${K.AW}×${K.AH}칸) 밖은 팔 수 없고 보기만 합니다. 설치한 뒤 5분 안에는 취소하고 다시 놓을 수 있어요.</div>`;
-  if (!S.base) {
-    openModal('기지 코어', `<div class="box"><p>아직 기지 코어를 설치하지 않았습니다. 코어를 설치하면 그 둘레 기지 영역 안에서 땅을 파고 블록을 놓을 수 있어요.</p>
-      <div class="row"><button class="primary" ${onStart ? '' : 'disabled'} onclick="G.startCore()">설치할 자리 고르기</button></div>${onStart ? '' : '<div class="mut">기지는 불시착 행성에서만 설치합니다.</div>'}</div>` + rules);
-    return;
-  }
-  const a = World.areaOf(S.base), left = Math.max(0, World.CORE.CANCEL_MS - (Date.now() - S.base.at)), can = World.canCancelBase(S);
-  openModal('기지 코어', `<div class="box"><div class="kv"><span>코어 위치(왼쪽 위 칸)</span><b>${S.base.x}, ${S.base.y}</b></div>
-    <div class="kv"><span>기지 영역</span><b>${a.w}×${a.h}칸 (왼쪽 위 ${a.x0}, ${a.y0})</b></div>
-    <div class="kv"><span>서버 공개</span><b>${window.Net && Net.user ? '공개됨 (' + Object.keys(bases).length + '개 기지가 보임)' : '혼자 하기 모드(서버에 올리지 않음)'}</b></div>
-    <div class="kv"><span>이동</span><b>${can ? '취소 가능 (남은 ' + Math.ceil(left / 60000) + '분)' : '이동 불가'}</b></div>
-    ${can ? '<div class="row" style="margin-top:6px"><button class="danger" onclick="G.cancelBase()">취소하고 다시 놓기</button></div>' : ''}</div>` + rules);
-}
+setInterval(() => { if (!Store.paused) publishBase(false); }, 30000);
 
 // ---------- 퀘스트 ----------
 function checkQuests() { Sim.checkQuests(S); flush(); }
@@ -168,6 +134,7 @@ function interact(t) {
   if (t.kind === 'water') { Sim.act.scoop(S); flush(); return refresh(); }
   if (t.kind === 'box') return openBox();
   if (t.kind === 'fragment') return uiFragment();
+  if (t.kind === 'pad') return openPad();
   if (t.kind === 'harbor') return uiSail();
   if (t.kind === 'board') return uiBoard();
   if (t.kind === 'altar') return window.Raid ? Raid.open(api) : null;
@@ -391,11 +358,7 @@ function openBuild() {
       <div class="mut">${costText(d.cost)}${d.needFire ? ' · 화덕 옆에 설치' : ''}</div></div>
       <button ${ok && has(d.cost) ? '' : 'disabled'} onclick="G.startBuild('${id}')">짓기</button></div>`;
   }).join('');
-  const R = Sim.RAFT, full = S.raft.cells >= R.MAX_CELLS;
-  openModal('건설', rows + `<div class="mut">장치는 내 탐사정 위에 2x2 칸으로 짓습니다. 지을 곳에 마우스를 두고 클릭하세요.</div>
-    <div class="box row between"><div><b>탐사정 넓히기</b> <span class="mut">(${S.raft.cells}/${R.MAX_CELLS}칸, 한 번에 +${R.EXPAND}칸)</span>
-      <div class="mut">${costText(R.EXPAND_COST)} · 해안 쪽은 그대로, 바다 쪽으로 늘어납니다</div></div>
-      <button ${!full && has(R.EXPAND_COST) ? '' : 'disabled'} onclick="G.expandRaft()">${full ? '최대' : '넓히기'}</button></div>
+  openModal('건설', rows + `<div class="mut">장치는 내 월드(또는 원정 부지)의 빈 공간 2x2칸에 짓습니다. 아래가 단단해야 하고, 지을 곳에 마우스를 두고 클릭하세요. 본부에는 지을 수 없어요.</div>
     <div class="row" style="margin-top:6px"><button class="danger" onclick="G.startDemolish()">철거 모드 (재료 환급)</button></div>`);
 }
 function openCraft() {
@@ -414,13 +377,13 @@ const HELP_KEY = 'chemisle_help_v1';
 function openHelp() {
   openModal('도움말', `
     <div class="box"><h4>조작</h4>
-      <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기</div>
+      <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기 · 땅을 꾹 눌러 파기</div>
       <div>오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장/계정 · x1/x3/x10은 시간 속도</div></div>
     <div class="box"><h4>처음 해 볼 것</h4>
-      <div>1. 불시착 행성 동쪽 해안의 탐사정 위에서 바닷물을 뜨고(E), 건설에서 화덕을 탐사정 위에 지으세요. (증류에 쓸 바닷물은 3통까지 모아 두세요)</div>
-      <div>2. 나무·모래 더미에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
-      <div>3. 해안의 탐사정 잔해를 고쳐 이륙하면 허브 정거장에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 허브 정거장의 대기 처리 코어에 도전합니다.</div></div>
-    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 밤에는 기온이 영하로 내려가 얼음 생물이 장치를 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
+      <div>1. 코어 캡슐에서 시작합니다. 전송 패드(E)로 본부에 가서 도킹 구역 물가에서 바닷물을 뜨고(E), 재배 선반에서 재료를 모으세요. 내 월드의 평평한 바닥에 화덕을 지으세요. (코어 벽의 해치 너머를 파고 나가 결정 줄기·균사·당 결정 동굴을 찾을 수도 있어요)</div>
+      <div>2. 결정 줄기 군락·모래 층에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
+      <div>3. 본부의 탐사정 잔해를 고쳐 이륙하면 다른 행성에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 본부의 대기 처리 코어에 도전합니다.</div></div>
+    <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 온도가 0 ℃ 미만인 자리(얼음 광맥 동굴·얼음 위성)에 장치를 지으면 얼음 생물이 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
   null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
 }
 function openSave() {
@@ -445,7 +408,7 @@ async function enterWorld() {
     if (r) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
   $('auth').hidden = true; Store.paused = false; Store.forceNext(); save(true); refresh();
-  H.joinMap(); syncBase();
+  H.joinMap(); publishBase(true);
   say(`${Net.nick}님, 환영합니다!`);
 }
 async function busy(fn) {
@@ -482,8 +445,7 @@ window.G = {
   },
   expandRaft() { if (Sim.act.expandRaft(S)) H.applyWorld(); flush(); openBuild(); refresh(); },
   startDemolish() { H.startDemolish(); },
-  startCore() { closeModal(); H.startCore(); },
-  async cancelBase() { if (await cancelBase()) { closeModal(); H.startCore(); } },
+  padGo(to) { padWait = { to, at: Date.now() + PAD_MS }; padTick(); },
   craft(id) { const r = Sim.act.craft(S, id); if (!r) return; flush(); say(`${ITEM[r.out][1]} 제작`); openCraft(); refresh(); },
   copyLog() { const t = S.log.map(l => `${l.day}일 ${l.t} [${l.type}] ${l.text}`).join('\n'); navigator.clipboard && navigator.clipboard.writeText(t).then(() => say('복사했습니다.'), () => say('복사 권한이 없습니다.')); },
   save() { save(true); say('저장했습니다.'); },
@@ -499,7 +461,7 @@ window.G = {
     if (Net.guest && !confirm('비밀번호를 설정하지 않은 게스트입니다. 로그아웃하면 이 캐릭터로 다시 들어올 수 없습니다. 계속할까요?')) return;
     save(true); await Net.logout();
     try { localStorage.removeItem(Store.KEY); } catch { /* 무시 */ }
-    unwatchBases(); Store.reset(); H.applyWorld(); closeModal(); showAuth();
+    Store.reset(); H.applyWorld(); closeModal(); showAuth();
   },
   debug: () => S,   // 시험 플레이/자동 점검용: 현재 상태 조회
   reset() { if (confirm('모든 진행이 사라집니다. 정말 처음부터 시작할까요?')) { Store.reset(); H.applyWorld(); save(true); closeModal(); refresh(); } },
@@ -519,7 +481,7 @@ return {
   $, fmt, pix, ic, esc, say, logEv, flush, advance, has, pay, costText, unlocked, heatOf, fireNear,
   set, setw, openModal, closeModal, refresh, checkQuests, interact, openBox, openDevice, capCount, capText,
   openBuild, openCraft, openLog, openHelp, openSave, showAuth, boot, loadPlaza, plazaRafts: () => plazaRafts, api,
-  installBase, cancelBase, syncBase, openBase, bases: () => bases, otherBases, myBaseId,
+  openPad, publishBase,
   isModalOpen: () => !$('modal').hidden,
   tick() { if (modalTick && !$('modal').hidden) modalTick(); },   // 열린 패널을 주기적으로 다시 그린다
   pAtm, HELP_KEY, targets: () => World.targets(S),

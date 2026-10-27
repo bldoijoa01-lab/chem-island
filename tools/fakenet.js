@@ -27,8 +27,7 @@ server.pubs = {}; server.trades = {}; server.project = { have: {}, byTeam: {} };
 const PROJECT_NEED = { water: 3000, salt: 300, ice: 20 }, BOARD_CAP = { env: 3, core: 60, water: 2000, predict: 30 };
 const memberOf = (pid, uid) => server.parties[pid] && server.parties[pid].members[uid];
 async function emitProject() { for (const [page, w] of server.pages) if (w.has('__project')) await page.evaluate((p) => window.__fakeEmitProject && window.__fakeEmitProject(p), JSON.parse(JSON.stringify(server.project))).catch(() => {}); }
-server.bases = {}; server.claims = {};
-async function emitBases() { for (const [page, w] of server.pages) if (w.has('__bases')) await page.evaluate((b) => window.__fakeEmitBases && window.__fakeEmitBases(b), JSON.parse(JSON.stringify(server.bases))).catch(() => {}); }
+server.bases = {};
 server.maps = {}; server.info = new Map();
 async function pushPeers(map) {   // 같은 지도에 있는 모든 화면에 나를 뺀 사람들의 위치를 보낸다(접속 표시, 10단계의 presence 흉내)
   for (const [page, inf] of server.info) if (inf.map === map) { const peers = {}; for (const [id, q] of Object.entries(server.maps[map] || {})) if (id !== inf.uid) peers[id] = q; await page.evaluate((pp) => window.__fakePeers && window.__fakePeers(pp), peers).catch(() => {}); }
@@ -56,36 +55,25 @@ async function handle2(page, uid, nick, method, a) {
     case 'reportVote': { const [rid, pid, v] = a, r = server.reports[rid]; if (!r || !memberOf(pid, uid) || pid === r.pid || !['ok', 'diff'].includes(v)) throw new Error('규칙 위반'); (r.votes = r.votes || {})[pid] = v; return null; }
     case 'boardSet': { const [board, pid, obj] = a; if (!memberOf(pid, uid) || !BOARD_CAP[board]) throw new Error('권한 없음'); const cur = (server.boards[board] || {})[pid]; const old = cur ? cur.score : 0; if (obj.score < old || obj.score > old + BOARD_CAP[board]) throw new Error('규칙 위반(줄지 않음·상한)'); (server.boards[board] = server.boards[board] || {})[pid] = Object.assign({}, obj, { t: Date.now() }); return null; }
     case 'boardLoad': return Object.entries(server.boards[a[0]] || {}).map(([pid, v]) => Object.assign({ pid }, v)).sort((x, y) => y.score - x.score).slice(0, a[1] || 10);
-    // ---- 기지(17-a): database.rules.json의 /bases·/baseClaims와 같은 뜻(만들기는 본인 id, 이미 선점된 칸은 통째로 거절, 지우기는 만든 지 5분 안) ----
-    case 'baseWatch': { server.pages.get(page).add('__bases'); setTimeout(emitBases, 20); return null; }
-    case 'baseGet': return server.bases[a[0]] ? JSON.parse(JSON.stringify(server.bases[a[0]])) : null;
-    case 'baseClaim': {
-      const [id, rec, cells] = a;
-      if (id !== uid && !memberOf(id, uid)) return { ok: false, err: 'PERMISSION_DENIED(id)' };
-      if (server.bases[id]) return { ok: false, err: 'PERMISSION_DENIED(exists)' };
-      if (!(rec.w >= 48 && rec.w <= 96 && rec.h >= 32 && rec.h <= 64) || !cells.includes(rec.cell)) return { ok: false, err: 'PERMISSION_DENIED(validate)' };
-      if (cells.some(c => server.claims[c])) return { ok: false, err: 'PERMISSION_DENIED(claimed)' };   // 한 칸이라도 이미 있으면 전체가 거절된다(원자적)
-      for (const c of cells) server.claims[c] = id;
-      server.bases[id] = Object.assign(clean(rec), { t: Date.now() }); await emitBases(); return { ok: true };
-    }
-    case 'baseRelease': {
-      const [id, cells] = a;
+    // ---- 내 월드 공개 요약(17-a′): database.rules.json의 /bases와 같은 뜻(쓰기는 본인 id 또는 속한 팀, 필드 형식·길이 검사) ----
+    case 'basePublish': {
+      const [id, rec] = a;
       if (id !== uid && !memberOf(id, uid)) throw new Error('PERMISSION_DENIED(id)');
-      const b = server.bases[id];
-      if (b && b.t <= Date.now() - 300000) throw new Error('PERMISSION_DENIED(locked)');   // 만든 지 5분이 지나면 지울 수 없다
-      delete server.bases[id]; for (const c of cells) if (server.claims[c] === id) delete server.claims[c];
-      await emitBases(); return null;
+      const okRec = rec && typeof rec.name === 'string' && rec.name.length >= 2 && rec.name.length <= 10 && /^#[0-9a-fA-F]{6}$/.test(rec.color) && rec.members && typeof rec.tech === 'number' && rec.tech >= 0 && rec.tech <= 6 && typeof rec.summary === 'string' && rec.summary.length <= 200 && !('cx' in rec) && !('x' in rec);
+      if (!okRec) throw new Error('PERMISSION_DENIED(validate)');
+      server.bases[id] = Object.assign(clean(rec), { t: Date.now() }); return null;
     }
+    case 'baseLoad': return Object.entries(server.bases).map(([id, v]) => Object.assign({ id }, v)).sort((x, y) => y.t - x.t).slice(0, a[0] || 20);
     default: return handle0(page, uid, nick, method, a);
   }
 }
 
-const rpcNames = ['create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'baseWatch', 'baseGet', 'baseClaim', 'baseRelease'];
+const rpcNames = ['create', 'join', 'leave', 'watch', 'unwatch', 'watchlog', 'lease', 'publish', 'log', 'beat', 'pubSet', 'pubLoad', 'tradePost', 'tradesLoad', 'tradeTake', 'tradeCancel', 'tradeClaim', 'projectWatch', 'projectAdd', 'projectTeam', 'projectDone', 'reportPost', 'reportsLoad', 'reportVote', 'boardSet', 'boardLoad', 'basePublish', 'baseLoad'];
 module.exports = { server, handle: handle2, clean, initScript: null };
 
 // 페이지 쪽 가짜 Net: 팀 API + 팀 간 교류 API를 모두 rpc로 서버에 넘긴다
 module.exports.initScript = ({ uid, nick }) => {
-  const watchers = {}, logw = {}; let projectCb = null, basesCb = null;
+  const watchers = {}, logw = {}; let projectCb = null;
   const rpc = (m, a) => window.__rpc(m, a);
   const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap: (m, pk) => rpc('joinMap', [m, pk]), sendPos: (pk) => rpc('sendPos', [pk]), leaveMap: () => rpc('leaveMap', []), loadRafts: async () => [], loadBottles: async () => [],
     partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
@@ -97,11 +85,10 @@ module.exports.initScript = ({ uid, nick }) => {
     projectWatch: (cb) => { projectCb = cb; rpc('projectWatch', []); return () => { projectCb = null; }; }, projectAdd: (pid, name, color, item, n, need) => rpc('projectAdd', [pid, name, color, item, n, need]), projectTeam: (pid, o) => rpc('projectTeam', [pid, o]), projectDone: () => rpc('projectDone', []),
     reportPost: (r) => rpc('reportPost', [r]), reportsLoad: (n) => rpc('reportsLoad', [n]), reportVote: (rid, pid, v) => rpc('reportVote', [rid, pid, v]),
     boardSet: (b, pid, o) => rpc('boardSet', [b, pid, o]), boardLoad: (b, n) => rpc('boardLoad', [b, n]),
-    baseWatch: (cb) => { basesCb = cb; rpc('baseWatch', []); return () => { basesCb = null; }; }, baseGet: (id) => rpc('baseGet', [id]), baseClaim: (id, rec, cells) => rpc('baseClaim', [id, rec, cells]), baseRelease: (id, cells) => rpc('baseRelease', [id, cells]) };
+    basePublish: (id, rec) => rpc('basePublish', [id, rec]), baseLoad: (n) => rpc('baseLoad', [n]) };
   window.__fakePeers = (pp) => { for (const k of Object.keys(fake.peers)) delete fake.peers[k]; Object.assign(fake.peers, pp); };
   window.__fakeEmit = (pid, s) => watchers[pid] && watchers[pid](s);
   window.__fakeEmitLog = (pid, l) => logw[pid] && logw[pid](l);
   window.__fakeEmitProject = (p) => projectCb && projectCb(p);
-  window.__fakeEmitBases = (b) => basesCb && basesCb(b);
   Object.defineProperty(window, 'Net', { get: () => fake, set: () => {} });
 };

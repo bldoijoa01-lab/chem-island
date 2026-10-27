@@ -29,30 +29,31 @@
     { id: 'bottle', out: 'bottle', n: 1, cost: { sand: 3, stick: 1 }, note: '모래를 가열해 유리로' },
     { id: 'syringe', out: 'syringe', n: 1, cost: { bottle: 1, stick: 2 }, note: '피스톤으로 기체의 양을 조절 [#8]' },
     { id: 'pickaxe', out: 'pickaxe', n: 1, cost: { stick: 2, stone: 2 }, note: '돌을 팔 수 있다 (허브 보급 상자에서 처음 돌을 얻는다)' },
+    { id: 'ironpick', out: 'ironpick', n: 1, cost: { iron: 6, stick: 2 }, note: '경암·금 광맥·뜨거운 바위(도구 단계 2)를 팔 수 있다', locked: '기술 노드 T4가 여는 제작법이에요. (20단계에서 해금)' },
     { id: 'shaker', out: 'shaker', n: 1, cost: { bottle: 1, stick: 1 }, note: '소금을 얼음·얼음 생물에 뿌린다 — 어는점 내림 [#37 #39]' },
     { id: 'thermo', out: 'thermo', n: 1, cost: { bottle: 1, sand: 2 }, note: '장치·땅·공기의 온도를 읽는다' },
   ];
   const QUESTS = [
-    { t: '바닷물 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕. 바닷가에서 E로 바닷물 뜨기' },
-    { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 바닷물을 넣고 가열 시작' },
+    { t: '바닷물(염수) 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕(기지 안 평평한 바닥에). 염수 웅덩이나 본부 도킹 구역의 물가에서 E로 바닷물 뜨기' },
+    { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 염수를 넣고 가열 시작' },
     { t: '증류에서 소금 20 g을 모으세요', ok: f => f.dS >= 20, hint: '바닷물이 농축되면 NaCl 결정이 남아요' },
-    { t: '해안의 탐사정 잔해를 수리해 이륙하세요', ok: f => f.raft, hint: '동쪽 해안의 탐사정 잔해에서 E. 냉각계를 채울 증류수 150 g + 소금 20 g이 필요해요(직접 증류해 얻은 것이어야 해요). 이륙하면 허브 정거장의 신호가 잡혀요' },
+    { t: '본부의 탐사정 잔해를 수리하세요', ok: f => f.raft, hint: '코어 전송 패드로 본부에 가서 도킹 구역의 탐사정 잔해에서 E. 냉각계를 채울 증류수 150 g + 소금 20 g이 필요해요(직접 증류해 얻은 것이어야 해요). 고치면 궤도 이동(다른 행성)이 열려요' },
     { t: '압력 밥솥으로 2기압 이상에서 라면을 끓이세요', ok: f => f.ramenP >= 2, hint: '면 1개 + 증류수 300 g. 화덕 세기를 올려야 할 수도 있어요' },
-    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 불시착 행성 설원이나 얼음 위성에서. 소금을 섞으면 어는점이 내려가요' },
+    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 얼음 광맥 동굴이나 본부 얼음 저장고에서. 소금을 섞으면 어는점이 내려가요' },
     { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
     { t: '허브 정거장의 대기 처리 코어를 정화하세요', ok: f => f.boss, hint: '허브 정거장의 제단. 소금·증류수·한제 팩·캡슐(허브 보급 상자)을 챙기세요' },
-    { t: '얼음 생물 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '밤에 기온이 영하로 내려가면 얼음 생물이 장치에 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
-    { t: '저기압 고원 행성에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '허브 정거장 동쪽 관문에서 이륙(라면 목표 뒤). 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
-    { t: '얼음 위성에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '허브 정거장 북쪽 관문(한제 목표 뒤). 기온이 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
+    { t: '얼음 생물 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '온도가 0 ℃ 미만인 자리(얼음 광맥 구역은 −15 ℃, 얼음 위성)에 장치를 지으면 얼음 생물이 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
+    { t: '저기압 고원 행성에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '본부 동쪽 관문에서 이륙(라면 목표 뒤). 착륙 캡슐 동굴에 화덕과 증류기를 지으세요. 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
+    { t: '얼음 위성에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '본부 북쪽 관문(한제 목표 뒤). 온도가 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
   ];
   // 월드(16단계): 행성마다 단면 맵 하나. W × H는 칸 수(타일 16 px), off는 옛 한 줄 월드(폭 380)에서 이 행성 창이 시작하던 x(세이브 이전과 지형 생성에 쓴다).
   // 맵 크기는 가정(임의값)이고 17단계에서 불시착 행성을 800 × 110으로 키운다(DESIGN.md §4-22). L..R은 걸을 수 있는 범위(맵 안 타일 x, 접안 쪽 여유 포함).
   // 탐사정이 더 멀리 뻗으면 그만큼 넓어진다. 행성 사이는 걸어서 건널 수 없고 궤도 이동으로만 간다.
   const ISLANDS = {
-    start: { name: '불시착 행성', W: 800, H: 110, off: 0, L: 13, R: 798 },   // 17-a: 가로 800 × 세로 110. 옛 120칸 영역(x 0..119)은 좌표 그대로 "추락 반도"가 되고 동쪽에 만과 대륙이 이어진다(DESIGN.md §4-23)
+    start: { name: '불시착 행성', W: 200001, H: 100001, off: 0, L: -100000, R: 100000 },   // 17-a′: 코어가 원점인 무한 지하(정수 범위 ±100,000, 위쪽은 암반 천장). 크기는 한계값이다(DESIGN.md §4-24)
     plaza: { name: '허브 정거장', W: 112, H: 56, off: 106, L: 12, R: 96 },
-    alpine: { name: '저기압 고원 행성', W: 102, H: 56, off: 201, L: 12, R: 86 },
-    polar: { name: '얼음 위성', W: 102, H: 56, off: 291, L: 12, R: 86 },
+    alpine: { name: '저기압 고원 행성', W: 102, H: 56, off: 201, L: 9, R: 92 },
+    polar: { name: '얼음 위성', W: 102, H: 56, off: 291, L: 9, R: 92 },
   };
   const LEGACY_W = 380, LEGACY_CUT = [[116, 'start'], [208, 'plaza'], [297, 'alpine']];   // 옛 월드(폭 380)의 x를 행성으로 나누는 경계: < 116 불시착 · < 208 허브 · < 297 고원 · 그 이상 얼음 위성
   // 행성별 환경(가정(임의값)): 같은 장치를 다른 조건에서 돌려 비교한다. P = 외기 압력(atm), dT = 기온 보정(℃, C.airTemp에 더함)
@@ -80,11 +81,11 @@
     alpine: { island: 'alpine', anchor: 17, dir: -1 },  // 저기압 고원 행성 서쪽 접안 구역(옛 218 − 201)
     polar: { island: 'polar', anchor: 17, dir: -1 },    // 얼음 위성 서쪽 접안 구역(옛 308 − 291)
   };
+  const ARRIVE = { plaza: [25, 24], alpine: [14, 29], polar: [14, 29] };   // 가정(임의값) 도착 칸(x, 서 있는 줄): 허브 패드 옆 · 착륙 캡슐 동굴 (world.js와 같은 좌표)
   const SAIL_MIN = { start: 30, plaza: 30, alpine: 60, polar: 60 };   // 가정(임의값) 도착지별 궤도 이동 시간(게임 분)
   const UNLOCK = { alpine: 5, polar: 6 };                              // 가정(임의값) 해금 순서: 라면(목표 5) 뒤 저기압 고원 행성, 한제(목표 6) 뒤 얼음 위성
   // 허브 정거장의 사방 궤도 관문: 행선지(4단계에서 탐사 행성을 연다)
   const HARBORS = [
-    { dock: 'start', label: '서쪽 관문', name: '불시착 행성', open: true },
     { dock: 'alpine', label: '동쪽 관문', name: '저기압 고원 행성', open: true },
     { dock: 'polar', label: '북쪽 관문', name: '얼음 위성', open: true },
     { dock: 'volcano', label: '남쪽 관문', name: '후속 행성', open: false },
@@ -119,12 +120,12 @@
   // ---------- 상태 ----------
   function newState() {
     return {
-      day: 1, min: 360, px: 104 * 16, py: 18 * 16,   // 시작 위치는 땅 위 허공에서 떨어져 내려앉는다(지형 높이가 칸마다 달라서)
+      day: 1, min: 360, px: 2 * 16 + 3, py: 3 * 16 - 18,   // 17-a′: 코어 캡슐 안(전송 패드 자리)에서 시작한다
       vx: 0, vy: 0, face: 1, speed: 1,
-      inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0 },
+      inv: { stick: 8, sand: 6, sea: 0, ice: 0, bottle: 0, syringe: 0, sugar: 0, salt: 0, water: 400, noodle: 1, ramen: 0, dirt: 0, stone: 0, pickaxe: 0, shaker: 0, thermo: 0, iron: 0, gold: 0, rare: 0, ironpick: 0 },
       caps: [], packs: [], placed: [], nodes: {}, boxDay: 0, mobs: [], mobId: 0, dusk: 0, dug: {}, melt: {}, stoneGift: false,
       f: { sea: false, fire: false, dW: 0, dS: 0, ramenP: 0, packT: 0, caps: 0, boss: false, wolf: 0, raft: false, alpineW: 0, polarMelt: false },
-      qDone: 0, log: [], memo: '', ver: 4, base: null,   // base: 기지 코어 { x, y, at(설치 시각 ms), id } — 17-a. 설치 전에는 null
+      qDone: 0, log: [], memo: '', ver: 5, base: { x: 0, y: 0 }, world: {}, ug: true,   // base: 코어 왼쪽 위 칸(원점 고정). world: 판 칸 { 'cx,cy': 'RLE' }(덩어리별 줄 단위 압축, 상한은 저장 크기). ug: 지하 모드(탐사정 이전을 건너뜀) — 17-a′
       raft: { cells: RAFT.BASE_CELLS, dock: 'start' },
     };
   }
@@ -141,15 +142,32 @@
   // ver < 2: 땅 파기 기록의 타일 번호(y·120+x)를 폭 380으로 다시 매기고, 튜토리얼(목표 1~3)을 넘긴 세이브는 탐사정 잔해를 이미 고친 것으로 보며 qDone을 새 목록에 맞춘다.
   // ver < 3: 땅 파기·얼음 녹임 키(y·380+x)를 행성별 키 `행성id:y·W+x'`로 옮기고, 플레이어 위치 S.px에서 행성 창의 오프셋을 뺀다. 그 밖의 필드는 그대로다.
   // ver 4(17단계): 불시착 행성이 가로 120 → 800칸이 되어 ver 3 저장의 `start:` 키(y·120+x)를 y·800+x로 다시 매긴다. 다른 행성·위치·장치는 그대로다.
+  // ver 5(17-a′ 지하 개편): 지표 맵 저장은 새 지형과 맞지 않는다. 불시착·고원·얼음 위성의 땅 파기·얼음 녹임 키와 코어를 버리고(허브 키는 유지),
+  // 탐사정 위 장치는 재료로 환급하고 위치는 본부로 옮긴다. 인벤토리·목표·채집 기록은 그대로다. 1인칭·탑다운 저장(S.fp)은 이 필드를 쓰지 않으므로 건드리지 않는다.
+  function migrateUnderground(S) {
+    S.ver = 5;
+    if (S.fp) return;
+    const keep = (m) => { const o = {}; for (const k in m) if (/^plaza:/.test(k)) o[k] = m[k]; return o; };
+    const hadWorld = Object.keys(S.dug || {}).some(k => !/^plaza:/.test(k)) || !!S.base || (S.placed || []).length > 0 || S.raft.dock !== 'plaza';
+    S.dug = keep(S.dug || {}); S.melt = keep(S.melt || {}); S.base = { x: 0, y: 0 }; S.world = {}; delete S.blocks; delete S.digN; S.ug = true;
+    if (S.placed.length) {
+      const names = [];
+      for (const d of S.placed) { const def = DEV[d.id]; if (def) { for (const k in def.cost) S.inv[k] = (S.inv[k] || 0) + def.cost[k]; names.push(def.name); } }
+      S.placed = []; S.mobs = [];
+      S.log.push({ day: S.day, t: clockText(S), type: '기지', text: `지하 개편: 탐사정 위 장치 ${names.length}개(${names.join(', ')})를 재료로 되돌렸습니다. 새 기지에 다시 지으세요.` });
+    }
+    if (hadWorld) { S.raft.dock = 'start'; S.px = 2 * 16 + 3; S.py = 3 * 16 - 18; S.vx = S.vy = 0; S.log.push({ day: S.day, t: clockText(S), type: '기지', text: '지하 개편: 불시착 행성이 코어가 원점인 무한 지하 월드로 바뀌어 코어 캡슐 안에서 다시 시작합니다.' }); }
+  }
   const START_W_V3 = 120;
   function migrateWorld(S, raw) {
-    if (!raw || raw.ver >= 4) return;
+    if (!raw || raw.ver >= 5) return;
+    if (raw.ver === 4) { migrateUnderground(S); return; }
     if (raw.ver === 3) {
       if (!S.fp) {
         const W = ISLANDS.start.W, re = (m) => { const o = {}; for (const k in m) { const mm = /^start:(\d+)$/.exec(k); if (!mm) { o[k] = m[k]; continue; } const i = +mm[1], y = Math.floor(i / START_W_V3), x = i % START_W_V3; o['start:' + (y * W + x)] = m[k]; } return o; };
         S.dug = re(S.dug || {}); S.melt = re(S.melt || {});
       }
-      S.ver = 4; return;
+      migrateUnderground(S); return;
     }
     if (raw.ver === undefined || raw.ver < 2) {
       const OLD_W = 120, re = (m) => { const o = {}; for (const k in m) { const y = Math.floor(k / OLD_W), x = k % OLD_W; o[y * LEGACY_W + x] = m[k]; } return o; };
@@ -162,7 +180,7 @@
       S.dug = conv(S.dug || {}); S.melt = conv(S.melt || {});
       const dk = S.raft && DOCKS[S.raft.dock] ? S.raft.dock : 'start'; S.px = (S.px || 0) - ISLANDS[dk].off * 16;
     }
-    S.ver = 4;
+    migrateUnderground(S);
   }
   // 예전 세이브(장치가 땅 위, u 없음) → 탐사정 위로 옮긴다: 왼쪽에서부터 순서와 붙어 있던 관계를 지키며 해안 쪽부터 놓는다.
   // 옛 세이브는 칸 수 제한을 넘을 수 있으므로 필요한 만큼 탐사정을 넓혀 준다(제한은 새로 넓힐 때만 적용).
@@ -185,7 +203,8 @@
   let curDev = null;   // 지금 계산·표시 중인 장치(환경을 장치마다 다르게 정하는 고리용). 기본(2D)은 항상 탐사정/탐사정이 있는 행성
   const envOf = (S) => ENV[geo.island(S, curDev)];
   const pAtm = (S) => envOf(S).P;
-  const airTemp = (S) => C.airTemp(S.min) + envOf(S).dT;   // ℃, 불시착 행성 기준 오후 3시 최고(28) · 새벽 3시 최저(−15) + 행성별 보정
+  // geo.ambient(S, d): 지하 개편(17-a′)의 구역 온도 고리. 있으면 d 자리(없으면 플레이어 자리)의 온도를 돌려주고, 없으면(시험·fp/td) 옛 식 그대로다.
+  const airTemp = (S) => { const a = geo.ambient ? geo.ambient(S, curDev) : undefined; return a !== undefined ? a : C.airTemp(S.min) + envOf(S).dT; };   // ℃, 옛 식: 불시착 행성 기준 오후 3시 최고(28) · 새벽 3시 최저(−15) + 행성별 보정
 
   // ---------- 시간 ----------
   function advance(S, dm) {
@@ -193,7 +212,7 @@
       S.min += 1;
       stepDevices(S);
       stepMobs(S);
-      if (S.min === 19 * 60 && S.dusk !== S.day && S.placed.length) { S.dusk = S.day; say('해가 지고 있습니다. 밤에는 기온이 영하로 내려가 얼음 생물이 나타나요.'); }
+      if (!geo.ambient && S.min === 19 * 60 && S.dusk !== S.day && S.placed.length) { S.dusk = S.day; say('해가 지고 있습니다. 밤에는 기온이 영하로 내려가 얼음 생물이 나타나요.'); }
       if (S.min >= 1440) { S.min -= 1440; S.day += 1; newDay(S); }
     }
   }
@@ -210,7 +229,7 @@
   // 1인칭(fp/)은 격자 바닥이라 fp/main.js가 geo.adjacent를 격자 간격 판정으로 바꿔 끼운다(x, y = 격자 칸). 화학 계산은 그대로다.
   // island(S, d): 장치 d의 환경을 정하는 행성(기본: 탐사정/탐사정이 있는 행성). heatSources(S, d): d를 데우는 화덕들(기본: 옆 화덕).
   // 1인칭(fp/)은 행성 지표 부지 장치에 그 행성을, 열선으로 연결된 화덕에 열원 자격을 주도록 바꿔 끼운다(10단계). 화학 계산은 그대로다.
-  const geo = { adjacent: (a, b) => Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1, island: (S, d) => dockOf(S).island };
+  const geo = { adjacent: (a, b) => (a.pl || '') === (b.pl || '') && Math.abs(a.x - b.x) <= 3 && Math.abs(a.y - b.y) <= 1, island: (S, d) => (d && d.pl) || dockOf(S).island };   // d.pl: 지하 개편에서 장치가 서 있는 행성(없으면 플레이어가 있는 행성)
   const adjacentTo = (a, b) => a !== b && geo.adjacent(a, b);
   geo.heatSources = (S, d) => S.placed.filter(f => f.id === 'fire' && adjacentTo(f, d));
   const fireNear = (S, d) => geo.heatSources(S, d);
@@ -306,8 +325,8 @@
     for (const f of fires) if (!f.s.broken && f.s.level > 0 && f.s.fuel > 0) q += WOLF.K_FIRE * FIRE_T[f.s.level];
     return q;
   }
-  function spawnWolf(S, T) {
-    const d = S.placed[Math.floor(rng() * S.placed.length)];
+  function spawnWolf(S, T, cands) {
+    const pool = cands || S.placed, d = pool[Math.floor(rng() * pool.length)];
     const M = Math.round(WOLF.MIN_M + rng() * (WOLF.MAX_M - WOLF.MIN_M));
     S.mobs.push({ id: ++S.mobId, k: 'wolf', M, M0: M, dx: d.x, dy: d.y, att: 0 });
     say('얼음 생물이 나타났습니다!');
@@ -324,8 +343,11 @@
   const repairRecord = (S) => S.f.dW >= RAFT.REPAIR_NEED.dW && S.f.dS >= RAFT.REPAIR_NEED.dS;   // 15단계: 증류 기록 조건
   const tutorial = (S) => !S.f.raft;   // 탐사정 잔해를 고치기 전까지는 튜토리얼: 얼음 생물과 폭발을 끈다
   function stepMobs(S) {
-    const T = airTemp(S), h = S.min / 60;
-    if (!tutorial(S) && T < 0 && isNightHour(h) && S.placed.length && S.mobs.length < Math.min(WOLF.MAX, S.placed.length) && rng() < WOLF.SPAWN_P) spawnWolf(S, T);
+    const T = airTemp(S), h = S.min / 60, ug = !!geo.ambient;
+    // 지하 개편: 밤이 없고, 그 장치 자리의 온도가 0 ℃ 미만이면 출현한다(고리가 없으면 옛 규칙: 영하의 밤)
+    const tOf = (d) => { if (!ug) return T; curDev = d; const t = airTemp(S); curDev = null; return t; };
+    if (ug) { const cold = S.placed.filter(d => tOf(d) < 0); if (!tutorial(S) && cold.length && S.mobs.length < Math.min(WOLF.MAX, cold.length) && rng() < WOLF.SPAWN_P) { const d0 = cold[Math.floor(rng() * cold.length)]; spawnWolf(S, tOf(d0), [d0]); } }
+    else if (!tutorial(S) && T < 0 && isNightHour(h) && S.placed.length && S.mobs.length < Math.min(WOLF.MAX, S.placed.length) && rng() < WOLF.SPAWN_P) spawnWolf(S, T);
     for (const m of S.mobs.slice()) {
       let d = devAt(S, m);
       if (!d || (d.s.broken && S.placed.some(x => !x.s.broken))) {   // 철거됐거나 이미 부서진 장치 → 다른 장치로
@@ -334,7 +356,7 @@
         m.dx = d.x; m.dy = d.y; m.att = 0;
       }
       // 열: 공기(0 ℃ 이상일 때) + 켜진 화덕.  녹는 얼음 = Q / 융해열 [#21]
-      const qAir = T > 0 ? WOLF.K_AIR * T : 0, qFire = wolfHeat(S, d);
+      const Tm = tOf(d), qAir = Tm > 0 ? WOLF.K_AIR * Tm : 0, qFire = wolfHeat(S, d);
       m.M -= C.iceMeltByHeat(qAir + qFire);
       if (m.M <= 0) { removeWolf(S, m, qFire > 0 ? 'fire' : 'ambient'); continue; }
       // 공격: 붙어 있는 동안 시간이 쌓여 장치를 파손
@@ -379,7 +401,7 @@
     fuel(S, d, n) { n = Math.min(n, S.inv.stick); if (n <= 0) return say('나뭇가지가 없습니다.'); S.inv.stick -= n; d.s.fuel += n; },
     level(S, d, i) { if (i > 0 && d.s.fuel <= 0) return say('연료를 먼저 넣으세요.'); d.s.level = i; },
     load(S, d) {
-      if (S.inv.sea < 1) return say('바닷물이 없습니다. 바닷가에서 E.');
+      if (S.inv.sea < 1) return say('바닷물이 없습니다. 염수 웅덩이나 본부 도킹 구역 물가에서 E.');
       if (d.s.w + SEA_BUCKET.water > 650) return say('증류기가 가득 찼습니다.');
       if (d.s.w <= 0) d.s.w0 = 0;   // 비었던 증류기에 새로 채우면 끝나는 기준도 새로
       S.inv.sea--; d.s.w += SEA_BUCKET.water; d.s.w0 = (d.s.w0 || 0) + SEA_BUCKET.water; d.s.ns += SEA_BUCKET.nacl / C.MW_NACL;
@@ -458,11 +480,17 @@
     },
     craft(S, id) {
       const r = RECIPES.find(x => x.id === id);
+      if (r.locked) return say(r.locked), false;
       if (!has(S, r.cost)) return false;
       pay(S, r.cost); S.inv[r.out] += r.n; advance(S, 10); return r;
     },
     // 장치 건설: 위치 검사는 화면(지형)이 하고, 재료·상태 생성은 여기서 한다
     build(S, id, u) { return act.place(S, id, devX(S, u), RAFT.DEV_Y, u, `탐사정 ${u}번 칸`); },
+    // 지하 개편(17-a′): 기지·원정 부지 안 칸 (x, y)에 짓는다. pl = 그 장치가 서 있는 행성 id(환경·화면이 이것을 따른다)
+    placeFree(S, id, tx, ty, pl) {
+      if (!act.place(S, id, tx, ty, undefined, `${ISLANDS[pl].name} 칸 (${tx}, ${ty})`)) return false;
+      S.placed[S.placed.length - 1].pl = pl; return true;
+    },
     // 위치와 무관한 장치 생성(재료·상태). 2D는 build가, 1인칭은 격자 칸 (x, y)로 직접 부른다. u가 없으면 탐사정 좌표를 쓰지 않는다
     place(S, id, tx, ty, u, where) {
       const def = DEV[id];
@@ -494,15 +522,31 @@
       say('탐사정을 고쳤습니다! 이제 궤도 이동 단말에서 이륙할 수 있어요.'); logEv(S, '탐사정', `파편 수리 완료(재료 ${Object.entries(RAFT.REPAIR_COST).map(([k, v]) => k + ' ' + v).join(', ')}) — 튜토리얼 종료`);
       return true;
     },
-    // 궤도 이동: 탐사정(과 장치)이 다른 행성의 도킹 자리로 옮겨 간다. 시간이 SAIL_MIN분 흐른다
+    // 전송 패드(17-a′): 본부 ↔ 내 기지, 원정 행성 → 본부. 시간은 흐르지 않는다(3초 대기는 화면이 맡는다)
+    teleport(S, to) {
+      const here = dockOf(S).island;
+      if (to === here) return say('이미 이 곳에 있습니다.'), false;
+      if (to === 'start') { if (!S.base) return say('기지 코어를 먼저 설치하세요.'), false; if (here !== 'plaza') return say('기지로는 본부에서만 갈 수 있습니다.'), false; }
+      else if (to === 'plaza') { /* 어디서든 본부로 */ }
+      else return say('패드로는 본부와 내 기지만 오갈 수 있습니다.'), false;
+      S.raft.dock = to;
+      const ar = to === 'start' ? [S.base.x + 2, S.base.y + 3] : ARRIVE.plaza;   // 코어 패드 / 본부 패드
+      S.px = ar[0] * 16 + 3; S.py = ar[1] * 16 - 18; S.vx = S.vy = 0;
+      say(`${ISLANDS[to].name === '허브 정거장' ? '본부' : '내 기지'}로 전송했습니다.`); logEv(S, '전송', `${ISLANDS[here].name} → ${ISLANDS[to].name}`);
+      emit({ t: 'moved' });
+      return true;
+    },
+    // 궤도 이동: 탐사정이 다른 행성의 착륙 캡슐로 간다. 시간이 SAIL_MIN분 흐른다
     sail(S, dock) {
       if (!S.f.raft) return say('탐사정 잔해를 먼저 고치세요.'), false;
-      if (!DOCKS[dock]) return say('아직 갈 수 없는 곳입니다.'), false;
+      if (!DOCKS[dock] || (!S.fp && !ARRIVE[dock])) return say('아직 갈 수 없는 곳입니다. (내 월드는 전송 패드로 갑니다)'), false;   // fp/·td/(S.fp)는 옛 도킹 이동 그대로
       if (dock === S.raft.dock) return say('이미 이 행성에 있습니다.'), false;
       if (UNLOCK[dock] && S.qDone < UNLOCK[dock]) return say(`아직 갈 수 없습니다. (목표 ${UNLOCK[dock]}개를 달성하면 열립니다)`), false;
       const from = ISLANDS[dockOf(S).island].name;
       S.raft.dock = dock; syncRaft(S);
-      const d = dockOf(S); S.px = (d.anchor + d.dir) * 16; S.py = RAFT.ROW * 16 - 18; S.vx = S.vy = 0;
+      const d = dockOf(S), ar = ARRIVE[dock];
+      if (S.fp) { S.px = (d.anchor + d.dir) * 16; S.py = RAFT.ROW * 16 - 18; } else { S.px = ar[0] * 16; S.py = ar[1] * 16 - 18; }   // 지하 개편: 도착 자리는 착륙 캡슐(허브는 도크 옆 패드). fp/·td/는 옛 도킹 좌표
+      S.vx = S.vy = 0;
       const mins = SAIL_MIN[dock] || 30;
       advance(S, mins);
       say(`${ISLANDS[d.island].name}에 도착했습니다. (궤도 이동 ${mins}분)`); logEv(S, '궤도 이동', `${from} → ${ISLANDS[d.island].name} (${mins}분, 탐사정 ${S.raft.cells}칸·장치 ${S.placed.length}개)`);
@@ -524,7 +568,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    STILL, COOLER, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    STILL, COOLER, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, ARRIVE, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, emit, say, logEv, clockText,   // 화면 모듈(world.js·ui.js)이 같은 이벤트·기록 통로를 쓰도록 노출(계산은 바뀌지 않음)
     setRng(fn) { rngFn = fn || null; },
     setDev(d) { curDev = d || null; },   // 패널을 그릴 때 그 장치의 환경을 쓰게 한다(fp 10단계)
