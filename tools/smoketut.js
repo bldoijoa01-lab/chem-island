@@ -21,7 +21,8 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
       flush: () => { UI.flush(); },
       at(x, y) { const S = G.debug(); S.px = x * 16 + 3; S.py = y * 16 - 18; S.vx = S.vy = 0; },
       go(to) { const S = G.debug(); Sim.act.teleport(S, to); UI.flush(); World.applyDug(S); },
-      dig(x, y) { const S = G.debug(); World.dig.on = true; World.dig.p = 0; const c = World.digCheck(S, x, y); if (!c.ok && World.tileAt(x, y) !== World.AIR) return c.msg || 'far'; World.dig.tx = x; World.dig.ty = y; World.stepDig(S, 99, x, y, false); return World.tileAt(x, y) === World.AIR ? 'ok' : 'fail'; },
+      stat: { digSec: 0, digTiles: 0, gathers: 0, byTier: {} },
+      dig(x, y) { const S = G.debug(); const dd = World.DIG[World.tileAt(x, y)]; if (dd) { T.stat.digSec += dd.t; T.stat.digTiles++; T.stat.byTier[dd.tier] = (T.stat.byTier[dd.tier] || 0) + 1; } World.dig.on = true; World.dig.p = 0; const c = World.digCheck(S, x, y); if (!c.ok && World.tileAt(x, y) !== World.AIR) return c.msg || 'far'; World.dig.tx = x; World.dig.ty = y; World.stepDig(S, 99, x, y, false); return World.tileAt(x, y) === World.AIR ? 'ok' : 'fail'; },
       // 걸어 들어갈 수 있게 (x0,y0)에서 (x1,y1)까지 두 칸 높이 굴을 판다(수직 → 수평 순서)
       tunnel(pts) {
         const S = G.debug(), bad = []; let [cx, cy] = pts[0];
@@ -34,8 +35,8 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
         }
         return bad;
       },
-      gatherIn(type, x0, y0, x1, y1) { const S = G.debug(); for (const o of World.objsIn(x0, y0, x1, y1).filter(o => o.type === type)) { for (let k = 0; k < 6; k++) { T.at(o.x, o.y); const t = World.targets(S).find(t => t.ref === o); if (!t) break; UI.interact(t); } } UI.flush(); },
-      gather(type) { const S = G.debug(); for (const o of World.OBJS.filter(o => o.type === type)) { for (let k = 0; k < 6; k++) { T.at(o.x, o.y); const t = World.targets(S).find(t => t.ref === o); if (!t) break; UI.interact(t); } } UI.flush(); },
+      gatherIn(type, x0, y0, x1, y1) { const S = G.debug(); for (const o of World.objsIn(x0, y0, x1, y1).filter(o => o.type === type)) { for (let k = 0; k < 6; k++) { T.at(o.x, o.y); const t = World.targets(S).find(t => t.ref === o); if (!t) break; UI.interact(t); T.stat.gathers++; } } UI.flush(); },
+      gather(type) { const S = G.debug(); for (const o of World.OBJS.filter(o => o.type === type)) { for (let k = 0; k < 6; k++) { T.at(o.x, o.y); const t = World.targets(S).find(t => t.ref === o); if (!t) break; UI.interact(t); T.stat.gathers++; } } UI.flush(); },
       build(id, x, y, pl) { const S = G.debug(); T.at(x + 1, y + 2); const g = World.ghostCheck(S, id, x, y); if (!g.ok) return g.msg; return Sim.act.placeFree(S, id, x, y, pl || Sim.dockOf(S).island) ? 'ok' : 'cost'; },
       dev(id) { return G.debug().placed.find(d => d.id === id); },
       adv(m) { Sim.advance(G.debug(), m); UI.flush(); },
@@ -129,7 +130,8 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   await ev(([x, y]) => { const S = G.debug(); T.at(x, y - 1); for (let i = 0; i < 6; i++) { World.useShaker(S, { tx: x, ty: y }); UI.flush(); } UI.refresh(); }, icy || [40, 40]);
   ok('목표 11: 소금 뿌리개로 얼음 타일 1칸 녹임', await ev(() => G.debug().f.polarMelt === true && G.debug().qDone >= 11), await ev(() => JSON.stringify([G.debug().f.polarMelt, G.debug().qDone, World.ambientAt(G.debug(), null)])));
   await ev(() => { T.go('plaza'); });
-  const fin = await ev(() => ({ q: G.debug().qDone, total: Sim.QUESTS.length, size: World.worldSize() }));
+  const fin = await ev(() => ({ q: G.debug().qDone, total: Sim.QUESTS.length, size: World.worldSize(), day: G.debug().day, min: G.debug().min, stat: T.stat }));
+  console.log('통계(시간 추정용):', JSON.stringify(fin));
   ok(`목표 ${fin.total}개 모두 달성(${fin.q}/${fin.total})`, fin.q >= fin.total, JSON.stringify(fin));
   await browser.close();
   console.log(steps.join(' · '));
