@@ -108,10 +108,11 @@ const rpcNames = ['publishDelta', 'baseGet', 'mergeOffer', 'mergeCancel', 'merge
 module.exports = { server, handle: handle2, clean, initScript: null, emit, emitMerge };
 
 // 페이지 쪽 가짜 Net: 팀 API + 팀 간 교류 API를 모두 rpc로 서버에 넘긴다
-module.exports.initScript = ({ uid, nick }) => {
+module.exports.initScript = ({ uid, nick, anon }) => {   // anon: 아직 캐릭터가 없는 브라우저(메인 화면 [코드로 들어가기] 시험) — restore는 null, register로 닉네임을 정한다
   const watchers = {}, logw = {}, mwatch = {}; let projectCb = null;
   const rpc = (m, a) => window.__rpc(m, a);
-  const fake = { ok: true, user: { uid }, nick, guest: true, peers: {}, init: () => true, restore: async () => nick, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap: (m, pk) => rpc('joinMap', [m, pk]), sendPos: (pk) => rpc('sendPos', [pk]), leaveMap: () => rpc('leaveMap', []), loadRafts: async () => [], loadBottles: async () => [],
+  const fake = { ok: true, user: anon ? null : { uid }, nick: anon ? null : nick, guest: true, peers: {}, init: () => true, restore: async () => (anon && !fake.user ? null : fake.nick),
+    register: async (n) => { n = String(n).trim(); if (!/^[0-9A-Za-z가-힣]{2,8}$/.test(n)) throw new Error('닉네임은 2~8자의 한글·영문·숫자만 쓸 수 있습니다.'); await rpc('register', [n]); fake.user = { uid }; fake.nick = n; }, loadSave: async () => null, saveSave: async () => {}, saveRaft: async () => {}, joinMap: (m, pk) => rpc('joinMap', [m, pk]), sendPos: (pk) => rpc('sendPos', [pk]), leaveMap: () => rpc('leaveMap', []), loadRafts: async () => [], loadBottles: async () => [],
     partyCreate: (n, c) => rpc('create', [n, c]), partyJoin: (code) => rpc('join', [code]), partyLeave: (pid) => rpc('leave', [pid]),
     partyWatch: (pid, cb) => { watchers[pid] = cb; rpc('watch', [pid]); return () => { delete watchers[pid]; rpc('unwatch', [pid]); }; },
     partyWatchLog: (pid, cb) => { logw[pid] = cb; rpc('watchlog', [pid]); return () => {}; },

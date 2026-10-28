@@ -213,12 +213,13 @@ export const Party = {
       <div class="mut">탐사정·장치·목표 진행도·공용 창고는 팀이 같이 씁니다. 인벤토리와 자원 노드는 개인입니다.${Party.online() > 1 ? ' 접속한 팀원이 2명 이상이라 시간 속도는 x1로 고정됩니다.' : ''}</div></div>
       <div class="box"><h4>개인 기여</h4><table><tr><th>팀원</th><th>건설</th><th>철거</th><th>장치 조작</th><th>창고 넣기/꺼내기</th><th>교류(교역/프로젝트/보고서)</th><th>기여한 목표</th></tr>${rows}</table>
         <small class="mut">목표 기여는 달성하는 순간 마지막으로 행동한 팀원에게 기록됩니다. 서버가 게임 계산을 검증하지 못하므로 약속에 기댄 표시입니다.</small></div>
-      <div class="row"><button class="primary" onclick="TeamUI.warehouse()">공용 창고</button><button class="danger" onclick="TeamUI.leave()">팀 나가기</button></div>
+      <div class="row"><button class="primary" onclick="TeamUI.warehouse()">공용 창고</button>${window.Invite ? '<button onclick="Invite.open()">친구 초대</button>' : ''}<button class="danger" onclick="TeamUI.leave()">팀 나가기</button></div>
       <div class="box"><h4>팀 기록</h4>${logs}</div>`;
   },
   noPartyHtml() {
     const on = !!(window.Net && Net.user);
     return `<div class="box"><h4>팀(파티)</h4><div class="mut">2~${TEAM_MAX}명이 탐사정과 장치를 함께 쓰는 팀입니다. 혼자 팀을 만들어도 지금처럼 플레이할 수 있어요.${on ? '' : ' <b>온라인 접속이 필요합니다</b>(저장/계정에서 접속).'}</div></div>
+      ${window.Invite ? '<div class="box"><h4>친구 초대</h4><div class="mut">누르면 팀(방)을 만들고 6자리 코드를 보여 줘요. 친구는 처음 화면의 코드로 들어가기에 닉네임과 코드를 넣습니다.</div><div class="row" style="margin-top:6px"><button onclick="Invite.open()" ' + (on ? '' : 'disabled') + '>친구 초대</button></div></div>' : ''}
       <div class="box"><h4>팀 만들기</h4><div class="row"><input id="tm-name" maxlength="10" placeholder="팀 이름 (2~10자)" autocomplete="off"><input id="tm-color" type="color" value="#4a9ad8" title="팀 색"><button class="primary" onclick="TeamUI.create()" ${on ? '' : 'disabled'}>만들기</button></div></div>
       <div class="box"><h4>초대 코드로 들어가기</h4><div class="row"><input id="tm-code" maxlength="6" placeholder="초대 코드 6자" autocomplete="off"><button onclick="TeamUI.join()" ${on ? '' : 'disabled'}>들어가기</button></div>
         <small class="mut">들어가면 내 장치는 철거되어 재료로 돌려받고, 팀의 탐사정과 진행도를 이어받습니다.</small></div><div id="tm-err" class="mut"></div>`;

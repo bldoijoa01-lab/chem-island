@@ -16,13 +16,13 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   // 1) 새 세이브: 첫 접속 도움말
   await pg.goto(URL); await pg.waitForTimeout(700);
   chk('첫 접속: 메인화면 표시', await ev(() => !document.getElementById('title').hidden));
-  await pg.click('#t-start'); await pg.waitForTimeout(300);
+  await pg.click('#t-continue'); await pg.waitForTimeout(300);
   chk('시작 후 도움말 표시', await ev(() => !document.getElementById('modal').hidden && document.getElementById('mtitle').textContent === '도움말'));
   await pg.click('#mclose');
   chk('새 게임: 코어 캡슐 안에서 시작(코어 (0,0), 본부 패드로 전송 가능)', await ev(() => { const s = G.debug(); return s.base && s.base.x === 0 && s.base.y === 0 && s.ver === 5 && World.targets(s).some(t => t.kind === 'pad'); }));
   // 2) 구 세이브 호환(새 필드 없는 세이브)
   await ev(() => { const s = JSON.parse(JSON.stringify(G.debug())); delete s.dug; delete s.melt; delete s.stoneGift; delete s.mobs; for (const k of ['dirt','stone','pickaxe','shaker','thermo']) delete s.inv[k]; delete s.f.wolf; localStorage.setItem('chemisle_side_v1', JSON.stringify(s)); });
-  await pg.reload(); await pg.waitForTimeout(700); await pg.click('#t-start'); await pg.waitForTimeout(300); await pg.click('#mclose').catch(() => {});
+  await pg.reload(); await pg.waitForTimeout(700); await pg.click('#t-continue'); await pg.waitForTimeout(300); await pg.click('#mclose').catch(() => {});
   chk('구 세이브(새 필드 없음): 코어·월드 기본값으로 이어짐', await ev(() => { const s = G.debug(); return s.base && s.base.x === 0 && s.ver === 5 && s.world && typeof s.world === 'object'; }));
   chk('구 세이브 로드(새 필드 기본값)', await ev(() => { const s = G.debug(); return s.dug && s.melt && s.stoneGift === false && s.inv.pickaxe === 0 && Array.isArray(s.mobs) && s.f.wolf === 0; }));
   // 3) 증류 목표 1~3
@@ -87,8 +87,8 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   const closeM = () => ev(() => { if (!document.getElementById('modal').hidden) document.getElementById('mclose').click(); });
   await closeM(); await ev(() => { const s = G.debug(); s.raft.dock = 'plaza'; World.applyDug(s); s.f.raft = false; s.placed = []; s.mobs = []; s.px = 20 * 16; s.py = 24 * 16 - 18; s.vy = 0; s.min = 600; }); await pg.waitForTimeout(1500);
   const names = []; const vw = await ev(() => Math.ceil(window.innerWidth / 2));
-  for (let k = 0; k < 6; k++) { await pg.mouse.click((vw - 4 - (6 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
-  chk('메뉴 6개(건설·제작·연구 노트·기록·팀·저장)가 열림', ['건설', '제작', '연구 노트', '기록', '', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
+  for (let k = 0; k < 7; k++) { await pg.mouse.click((vw - 4 - (7 - k) * 17 + 1 + 8) * 2, (22 + 8) * 2); await pg.waitForTimeout(150); names.push(await title()); await closeM(); }
+  chk('메뉴 7개(건설·제작·연구 노트·기록·팀·친구 초대·저장)가 열림(팀·친구 초대는 이 시험 환경에서 창이 없음)', ['건설', '제작', '연구 노트', '기록', '', '', '저장/계정'].every((n, k) => names[k].includes(n)), names.join(' / '));
   await ev(() => { const s = G.debug(); s.px = 20 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();
   chk('탐사정 잔해 모달(본부 도킹 구역)', (await title()).includes('탐사정 잔해'), await title()); await closeM();
   await ev(() => { const s = G.debug(); s.px = 23 * 16; s.py = 24 * 16 - 18; s.vy = 0; }); await pg.waitForTimeout(500); await E();

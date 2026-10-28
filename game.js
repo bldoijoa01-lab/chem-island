@@ -79,7 +79,7 @@ function clearKeys() { keys.left = keys.right = keys.jump = false; }
 const KEYMAP = { a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right', w: 'jump', arrowup: 'jump', ' ': 'jump' };
 window.addEventListener('keydown', e => {
   if (!$('modal').hidden) { if (e.key === 'Escape') closeModal(); return; }
-  if (!$('title').hidden) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); } return; }
+  if (!$('title').hidden) { if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return; if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startGame(); } return; }   // 코드 입력칸에서 친 글자·스페이스로 시작되지 않게
   if (['TEXTAREA', 'INPUT', 'SELECT'].includes(e.target.tagName)) return;
   const k = e.key.toLowerCase();
   if (KEYMAP[k]) { keys[KEYMAP[k]] = true; e.preventDefault(); }
@@ -408,7 +408,8 @@ function hudBox(x, y, w, h, on) {
 const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
 const hudMenu = [
   ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
-  ['scroll', '기록', () => openLog()], ['team', '팀', () => window.TeamUI ? TeamUI.open() : say('팀 기능은 웹 주소(http)로 접속해야 쓸 수 있어요.')], ['disk', '저장/계정', () => openSave()],
+  ['scroll', '기록', () => openLog()], ['team', '팀', () => window.TeamUI ? TeamUI.open() : say('팀 기능은 웹 주소(http)로 접속해야 쓸 수 있어요.')],
+  ['invite', '친구 초대', () => window.Invite ? Invite.open() : say('친구 초대는 웹 주소(http)로 접속해야 쓸 수 있어요.')], ['disk', '저장/계정', () => openSave()],
 ];
 function drawHUD(t) {
   HUD.hits = []; HUD.tip = '';
@@ -417,7 +418,7 @@ function drawHUD(t) {
   const items = Object.entries(S.inv).filter(([, v]) => v >= 1).map(([k, v]) => ({ k, icon: ITEM[k][0], name: ITEM[k][1], n: Math.floor(v) }));
   if (S.caps.length) items.push({ icon: 'cap', name: '기체 캡슐 (' + capText() + ')', n: S.caps.length });
   if (S.packs.length) items.push({ icon: 'pack', name: '한제 팩', n: S.packs.length });
-  const SL = 17, per = Math.max(4, Math.floor((VW - 118) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
+  const SL = 17, per = Math.max(4, Math.floor((VW - 126) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
   items.forEach((it, i) => {
     const x = 4 + (i % per) * SL, y = 4 + Math.floor(i / per) * SL, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);
@@ -437,7 +438,7 @@ function drawHUD(t) {
   hudMenu.forEach(([icon, label, fn], i) => {
     const x = VW - 4 - (hudMenu.length - i) * 17 + 1, y = 22, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[icon], x + 3, y + 3);
-    HUD.hits.push({ x, y, w: 16, h: 16, fn }); if (hov) HUD.tip = label;
+    HUD.hits.push({ x, y, w: 16, h: 16, fn, label }); if (hov) HUD.tip = label;
   });
   // 시간 배속
   let sx = VW - 4;
@@ -474,11 +475,36 @@ refresh(); fit(); requestAnimationFrame(frame);
 // 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말
 Store.paused = true;
 $('t-info').textContent = S.day > 1 || S.qDone > 0 ? `저장된 진행: ${S.day}일차 · 목표 ${S.qDone}/${QUESTS.length}` : '새 게임';
-function startGame() {
+// 메인 화면 버튼(2026-10-28): [새로 시작] [이어하기] [코드로 들어가기] [안내]. "방 만들기"는 없다 — 방(팀)은 게임 안 [친구 초대]가 만든다
+const hasProgress = () => S.day > 1 || S.qDone > 0 || S.placed.length > 0;
+const showHelpOnce = () => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); };
+function startGame() {   // 이어하기: 저장된 진행(이 브라우저, 접속 중이면 서버)으로 계속한다. 진행이 없으면 새 게임과 같다
   if ($('title').hidden) return;
   $('title').hidden = true; Store.paused = false; loadPlaza();
-  boot().then(() => { let seen = false; try { seen = !!localStorage.getItem(HELP_KEY); } catch { /* 무시 */ } if (!seen && $('auth').hidden) openHelp(); });
+  boot().then(showHelpOnce);
 }
-$('t-start').onclick = startGame;
+function startNew() {
+  if ($('title').hidden) return;
+  if (hasProgress() && !confirm(`이 브라우저에 저장된 진행(${S.day}일차, 목표 ${S.qDone}개, 장치 ${S.placed.length}개)이 사라지고 처음부터 시작합니다. 계속할까요?`)) return;
+  UI.startFresh(); startGame();
+}
+const joinBox = $('t-joinbox'), joinErr = (t) => { $('tj-err').textContent = t || ''; };
+$('tj-note').textContent = UI.INVITE_NOTE;
+$('t-join').onclick = () => { joinBox.hidden = !joinBox.hidden; joinErr(''); if (!joinBox.hidden) $('tj-nick').focus(); };
+async function joinGo() {
+  const btns = [...document.querySelectorAll('#t-menu button, #tj-go')]; btns.forEach(b => b.disabled = true); joinErr('');
+  try {
+    const r = await UI.joinWithCode($('tj-nick').value, $('tj-code').value);
+    $('title').hidden = true; Store.paused = false; loadPlaza();
+    say(r === 'joined' ? '친구의 팀에 들어왔습니다. 팀의 월드와 장치를 이어받습니다.' : '들어가기를 취소했어요. 내 월드로 시작합니다.');
+    showHelpOnce();
+  } catch (e) { joinErr(e.message || String(e)); Store.paused = true; }
+  finally { btns.forEach(b => b.disabled = false); }
+}
+$('tj-go').onclick = joinGo;
+for (const id of ['tj-nick', 'tj-code']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); joinGo(); } });
+$('t-new').onclick = startNew;
+$('t-continue').onclick = startGame;
 $('t-help').onclick = () => openHelp();
+window.G.hudRect = (label) => { const h = HUD.hits.find(x => x.label === label); return h ? { x: h.x, y: h.y, w: h.w, h: h.h, vw: VW, vh: VH } : null; };   // 시험용: 화면 안 HUD 버튼 위치(논리 픽셀)
 })();

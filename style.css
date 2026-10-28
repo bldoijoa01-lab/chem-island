@@ -83,8 +83,16 @@ textarea { width: 100%; min-height: 60px; background: #0a0f1d; color: var(--text
 #title { position: fixed; inset: 0; z-index: 5; background: linear-gradient(rgba(4, 8, 30, .55), rgba(4, 8, 30, .8)); display: flex; align-items: center; justify-content: center; padding: 12px; text-align: center; }
 #title[hidden] { display: none; }
 #title a { display: block; margin-top: 8px; color: var(--muted); font-size: 13px; }
-#tbox { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 520px; }
+#tbox { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 640px; }
 #tbox h1 { margin: 0; font-size: 44px; letter-spacing: 2px; color: #ffe27a; text-shadow: 4px 4px 0 #000, 0 0 18px rgba(255, 200, 80, .35); }
 #tbox .sub { margin: 0 0 10px; text-shadow: 2px 2px 0 #000; }
-#t-start { font-size: 22px; padding: 10px 40px; }
+#t-menu { display: flex; flex-wrap: nowrap; gap: 10px; justify-content: center; }
+#t-menu button { white-space: nowrap; }
+@media (max-width: 700px) { #t-menu { flex-wrap: wrap; } }
+#t-menu button { font-size: 18px; padding: 10px 20px; }
+#t-continue { font-size: 20px; }
 #t-info { text-shadow: 1px 1px 0 #000; }
+#t-joinbox { width: min(480px, 92vw); background: rgba(10, 16, 36, .8); border: 2px solid #4a68b4; padding: 10px 12px; text-align: left; }
+#t-joinbox input { flex: 1 1 110px; min-width: 0; font: inherit; background: #0a0f1d; color: var(--text); border: 2px solid #4a68b4; border-radius: 0; padding: 6px; }
+#tj-code { text-transform: uppercase; letter-spacing: 3px; }
+#tj-err { min-height: 18px; color: var(--bad); font-weight: 700; margin-top: 4px; }

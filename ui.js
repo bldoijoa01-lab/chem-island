@@ -393,6 +393,9 @@ function openHelp() {
       <div>1. 코어 캡슐에서 시작합니다. 전송 패드(E)로 본부에 가서 도킹 구역 물가에서 바닷물을 뜨고(E), 재배 선반에서 재료를 모으세요. 내 월드의 평평한 바닥에 화덕을 지으세요. (코어 벽의 해치 너머를 파고 나가 결정 줄기·균사·당 결정 동굴을 찾을 수도 있어요)</div>
       <div>2. 결정 줄기 군락·모래 층에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
       <div>3. 본부의 탐사정 잔해를 고쳐 이륙하면 다른 행성에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 본부의 대기 처리 코어에 도전합니다.</div></div>
+    <div class="box"><h4>친구와 함께 (랜서버 방식)</h4>
+      <div>방장은 평소처럼 시작한 뒤 게임 안 오른쪽 위 <b>친구 초대</b> 아이콘을 누르면 6자리 코드가 나오고(복사 버튼), 친구는 처음 화면의 <b>코드로 들어가기</b>에 닉네임과 코드를 넣습니다. 팀은 최대 6명입니다.</div>
+      <div class="mut">${INVITE_NOTE}</div></div>
     <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 온도가 0 ℃ 미만인 자리(얼음 광맥 동굴·얼음 위성)에 장치를 지으면 얼음 생물이 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
   null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
 }
@@ -412,10 +415,14 @@ const authErr = (t) => { $('a-err').textContent = t || ''; };
 function showAuth() { $('modal').hidden = true; authErr(''); $('auth').hidden = false; Store.paused = true; H.clearKeys(); }
 function applyRemote(r) { Store.merge(r); H.applyWorld(); document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', +x.dataset.sp === S.speed)); }
 // 신원이 확정된 뒤: 서버 세이브가 있으면 그것으로, 없으면 지금 진행 상황을 서버에 올린다
+// 메인 화면 [새로 시작]: 이 브라우저의 진행을 비우고, 서버에 저장된 진행이 있으면 덮어쓸지 한 번 더 묻는다(enterWorld에서)
+let freshStart = false;
+function startFresh() { Store.reset(); H.applyWorld(); save(true); freshStart = true; }
 async function enterWorld() {
+  const fresh = freshStart; freshStart = false;
   try {
     const r = Store.remote ? await Net.loadSave() : null;   // fp는 2D 서버 세이브를 읽지 않는다
-    if (r) applyRemote(r);
+    if (r && (!fresh || ((r.qDone > 0 || r.day > 1) && !confirm(`서버에 저장된 진행(${r.day}일차, 목표 ${r.qDone}개)이 있습니다. 새 게임으로 덮어쓸까요?\n(취소하면 저장된 진행을 이어서 합니다)`)))) applyRemote(r);
   } catch { say('서버 세이브를 불러오지 못했습니다. 이 브라우저의 저장으로 시작합니다.'); }
   $('auth').hidden = true; Store.paused = false; Store.forceNext(); save(true); refresh();
   H.joinMap(); publishBase(true);
@@ -429,6 +436,26 @@ $('a-start').onclick = () => busy(async () => { await Net.register($('a-nick').v
 $('a-lgo').onclick = () => busy(async () => { await Net.login($('a-lnick').value, $('a-lpw').value); await enterWorld(); });
 $('a-off').onclick = () => { $('auth').hidden = true; Store.paused = false; };
 for (const id of ['a-nick', 'a-lnick', 'a-lpw']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') $(id === 'a-nick' ? 'a-start' : 'a-lgo').click(); });
+// ---------- 랜서버식 초대(2026-10-28): 메인 화면 [코드로 들어가기] ----------
+// 방장은 게임 안 [친구 초대](team.js의 Invite)로 6자리 코드를 만들고, 친구는 메인 화면에서 닉네임과 코드를 넣는다. 새 서버 경로·규칙은 없다(팀 코드 가입을 그대로 쓴다).
+// 한계(MULTIPLAYER.md §12): 월드는 서버(/parties/{pid}/state)에 남으므로 방장이 접속 중이 아니어도 코드로 들어갈 수 있고, 서버 규칙은 이를 막지 못한다.
+const INVITE_NOTE = '방장이 접속 중이 아니어도 코드만 알면 들어올 수 있어요(월드가 서버에 남아 있어요). 서버가 이를 막지 못하니 코드는 믿는 친구에게만 알려 주세요.';
+// 돌려주는 값: 'joined'(팀에 들어감) | 'declined'(내 진행을 잃는 게 싫어 취소 — 내 월드로 시작). 코드·접속 오류는 던진다
+async function joinWithCode(nick, code) {
+  code = String(code || '').trim().toUpperCase(); nick = String(nick || '').trim();
+  if (code.length !== 6) throw new Error('초대 코드는 6자입니다.');
+  if (!window.Net || !Net.init()) throw new Error('온라인 접속이 필요해요. 웹 주소(http)로 접속했는지 확인하세요.');
+  if (!window.Invite) throw new Error('팀 기능을 아직 불러오지 못했어요. 잠시 뒤 다시 시도하세요.');
+  Store.paused = true;
+  const me = await Net.restore();                          // 이 브라우저에 이미 캐릭터가 있으면 그 이름으로 들어간다
+  if (me) { if (nick && nick.toLowerCase() !== me.toLowerCase()) throw new Error(`이 브라우저에는 이미 '${me}' 캐릭터가 있어요. 닉네임 칸을 '${me}'로 쓰거나 비워 두세요.`); }
+  else await Net.register(nick);
+  await enterWorld();                                      // 서버에 내 저장이 있으면 불러온다
+  Store.paused = true;                                     // 아직 메인 화면 뒤: 입장이 끝날 때까지 시간을 멈춘다
+  if ((S.day > 1 || S.qDone > 0 || S.placed.length) && !confirm(`이 캐릭터에 진행이 있습니다(${S.day}일차, 목표 ${S.qDone}개, 장치 ${S.placed.length}개).\n코드로 들어가면 내 월드는 팀 월드로 바뀌고 장치는 철거되어 재료로 돌려받습니다(가방은 가져갑니다). 들어갈까요?`)) return 'declined';
+  await Invite.join(code);
+  return 'joined';
+}
 async function boot() {
   if (!window.Net || !Net.init()) return;     // Firebase를 쓸 수 없으면 혼자 하기
   Store.paused = true;
@@ -491,6 +518,7 @@ return {
   $, fmt, pix, ic, esc, say, logEv, flush, advance, has, pay, costText, unlocked, heatOf, fireNear,
   set, setw, openModal, closeModal, refresh, checkQuests, interact, openBox, openDevice, capCount, capText,
   openBuild, openCraft, openLog, openHelp, openSave, showAuth, boot, loadPlaza, plazaRafts: () => plazaRafts, api,
+  startFresh, joinWithCode, INVITE_NOTE,
   openPad, publishBase,
   isModalOpen: () => !$('modal').hidden,
   tick() { if (modalTick && !$('modal').hidden) modalTick(); },   // 열린 패널을 주기적으로 다시 그린다

@@ -12,7 +12,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(500);
   const title = await page.evaluate(() => !document.getElementById('title').hidden);
   if (!title) errors.push('시작 화면이 보이지 않습니다');
-  await page.click('#t-start'); await page.waitForTimeout(400);
+  await page.click('#t-continue'); await page.waitForTimeout(400);
   if (await page.evaluate(() => !document.getElementById('modal').hidden)) await page.click('#mclose');   // 처음 접속 도움말
   await page.waitForTimeout(800);   // 코어 캡슐 안에서 시작한다(17-a′)
   const st = await page.evaluate(() => { const S = G.debug(); return { base: S.base, ver: S.ver, island: Sim.dockOf(S).island, hull: World.tileAt(0, 0) === World.HULL, inner: World.tileAt(2, 1) === World.AIR, pad: World.targets(S).some(t => t.kind === 'pad'), inf: World.isInfinite(), px: S.px }; });

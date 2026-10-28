@@ -10,7 +10,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   page.on('console', m => { if (m.type() === 'error' && !/ERR_|Failed to load/.test(m.text())) errors.push('콘솔 에러: ' + m.text()); });
   await page.route(/^https?:/, r => r.abort());
   await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(500);
-  await page.click('#t-start'); await page.waitForTimeout(400);
+  await page.click('#t-continue'); await page.waitForTimeout(400);
   if (await page.evaluate(() => !document.getElementById('modal').hidden)) await page.click('#mclose');
   const ev = (f, a) => page.evaluate(f, a).catch(e => { console.log(steps.join(' · ')); throw e; });
   const ok = (name, cond, extra = '') => { steps.push(name + (cond ? ' ✔' : ' ✘')); if (!cond) errors.push(`점검 실패: ${name} ${extra}`); };

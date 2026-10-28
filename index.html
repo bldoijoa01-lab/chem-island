@@ -31,12 +31,21 @@
   <div id="tbox">
     <h1>화학 우주 이야기</h1>
     <p class="sub">바닷물을 증류하고, 압력 밥솥으로 라면을 끓이고,<br>소금 얼음으로 한제를 만들어 대기 처리 코어를 정화하세요.</p>
-    <button id="t-start" class="primary">시작하기</button>
+    <div id="t-menu">
+      <button id="t-new">새로 시작</button>
+      <button id="t-continue" class="primary">이어하기</button>
+      <button id="t-join">코드로 들어가기</button>
+      <button id="t-help">안내</button>
+    </div>
     <div id="t-info" class="mut"></div>
-    <button id="t-help">도움말</button>
+    <div id="t-joinbox" hidden>
+      <div class="row"><input id="tj-nick" maxlength="8" placeholder="닉네임 (2~8자)" autocomplete="off"><input id="tj-code" maxlength="6" placeholder="초대 코드 6자" autocomplete="off"><button id="tj-go" class="primary">들어가기</button></div>
+      <div id="tj-err"></div>
+      <small id="tj-note" class="mut"></small>
+    </div>
     <a id="t-3d" href="fp/index.html">1인칭 3D (동결)</a>
     <a id="t-td" href="td/index.html">탑다운 2D</a>
-    <small class="mut">Enter 또는 스페이스로도 시작할 수 있어요</small>
+    <small class="mut">Enter 또는 스페이스로 이어하기</small>
   </div>
 </div>
 

@@ -23,7 +23,7 @@ const { server, handle, initScript } = require('./fakenet');
     await page.exposeFunction('__rpc', (m, a) => handle(page, uid, nick, m, a));
     await page.addInitScript(initScript, { uid, nick });
     await page.goto(`http://127.0.0.1:${PORT}/index.html?test`); await sleep(800);
-    await page.click('#t-start'); await sleep(1200);
+    await page.click('#t-continue'); await sleep(1200);
     if (await page.evaluate(() => !document.getElementById('modal').hidden)) await page.click('#mclose');
     return page;
   }
