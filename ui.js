@@ -45,7 +45,7 @@ const heatOf = d => Sim.heatOf(S, d), fireNear = d => Sim.fireNear(S, d), cooker
 const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function uiFragment() {
   const R = Sim.RAFT;
-  openModal('탐사정 잔해', `<div class="box"><p>본부 도킹 구역에 놓인 탐사정 잔해입니다. 고치면 탐사정이 이륙할 수 있게 되어 다른 행성(저기압 고원 행성·얼음 위성)으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
+  openModal('탐사정 잔해', `<div class="box"><p>${Sim.hubOn() ? '본부 도킹 구역에 놓인' : '보급 모듈 끝에 놓인'} 탐사정 잔해입니다. 고치면 탐사정이 이륙할 수 있게 되어 다른 행성(저기압 고원 행성·얼음 위성)으로 갈 수 있어요. 냉각계에 증류수와 소금을 채우는 설정이라, 직접 증류해 얻은 물과 소금이어야 합니다.</p>
     <div class="kv"><span>필요한 재료</span><b>${costText(R.REPAIR_COST)}</b></div>
     <div class="kv"><span>증류 기록 (직접 얻은 양)</span><b>증류수 ${Math.floor(S.f.dW)} / ${R.REPAIR_NEED.dW} g · 소금 ${Math.floor(S.f.dS)} / ${R.REPAIR_NEED.dS} g</b></div>
     <div class="row" style="margin-top:8px"><button class="primary" ${has(R.REPAIR_COST) && S.f.dW >= R.REPAIR_NEED.dW && S.f.dS >= R.REPAIR_NEED.dS ? '' : 'disabled'} onclick="G.repairRaft()">고치기</button></div></div>
@@ -53,7 +53,8 @@ function uiFragment() {
 }
 function uiSail() {
   const here = Sim.dockOf(S).island;
-  const list = here === 'plaza' ? Sim.HARBORS : [{ dock: 'plaza', label: '허브 귀환', name: '허브 정거장', open: true }];
+  const atTerminal = Sim.hubOn() ? here === 'plaza' : here === 'start';   // 본부 배제(§4-30): 궤도 이동 단말은 본부 대신 내 월드의 보급 모듈에 있다
+  const list = atTerminal ? Sim.HARBORS : [{ dock: Sim.hubOn() ? 'plaza' : 'start', label: Sim.hubOn() ? '허브 귀환' : '기지 귀환', name: Sim.hubOn() ? '허브 정거장' : '내 월드(보급 모듈)', open: true }];
   const rows = list.map(h => {
     const need = Sim.UNLOCK[h.dock] || 0, locked = S.qDone < need, env = Sim.ENV[Sim.DOCKS[h.dock] ? Sim.DOCKS[h.dock].island : ''];
     const on = S.f.raft && h.open && Sim.DOCKS[h.dock] && h.dock !== S.raft.dock && !locked;
@@ -61,8 +62,8 @@ function uiSail() {
     return `<div class="box row between"><div><b>${h.label} — ${h.name}</b> ${h.open ? (locked ? `<span class="no">목표 ${need}개 달성 시 열림</span>` : `<span class="mut">${Sim.SAIL_MIN[h.dock] || 30}분</span>`) : '<span class="no">아직 갈 수 없음</span>'}${info}</div>
       <button ${on ? '' : 'disabled'} onclick="G.sail('${h.dock}')">이륙</button></div>`;
   }).join('');
-  openModal(`궤도 관문 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : '<div class="warnbox">본부의 탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요. (도킹 구역 옆)</div>')
-    + rows + `<div class="mut">궤도 이동 시간은 가정(임의값)이고, 도착하면 착륙 캡슐에서 시작하고 전송 패드로 본부에 돌아옵니다. 행성마다 외기 압력·구역 온도가 달라 같은 장치도 다르게 동작합니다.</div>`);
+  openModal(`궤도 관문 (${Sim.ISLANDS[here].name})`, (S.f.raft ? '' : `<div class="warnbox">${Sim.hubOn() ? '본부의 탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요. (도킹 구역 옆)' : '보급 모듈의 탐사정 잔해를 먼저 고쳐야 이륙할 수 있어요.'}</div>`)
+    + rows + `<div class="mut">궤도 이동 시간은 가정(임의값)이고, 도착하면 착륙 캡슐에서 시작하고 전송 패드로 ${Sim.hubOn() ? '본부' : '기지(보급 모듈)'}에 돌아옵니다. 행성마다 외기 압력·구역 온도가 달라 같은 장치도 다르게 동작합니다.</div>`);
 }
 const NPC_BOTTLES = [
   { nick: '선배1', text: '증류기는 화덕 옆에! 약불(105 ℃)로는 끝까지 못 끓여요.' },
@@ -96,12 +97,12 @@ setInterval(() => { if (!Store.paused) loadPlaza(); }, 60000);
 let padWait = null;   // { to, at(ms) }
 const PAD_MS = 3000;  // 가정(임의값) 전송 대기
 function openPad() {
-  const here = Sim.dockOf(S).island, to = here === 'start' ? 'plaza' : here === 'plaza' ? 'start' : 'plaza';
-  const toName = to === 'start' ? '내 월드 (기지 코어)' : '본부 (허브 정거장)';
+  const here = Sim.dockOf(S).island, hub = Sim.hubOn(), to = !hub ? 'start' : here === 'start' ? 'plaza' : here === 'plaza' ? 'start' : 'plaza';
+  const toName = to === 'start' ? (hub ? '내 월드 (기지 코어)' : '내 기지 (보급 모듈)') : '본부 (허브 정거장)';
   padWait = null;
-  openModal('전송 패드', `<div class="box"><p>${here === 'plaza' ? '본부' : here === 'start' ? '내 월드' : Sim.ISLANDS[here].name}의 전송 패드입니다. 본부와 내 월드를 무료로 오갑니다. 전송 중에는 창을 닫지 마세요(닫으면 취소).</p>
+  openModal('전송 패드', `<div class="box"><p>${here === 'plaza' ? '본부' : here === 'start' ? '내 월드' : Sim.ISLANDS[here].name}의 전송 패드입니다. ${hub ? '본부와 내 월드를 무료로 오갑니다.' : '내 기지(보급 모듈)로 돌아갑니다.'} 전송 중에는 창을 닫지 마세요(닫으면 취소).</p>
     <div class="row"><button class="primary" onclick="G.padGo('${to}')">${toName}로 전송 (${PAD_MS / 1000}초)</button></div><div id="pad-st" class="mut"></div></div>
-    <div class="warnbox">내 월드는 팀(혼자면 1인 팀)마다 따로 있어서 다른 사람은 들어올 수 없습니다. 본부에서만 서로 만나고 교류합니다. (전송 시간은 게임 설정, 가정)</div>`, padTick, () => { padWait = null; });
+    <div class="warnbox">${hub ? '내 월드는 팀(혼자면 1인 팀)마다 따로 있어서 다른 사람은 들어올 수 없습니다. 본부에서만 서로 만나고 교류합니다.' : '내 월드는 팀(혼자면 1인 팀)마다 따로 있습니다. 친구는 게임 안 [친구 초대]의 코드로 들어옵니다.'} (전송 시간은 게임 설정, 가정)</div>`, padTick, () => { padWait = null; });
 }
 function padTick() {
   if (!padWait) return;
@@ -114,6 +115,7 @@ function padTick() {
 const COLORS = ['#ff8a5b', '#5bc0ff', '#9be564', '#e0a3ff', '#ffd84a', '#ff6b9a', '#6fe0c8', '#c0c8d8'];
 let lastPub = '', lastPubAt = 0;
 function publishBase(force) {
+  if (!Sim.hubOn()) return;   // 본부 배제(§4-30): 방문 미리보기는 꺼져 있어 공개 요약을 올리지 않는다
   if (!(window.Net && Net.user && Net.basePublish)) return;
   const T = window.Team, team = !!(T && T.inParty());
   if (team && !T.holder()) return;
@@ -390,12 +392,13 @@ function openHelp() {
       <div>A/D 이동 · W/스페이스 점프 · <b>E</b> 또는 클릭으로 상호작용 · ESC 닫기 · 땅을 꾹 눌러 파기</div>
       <div>오른쪽 위 아이콘: 건설 · 제작 · 연구 노트 · 기록 · 저장/계정 · x1/x3/x10은 시간 속도</div></div>
     <div class="box"><h4>처음 해 볼 것</h4>
-      <div>1. 코어 캡슐에서 시작합니다. 전송 패드(E)로 본부에 가서 도킹 구역 물가에서 바닷물을 뜨고(E), 재배 선반에서 재료를 모으세요. 내 월드의 평평한 바닥에 화덕을 지으세요. (코어 벽의 해치 너머를 파고 나가 결정 줄기·균사·당 결정 동굴을 찾을 수도 있어요)</div>
+      <div>1. ${Sim.hubOn() ? '코어 캡슐에서 시작합니다. 전송 패드(E)로 본부에 가서 도킹 구역 물가에서 바닷물을 뜨고(E), 재배 선반에서 재료를 모으세요. 내 월드의 평평한 바닥에 화덕을 지으세요. (코어 벽의 해치 너머를 파고 나가 결정 줄기·균사·당 결정 동굴을 찾을 수도 있어요)' : '코어 캡슐에서 시작합니다. 코어 오른쪽 해치 밖은 단단한 땅이에요. 마우스를 꾹 눌러 파면 보급 모듈이 나옵니다. 모듈의 물웅덩이 옆에서 바닷물을 뜨고(E), 재배 선반에서 재료를 모은 뒤 평평한 바닥에 화덕을 지으세요. (코어 반대쪽 땅을 파고 나가 결정 줄기·균사·당 결정 동굴을 찾을 수도 있어요)'}</div>
       <div>2. 결정 줄기 군락·모래 층에서 재료를 모아 증류기를 화덕 옆에 짓고, 화덕을 중불로 켠 뒤 바닷물을 증류하세요.</div>
-      <div>3. 본부의 탐사정 잔해를 고쳐 이륙하면 다른 행성에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 본부의 대기 처리 코어에 도전합니다.</div></div>
+      <div>3. ${Sim.hubOn() ? '본부의' : '보급 모듈의'} 탐사정 잔해를 고쳐 이륙하면 다른 행성에 갈 수 있어요. 목표를 순서대로 달성하면 장치가 열리고 ${Sim.hubOn() ? '본부의' : '보급 모듈의'} 대기 처리 코어에 도전합니다.</div></div>
     <div class="box"><h4>친구와 함께 (랜서버 방식)</h4>
       <div>방장은 평소처럼 시작한 뒤 게임 안 오른쪽 위 <b>친구 초대</b> 아이콘을 누르면 6자리 코드가 나오고(복사 버튼), 친구는 처음 화면의 <b>코드로 들어가기</b>에 닉네임과 코드를 넣습니다. 팀은 최대 6명입니다.</div>
       <div class="mut">${INVITE_NOTE}</div></div>
+    ${window.Tutorial && !Sim.hubOn() ? `<div class="box"><h4>첫 5분 안내</h4><div>이동 → 점프 → 땅 파기 → 염수 → 화덕 → 증류기 순서로 화면 아래에 안내가 나와요. 지금: <b>${Tutorial.isOff() ? '꺼짐' : '켜짐'}</b></div><div class="row" style="margin-top:6px"><button onclick="Tutorial.setOff(${!Tutorial.isOff()});G.help()">안내 ${Tutorial.isOff() ? '켜기' : '끄기'}</button><button onclick="Tutorial.reset();G.closeModal()">처음부터 다시 보기</button></div></div>` : ''}
     <div class="warnbox">모든 장치는 수업에서 배운 식(라울의 법칙, 끓는점 오름·어는점 내림, 이상 기체, 돌턴 분압)을 실제로 계산합니다. 온도가 0 ℃ 미만인 자리(얼음 광맥 동굴·얼음 위성)에 장치를 지으면 얼음 생물이 부수러 오니 소금을 준비하세요. 연구 노트에서 규칙과 계산기를, 기록에서 자동 기록을 볼 수 있습니다. 더 자세한 설명은 저장소의 GUIDE.md를 보세요.</div>`,
   null, () => { try { localStorage.setItem(HELP_KEY, '1'); } catch { /* 저장 불가 */ } });
 }

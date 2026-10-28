@@ -18,8 +18,8 @@ applyDug();
 // 궤도 이동 연출(16-c, 보이기만): 도착한 행성 맵을 불러온 직후 검은 화면에서 별 줄무늬가 퍼지며 밝아지고 행성 이름이 뜬다
 let lastPlanet = Sim.dockOf(S).island, warp = null;
 Sim.geo.ambient = World.ambientAt;   // 17-a′: 장치·플레이어 자리의 구역 온도(낮밤 없음). 옆면 화면만 켠다(fp/td·시험은 옛 식 그대로)
-const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: h === 'plaza' ? '본부' : h === 'start' ? '내 월드' : Sim.ISLANDS[h].name }; if (window.Net && Net.user) { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); } } };
-window.SideGame = { applyWorld: () => applyWorld() };   // 17-b: 옆면 팀 모듈(team.js)이 팀 상태를 받은 뒤 지도를 다시 맞춘다
+const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: h === 'plaza' ? '본부' : h === 'start' ? '내 월드' : Sim.ISLANDS[h].name }; if (window.Net && Net.user) { const m = mapNow(); if (m) Net.joinMap(m, posPacket()); else Net.leaveMap(); } } };
+window.SideGame = { applyWorld: () => applyWorld(), cam: () => cam, scale: () => K };   // 17-b: 옆면 팀 모듈(team.js)이 팀 상태를 받은 뒤 지도를 다시 맞춘다
 
 // ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
@@ -147,20 +147,36 @@ let stars = [];
 const makeStars = () => { stars = Array.from({ length: Math.max(30, Math.floor(VW * VH / 1500)) }, (_, i) => [((i * 97.31) % 1000) / 1000, ((i * 53.77) % 1000) / 1000]); };
 let last = performance.now(), tt = 0;
 // ---------- 다른 플레이어(presence) ----------
-const mapNow = () => Sim.dockOf(S).island === 'plaza' ? 'hub' : null;   // 17-a′: 사람 위치는 본부에서만 서로 보인다(내 월드·원정 부지는 혼자)
-const posPacket = () => ({ x: Math.round(S.px * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !pst.onGround });
+// 위치 공유 채널(서버 규칙 변경 없음): 본부가 켜져 있으면 17-a′처럼 본부(hub)에서만, 꺼져 있으면 DESIGN.md §4-30대로 내 월드에서 같은 팀 친구끼리 team-{pid}. 혼자(팀 없음)·원정 행성은 채널을 열지 않는다
+const mapNow = () => {
+  const isl = Sim.dockOf(S).island;
+  if (Sim.hubOn()) return isl === 'plaza' ? 'hub' : null;
+  return isl === 'start' && window.Team && Team.inParty() && Team.pid() ? 'team-' + Team.pid() : null;
+};
+const TEAM_OFF = 10000;   // 가정(임의값): 규칙의 x 범위(0..20000 px)에 맞추려고 팀 월드 위치는 x에 +10000을 더해 보내고 받을 때 뺀다(코어에서 좌우 625칸 이내, 깊이 125칸 이내에서만 보임)
+const offOf = () => (mapNow() || '').startsWith('team-') ? TEAM_OFF : 0;
+const posPacket = () => ({ x: Math.round((S.px + offOf()) * 10) / 10, y: Math.round(S.py * 10) / 10, vx: Math.round(S.vx), face: S.face < 0 ? -1 : 1, air: !pst.onGround });
+const inRange = (p) => p.x >= 0 && p.x <= 20000 && p.y >= -100 && p.y <= 2000;   // 규칙의 좌표 범위 밖이면 보내지 않는다
 let lastPos = '', lastPosAt = 0;
 const ghosts = {};   // uid -> { x, y, face, vx, air, nick, seen } (보간되는 화면 위치)
+let curMap = null;   // 지금 열어 둔 위치 채널(팀에 들어오거나 나가면 바뀐다)
+function syncMap() {
+  if (!(window.Net && Net.user)) return;
+  const m = mapNow(); if (m === curMap) return;
+  curMap = m; for (const k in ghosts) delete ghosts[k];
+  if (m) Net.joinMap(m, posPacket()); else Net.leaveMap();
+}
 function netStep(dt, now) {
+  syncMap();
   if (!(window.Net && Net.user) || Store.paused || !mapNow()) return;
   if (now - lastPosAt >= 100) {           // 10 Hz, 변화가 없으면 생략(5초마다 생존 신호)
     const p = posPacket(), k = JSON.stringify(p);
-    if (k !== lastPos || now - lastPosAt > 5000) { lastPos = k; lastPosAt = now; Net.sendPos(p); }
+    if (inRange(p) && (k !== lastPos || now - lastPosAt > 5000)) { lastPos = k; lastPosAt = now; Net.sendPos(p); }
   }
   const a = 1 - Math.exp(-dt * 14);
   for (const id in Net.peers) {
-    const p = Net.peers[id], g = ghosts[id] || (ghosts[id] = { x: p.x, y: p.y });
-    g.x += (p.x - g.x) * a; g.y += (p.y - g.y) * a;
+    const p = Net.peers[id], off = offOf(), g = ghosts[id] || (ghosts[id] = { x: p.x - off, y: p.y });
+    g.x += (p.x - off - g.x) * a; g.y += (p.y - g.y) * a;
     g.nick = p.nick; g.face = p.face; g.vx = p.vx; g.air = p.air;
   }
   for (const id in ghosts) if (!Net.peers[id]) delete ghosts[id];
@@ -271,6 +287,7 @@ function draw(t) {
   } else {
     for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) paintTile(ctx, tx, ty, tx * T - cam.x, ty * T - cam.y, V, drawW);
   }
+  if (window.Tutorial) Tutorial.draw(ctx, cam, t);   // 튜토리얼 첫 5분 안내: 해치 화살표·표지판 위치(DESIGN.md §4-30)
   // 오브젝트
   for (const o of World.objsIn(x0 - 3, y0 - 4, x0 + Math.ceil(VW / T) + 3, y0 + Math.ceil(VH / T) + 4)) {
     const sx = o.x * T - cam.x, sy = o.y * T - cam.y, n = NODE[o.type], spent = n && (S.nodes[o.id] || 0) >= n[2];
@@ -469,7 +486,7 @@ UI.init({
   puff, burst, clearKeys, applyWorld,
   startBuild(id) { mode = 'build:' + id; $('modal').hidden = true; say(`${DEV[id].name}을(를) 지을 곳을 클릭하세요. (ESC 취소)`); },
   startDemolish() { mode = 'demolish'; $('modal').hidden = true; say('철거할 장치를 클릭하세요. (ESC 취소)'); },
-  joinMap() { if (mapNow()) Net.joinMap('hub', posPacket()); else Net.leaveMap(); if (window.Team) Team.online(); },
+  joinMap() { const m = mapNow(); if (m) Net.joinMap(m, posPacket()); else Net.leaveMap(); if (window.Team) Team.online(); },
 });
 refresh(); fit(); requestAnimationFrame(frame);
 // 메인화면: 접속할 때마다 먼저 보이고, 시작하기를 누를 때까지 시간이 흐르지 않는다. 그다음 접속(로그인) 화면 → 첫 접속 도움말

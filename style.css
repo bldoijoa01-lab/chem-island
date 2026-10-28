@@ -96,3 +96,13 @@ textarea { width: 100%; min-height: 60px; background: #0a0f1d; color: var(--text
 #t-joinbox input { flex: 1 1 110px; min-width: 0; font: inherit; background: #0a0f1d; color: var(--text); border: 2px solid #4a68b4; border-radius: 0; padding: 6px; }
 #tj-code { text-transform: uppercase; letter-spacing: 3px; }
 #tj-err { min-height: 18px; color: var(--bad); font-weight: 700; margin-top: 4px; }
+
+/* 튜토리얼 첫 5분 안내(DESIGN.md §4-30): 화면 아래 가운데 상자, 끄면 작은 '안내' 단추만 남는다. 해치 표지판은 월드 좌표에 붙는다 */
+#tut { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 4; width: min(560px, 94vw); background: rgba(10, 16, 36, .92); border: 3px solid #ffd84a; box-shadow: 4px 4px 0 #0008; padding: 8px 12px; line-height: 1.45; }
+#tut[hidden], #tut-chip[hidden], #hatch-sign[hidden] { display: none; }
+#tut .dots { display: flex; gap: 4px; margin-bottom: 4px; }
+#tut .dots i { width: 14px; height: 6px; background: #3a4a7a; display: block; }
+#tut .dots i.ok { background: #4cd964; } #tut .dots i.now { background: #ffd84a; }
+#tut .row { margin-top: 6px; } #tut button { padding: 2px 8px; font-size: 12px; }
+#tut-chip { position: fixed; left: 12px; bottom: 96px; z-index: 4; padding: 2px 8px; font-size: 12px; }
+#hatch-sign { position: fixed; z-index: 3; transform: translate(0, -100%); background: rgba(10, 16, 36, .85); border: 2px solid #ffd84a; padding: 2px 6px; font-size: 12px; color: #ffe27a; pointer-events: none; white-space: nowrap; }

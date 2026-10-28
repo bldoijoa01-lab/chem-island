@@ -9,7 +9,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   page.on('pageerror', e => errors.push('페이지 에러: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && !/ERR_|Failed to load/.test(m.text())) errors.push('콘솔 에러: ' + m.text()); });
   await page.route(/^https?:/, r => r.abort());   // 외부(Firebase CDN) 없이 혼자 하기 모드로
-  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); await page.waitForTimeout(500);
+  await page.goto('file://' + path.resolve(__dirname, '..', 'index.html') + '?hub=1'); await page.waitForTimeout(500);
   const title = await page.evaluate(() => !document.getElementById('title').hidden);
   if (!title) errors.push('시작 화면이 보이지 않습니다');
   await page.click('#t-continue'); await page.waitForTimeout(400);

@@ -6,7 +6,7 @@ import { cfg as hubCfg, tick as hubTick, startWatch } from './shared/hub.js';
 import { TeamUI, wrapActions } from './shared/hud.js';
 import * as Merge from './merge.js';
 const S = Store.S, { DEV } = Sim, esc = UI.esc;
-const atHub = () => Sim.dockOf(S).island === 'plaza';
+const atHub = () => !Sim.hubOn() || Sim.dockOf(S).island === 'plaza';   // 본부 배제(§4-30): 본부가 꺼져 있으면 팀 가입·탈퇴는 어디서나 한다
 
 Party.init({
   say: UI.say, isModalOpen: () => UI.isModalOpen(), worldSync: true,
@@ -29,7 +29,7 @@ window.Team = {
     return false;
   },
   stats: () => Party.stats,
-  online() { Party.start(); startWatch(); UI.publishBase(true); },
+  online() { Party.start(); if (Sim.hubOn()) startWatch(); UI.publishBase(true); },   // 팀 간 교류 감시는 본부가 켜져 있을 때만
 };
 
 // ---------- 친구 초대(랜서버식, 2026-10-28) ----------
@@ -77,7 +77,7 @@ hubCfg.shipSummary = () => ({ cells: 1 });
 const signs = {};
 hubCfg.signAction = (p) => { signs[p.pid] = p; Merge.notePub(p); return `<button onclick="TeamUI.visit('${esc(p.pid)}')">방문</button> ${Merge.signButton(p)}`; };
 hubCfg.signExtra = () => Merge.panelHtml();
-Merge.install(TeamUI);   // 팀 대 팀 합치기(17-c): 제안·수락·확인 창·합류 실행
+if (Sim.hubOn()) Merge.install(TeamUI);   // 팀 대 팀 합치기(17-c): 제안·수락·확인 창·합류 실행 — 본부 배제(§4-30)로 꺼져 있을 때는 설치하지 않는다
 
 // ---------- 가입 확인 창: 잃는 것과 가져가는 것을 먼저 보여 준다 ----------
 const refundOf = () => { const r = {}; for (const d of S.placed) for (const k in DEV[d.id].cost) r[k] = (r[k] || 0) + DEV[d.id].cost[k]; return r; };
@@ -125,6 +125,6 @@ TeamUI.visit = async function (id) {
     <small class="mut">서버가 요약이 실제 월드와 맞는지는 검증하지 못합니다(약속에 기댄 표시). 걸어 들어가거나 고칠 수 없는 읽기 전용입니다.</small>`);
 };
 
-setInterval(() => { if (Store.paused) return; Party.tick(); hubTick(); Merge.tick(); }, 1000);
+setInterval(() => { if (Store.paused) return; Party.tick(); if (Sim.hubOn()) { hubTick(); Merge.tick(); } }, 1000);
 window.Merge = Merge;   // 시험·점검용
 if (window.Net && Net.user) window.Team.online();

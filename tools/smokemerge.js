@@ -16,7 +16,7 @@ const { server, handle, initScript, emit, emitMerge } = require('./fakenet');
   const until = async (f, ms = 20000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await f()) return true; await sleep(300); } return false; };
   const ev = (pg, f, a) => pg.evaluate(f, a);
   async function start(page) {
-    await page.goto(`http://127.0.0.1:${PORT}/index.html?test`); await sleep(800);
+    await page.goto(`http://127.0.0.1:${PORT}/index.html?test&hub=1`); await sleep(800);
     await page.click('#t-continue'); await sleep(1500);
     if (await page.evaluate(() => !document.getElementById('modal').hidden)) await page.click('#mclose');
   }

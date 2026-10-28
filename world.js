@@ -53,6 +53,19 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     return D < 50 ? (v > 1.6 ? STONE : DIRT) : D < 140 ? STONE : HARD;
   }
 
+  // ---- 보급 모듈(DESIGN.md §4-30, 본부 배제): 코어 동쪽의 작은 방. 칸 좌표는 코어 왼쪽 위 칸이 (0, 0). 모든 크기·자리는 가정(임의값) ----
+  // 연결 굴 x 6..9(y 1..2)는 퇴적토(맨손으로 판다). 안쪽 x 10..33 × y −1..2, 바닥 y 3·천장 y −2·동쪽 벽 x 34는 선체, 염수 수조는 바닥 x 11..12
+  const MODULE_OBJS = [['tree', 14], ['tree', 16], ['tree', 18], ['tree', 20], ['box', 22], ['wheat', 24], ['wheat', 25], ['wheat', 26], ['cane', 27], ['sandpile', 28], ['icecrystal', 29], ['fragment', 30], ['harbor', 31], ['altar', 32]];
+  function moduleTile(x, y) {
+    if (x < 6 || x > 34 || y < -2 || y > 4) return -1;
+    if (x <= 9 && y >= 1 && y <= 2) return DIRT;                 // 연결 굴(서쪽 벽 x 9의 y 1..2 포함)
+    if (x <= 8) return -1;                                        // 그 밖은 자연 지형
+    if (x === 9) return y >= -2 && y <= 3 ? HULL : -1;            // 서쪽 벽
+    if (y === 4) return x >= 11 && x <= 12 ? HULL : -1;           // 수조 밑
+    if (y === 3) return x >= 11 && x <= 12 ? WATER : HULL;        // 바닥(수조는 물)
+    if (y === -2 || x === 34) return HULL;                        // 천장·동쪽 벽
+    return AIR;                                                   // 안쪽(y −1..2)
+  }
   // ---- 코어(원점 6 × 4 캡슐) ----
   const CORE = { CW: 6, CH: 4 };
   // 코어 칸 종류: -1 = 코어 밖, 아니면 타일 번호(안쪽 AIR, 해치, 선체)
@@ -128,8 +141,10 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     }
     if (cx === 0 && cy === 0) {
       for (let y = 0; y < CORE.CH; y++) for (let x = 0; x < CORE.CW; x++) t[(y << 5) | x] = coreTile(ORIGIN, x, y);
-      objs.push({ id: 'padcore', type: 'pad', x: 2, gx: 2, y: 3, pine: false });   // 코어 전송 패드(안쪽 바닥)
+      if (Sim.hubOn()) objs.push({ id: 'padcore', type: 'pad', x: 2, gx: 2, y: 3, pine: false });   // 코어 전송 패드(안쪽 바닥) — 본부가 켜져 있을 때만
+      else for (const [type, x] of MODULE_OBJS) objs.push({ id: 'm' + type.slice(0, 2) + x, type, x, gx: x, y: 3, pine: false });   // 보급 모듈 오브젝트(바닥 줄 y = 3)
     }
+    if (cx === 0 && (cy === 0 || cy === -1) && !Sim.hubOn()) for (let ly = 0; ly < CHUNK; ly++) for (let lx = 0; lx < CHUNK; lx++) { const m = moduleTile(x0 + lx, y0 + ly); if (m >= 0) t[(ly << 5) | lx] = m; }
     return { cx, cy, t, nat: t.slice(), diff: null, objs, feat, canvas: null, dirty: true, used: 0 };
   }
   // ---- 판 칸 저장(DESIGN §4-24): 덩어리별 줄 단위 런 길이 부호화. 값 0 = 자연 그대로, 그 외 = 새 타일 번호 + 1 ----
@@ -381,7 +396,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (const o of objsIn(ptx - 4, pty - 4, ptx + 4, pty + 4)) {
       if (o.type === 'fragment' && S.f.raft) continue;   // 고친 뒤에는 파편이 사라진다
       const [x, y] = objCenter(o), n = NODE[o.type];
-      const label = { box: '본부 보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)', pad: '전송 패드', trade: '교역소', reports: '연구 보고서 게시판', boards: '리더보드', signs: '팀 간판 (방문)', project: '공동 프로젝트: 대기 처리 코어' }[o.type];
+      const label = { box: Sim.hubOn() ? '본부 보급 상자' : '보급 상자', altar: '대기 처리 코어 제단', harbor: '궤도 이동 단말 (궤도 이동)', board: '표류 통신 게시판', fragment: '탐사정 잔해 (수리)', pad: '전송 패드', trade: '교역소', reports: '연구 보고서 게시판', boards: '리더보드', signs: '팀 간판 (방문)', project: '공동 프로젝트: 대기 처리 코어' }[o.type];
       add(o.type, o, x, y, n ? `${UG_NAME[o.type] || n[3]} (${n[2] - (S.nodes[o.id] || 0)}/${n[2]})` : label);
     }
     for (const d of devHere(S)) add('dev', d, d.x * T + 16, d.y * T + 16, DEV[d.id].name + (d.s.broken ? ' (파손)' : ''));

@@ -20,7 +20,7 @@ const fire = { id: 'fire', u: 0, x: 107, y: 23, s: { level: 2, fuel: 5 } };
   ok('탐사정 위 장치는 재료로 환급(화덕 + 증류기)', S.placed.length === 0 && S.inv.stick === 5 + d.fire.cost.stick + d.still.cost.stick && S.inv.sand === 1 + d.fire.cost.sand && S.inv.bottle === d.still.cost.bottle, JSON.stringify(S.inv));
   ok('위치는 코어 안, 목표·채집 기록 보존, 기록에 안내', S.px === 35 && S.py === 30 && S.raft.dock === 'start' && S.qDone === 5 && S.nodes.tr29 === 2 && S.log.some(l => /지하 개편/.test(l.text)), JSON.stringify([S.px, S.py, S.qDone]));
   W.applyDug(S);
-  ok('새 월드가 코어를 포함(선체·안쪽·패드)', W.isInfinite() && W.tileAt(0, 0) === W.HULL && W.tileAt(2, 1) === W.AIR && W.targets(S).some(t => t.kind === 'pad'));
+  ok('새 월드가 코어를 포함(선체·안쪽, 본부 배제: 패드 없음 + 보급 모듈 안쪽 칸)', W.isInfinite() && W.tileAt(0, 0) === W.HULL && W.tileAt(2, 1) === W.AIR && !W.objsIn(0, 0, 6, 5).some(o => o.type === 'pad') && W.tileAt(12, 1) === W.AIR && W.tileAt(9, 0) === W.HULL);
   const S2 = Sim.merge(JSON.parse(JSON.stringify(S)));
   ok('새 형식 저장은 다시 이전되지 않음', JSON.stringify(S2.dug) === JSON.stringify(S.dug) && S2.px === S.px && S2.base.x === 0 && S2.ver === 5);
 }
@@ -47,6 +47,22 @@ const fire = { id: 'fire', u: 0, x: 107, y: 23, s: { level: 2, fuel: 5 } };
   ok('허브(유한 맵) 크기·표지', g.map.length === 112 * 56 && g.gy.length === 112 && g.objs.some(o => o.type === 'fragment') && g.objs.some(o => o.type === 'pad'));
   const a = W.genPlanet('alpine', 102, 56, 201);
   ok('고원 착륙 캡슐 동굴과 패드', a.map.length === 102 * 56 && a.objs.some(o => o.type === 'pad') && a.map[28 * 102 + 14] === W.AIR);
+}
+// 5. 본부 배제(§4-30): 본부에 있던 저장은 보급 모듈로 옮기고, 스위치를 켜면 그대로이며, 두 번 옮기지 않는다
+{
+  const hubSave = () => Object.assign(base(), { ver: 5, raft: { cells: 6, dock: 'plaza' }, px: 25 * 16, py: 24 * 16, inv: Object.assign(base().inv, { stick: 7, salt: 33 }), qDone: 4, placed: [Object.assign({}, fire, { pl: 'plaza', x: 40, y: 22 })], dug: { 'plaza:2000': 0 } });
+  const S = Sim.merge(hubSave());
+  ok('본부 배제(스위치 꺼짐): 본부에 있던 저장은 내 월드 보급 모듈 도착 칸으로 옮겨진다', S.raft.dock === 'start' && S.px === Sim.ARRIVE.start[0] * 16 + 3 && S.py === Sim.ARRIVE.start[1] * 16 - 18 && S.log.some(l => /보급 모듈/.test(l.text)), JSON.stringify([S.raft, S.px, S.py]));
+  ok('가방·목표·장치·본부 판 칸 키는 그대로(데이터를 지우지 않는다)', S.inv.stick === 7 && S.inv.salt === 33 && S.qDone === 4 && S.placed.length === 1 && S.placed[0].pl === 'plaza' && 'plaza:2000' in S.dug);
+  const n = S.log.length, S2 = Sim.merge(JSON.parse(JSON.stringify(S)));
+  ok('같은 저장을 다시 읽어도 두 번 옮기지 않는다(안내도 한 번)', S2.raft.dock === 'start' && S2.log.length === n && S2.px === S.px);
+  global.HUB_ENABLED = true;
+  const H = Sim.merge(hubSave());
+  ok('본부 켜짐(?hub=1): 본부에 있던 저장은 그대로', H.raft.dock === 'plaza' && H.px === 25 * 16 && H.py === 24 * 16 && !H.log.some(l => /보급 모듈/.test(l.text)));
+  const Hn = Sim.newState(); W.applyDug(Hn);
+  ok('본부 켜짐: 코어 칸 (0,0) 덩어리에 보급 모듈이 없다(옛 지형 그대로)', W.tileAt(12, 1) !== W.AIR || W.tileAt(9, 0) !== W.HULL);
+  delete global.HUB_ENABLED; W.applyDug(S);
+  ok('본부 꺼짐: 보급 모듈은 자연 생성이고 덩어리 (0,0)의 저장 변경(diff)은 비어 있다', Object.keys(S.world).length === 0 && W.tileAt(9, 0) === W.HULL && W.tileAt(12, 1) === W.AIR);
 }
 if (fail) { console.error('옛 저장 읽기 점검 실패 ' + fail + '건'); process.exit(1); }
 console.log('옛 저장 읽기 점검 통과');

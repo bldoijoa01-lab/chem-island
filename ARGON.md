@@ -228,3 +228,7 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
   7. **상한 변경**: `/partyPub/{pid}/members` 6 → 허용, 7 → 거부. `/boards/{board}/{pid}/members` 6 → 허용, 7 → 거부. (팀 인원 상한 자체는 규칙이 셀 수 없음 — 허용되는 것이 정상)
   8. 규칙 게시 직후 앱에서 팀 만들기 → 간판 → 합치기 제안이 `PERMISSION_DENIED` 없이 되는지.
 
+### [2026-10-28] 본부 배제·튜토리얼 보강: 저장 이전 diff 리뷰와 목표 문구 치환 검토 (서버 규칙 변경 없음)
+- 맡길 일: (1) `sim.js`의 `migrateHubless`(본부에 있던 저장 → 내 월드 보급 모듈)가 재료·장치·목표·채집 기록을 잃지 않고 **두 번 실행돼도 같은 결과**인지 diff 리뷰. (2) 목표 1·4·6·8·10·11의 문구·힌트를 "본부" → "보급 모듈"로 바꾼 치환에서 **화학 설명(증류수 150 g + 소금 20 g, 한제 −10 ℃ 등)이 달라지지 않았는지**와 옛 표현이 남은 곳이 없는지 검토. (3) `game.js`의 팀 월드 위치 공유가 `x`에 +10000을 더해 규칙 범위(0..20000 px)를 지키는지.
+- 같이 붙일 파일(직접 첨부): `sim.js`, `world.js`(`MODULE_OBJS`·`moduleTile`), `game.js`(`mapNow`·`posPacket`), `tutorial.js`, `DESIGN.md` §4-30, `database.rules.json`(변경 없음)
+- 사람이 확인할 방법: `node tools/migrate-check.js`, `node tools/smokenew.js`(실제 키·마우스 입력으로 첫 목표까지), `node tools/smokeinvite.js`(team-{pid} 채널), `node tools/sim-check.js`(11개 그대로).

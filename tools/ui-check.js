@@ -19,7 +19,7 @@ let pass = 0, fail = 0; const chk = (n, c, x = '') => { c ? pass++ : fail++; con
   await pg.click('#t-continue'); await pg.waitForTimeout(300);
   chk('시작 후 도움말 표시', await ev(() => !document.getElementById('modal').hidden && document.getElementById('mtitle').textContent === '도움말'));
   await pg.click('#mclose');
-  chk('새 게임: 코어 캡슐 안에서 시작(코어 (0,0), 본부 패드로 전송 가능)', await ev(() => { const s = G.debug(); return s.base && s.base.x === 0 && s.base.y === 0 && s.ver === 5 && World.targets(s).some(t => t.kind === 'pad'); }));
+  chk('새 게임: 코어 캡슐 안에서 시작(코어 (0,0), 본부 배제: 코어 옆 보급 모듈에 상자·궤도 단말, 전송 패드 없음)', await ev(() => { const s = G.debug(); return s.base && s.base.x === 0 && s.base.y === 0 && s.ver === 5 && !Sim.hubOn() && !World.objsIn(0, 0, 6, 5).some(o => o.type === 'pad') && ['box', 'harbor', 'altar'].every(t => World.objsIn(6, -2, 35, 4).some(o => o.type === t)); }));
   // 2) 구 세이브 호환(새 필드 없는 세이브)
   await ev(() => { const s = JSON.parse(JSON.stringify(G.debug())); delete s.dug; delete s.melt; delete s.stoneGift; delete s.mobs; for (const k of ['dirt','stone','pickaxe','shaker','thermo']) delete s.inv[k]; delete s.f.wolf; localStorage.setItem('chemisle_side_v1', JSON.stringify(s)); });
   await pg.reload(); await pg.waitForTimeout(700); await pg.click('#t-continue'); await pg.waitForTimeout(300); await pg.click('#mclose').catch(() => {});

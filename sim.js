@@ -28,23 +28,25 @@
   const RECIPES = [
     { id: 'bottle', out: 'bottle', n: 1, cost: { sand: 3, stick: 1 }, note: '모래를 가열해 유리로' },
     { id: 'syringe', out: 'syringe', n: 1, cost: { bottle: 1, stick: 2 }, note: '피스톤으로 기체의 양을 조절 [#8]' },
-    { id: 'pickaxe', out: 'pickaxe', n: 1, cost: { stick: 2, stone: 2 }, note: '돌을 팔 수 있다 (허브 보급 상자에서 처음 돌을 얻는다)' },
+    { id: 'pickaxe', out: 'pickaxe', n: 1, cost: { stick: 2, stone: 2 }, note: '돌을 팔 수 있다 (보급 상자에서 처음 돌을 얻는다)' },
     { id: 'ironpick', out: 'ironpick', n: 1, cost: { iron: 6, stick: 2 }, note: '경암·금 광맥·뜨거운 바위(도구 단계 2)를 팔 수 있다', locked: '기술 노드 T4가 여는 제작법이에요. (20단계에서 해금)' },
     { id: 'shaker', out: 'shaker', n: 1, cost: { bottle: 1, stick: 1 }, note: '소금을 얼음·얼음 생물에 뿌린다 — 어는점 내림 [#37 #39]' },
     { id: 'thermo', out: 'thermo', n: 1, cost: { bottle: 1, sand: 2 }, note: '장치·땅·공기의 온도를 읽는다' },
   ];
+  // 본부 배제(DESIGN.md §4-30): HUB_ENABLED(index.html이 주소의 ?hub=1일 때만 켠다, fp/·td/는 항상 켬)가 꺼져 있으면 본부 시설은 내 월드 코어 옆 보급 모듈에 있다.
+  const HUB = !!root.HUB_ENABLED, hubOn = () => !!root.HUB_ENABLED;
   const QUESTS = [
-    { t: '바닷물(염수) 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: '건설 → 화덕(기지 안 평평한 바닥에). 염수 웅덩이나 본부 도킹 구역의 물가에서 E로 바닷물 뜨기' },
+    { t: '바닷물(염수) 1통을 뜨고, 화덕을 설치하세요', ok: f => f.sea && f.fire, hint: HUB ? '건설 → 화덕(기지 안 평평한 바닥에). 염수 웅덩이나 본부 도킹 구역의 물가에서 E로 바닷물 뜨기' : '코어 오른쪽 해치 밖은 단단한 땅이에요. 마우스를 꾹 눌러 파면 보급 모듈이 나와요. 모듈의 물웅덩이 옆에서 E로 염수를 뜨고, 건설 메뉴에서 화덕을 평평한 바닥에 지으세요' },
     { t: '증류기로 증류수 200 g을 얻으세요', ok: f => f.dW >= 200, hint: '증류기는 화덕 바로 옆에. 염수를 넣고 가열 시작' },
     { t: '증류에서 소금 20 g을 모으세요', ok: f => f.dS >= 20, hint: '바닷물이 농축되면 NaCl 결정이 남아요' },
-    { t: '본부의 탐사정 잔해를 수리하세요', ok: f => f.raft, hint: '코어 전송 패드로 본부에 가서 도킹 구역의 탐사정 잔해에서 E. 냉각계를 채울 증류수 150 g + 소금 20 g이 필요해요(직접 증류해 얻은 것이어야 해요). 고치면 궤도 이동(다른 행성)이 열려요' },
+    { t: HUB ? '본부의 탐사정 잔해를 수리하세요' : '보급 모듈의 탐사정 잔해를 수리하세요', ok: f => f.raft, hint: (HUB ? '코어 전송 패드로 본부에 가서 도킹 구역의 탐사정 잔해에서 E. ' : '보급 모듈 오른쪽 끝의 탐사정 잔해에서 E. ') + '냉각계를 채울 증류수 150 g + 소금 20 g이 필요해요(직접 증류해 얻은 것이어야 해요). 고치면 궤도 이동(다른 행성)이 열려요' },
     { t: '압력 밥솥으로 2기압 이상에서 라면을 끓이세요', ok: f => f.ramenP >= 2, hint: '면 1개 + 증류수 300 g. 화덕 세기를 올려야 할 수도 있어요' },
-    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 얼음 광맥 동굴이나 본부 얼음 저장고에서. 소금을 섞으면 어는점이 내려가요' },
+    { t: '−10 ℃ 이하의 한제 팩을 만드세요', ok: f => f.packT <= -10, hint: '얼음은 얼음 광맥 동굴이나 ' + (HUB ? '본부' : '보급 모듈') + ' 얼음 저장고에서. 소금을 섞으면 어는점이 내려가요' },
     { t: '공기 캡슐 4개를 만드세요', ok: f => f.caps >= 4, hint: '기체 포집기에서 주사기로 공기를 모아요' },
-    { t: '허브 정거장의 대기 처리 코어를 정화하세요', ok: f => f.boss, hint: '허브 정거장의 제단. 소금·증류수·한제 팩·캡슐(허브 보급 상자)을 챙기세요' },
+    { t: HUB ? '허브 정거장의 대기 처리 코어를 정화하세요' : '보급 모듈의 대기 처리 코어를 정화하세요', ok: f => f.boss, hint: HUB ? '허브 정거장의 제단. 소금·증류수·한제 팩·캡슐(허브 보급 상자)을 챙기세요' : '모듈 맨 끝의 제단. 소금·증류수·한제 팩·캡슐(보급 상자)을 챙기세요' },
     { t: '얼음 생물 1마리를 정화하세요', ok: f => f.wolf >= 1, hint: '온도가 0 ℃ 미만인 자리(얼음 광맥 구역은 −15 ℃, 얼음 위성)에 장치를 지으면 얼음 생물이 붙어요. 소금을 뿌리면 얼음이 녹고, 화덕 열로도 녹일 수 있어요' },
-    { t: '저기압 고원 행성에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: '본부 동쪽 관문에서 이륙(라면 목표 뒤). 착륙 캡슐 동굴에 화덕과 증류기를 지으세요. 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
-    { t: '얼음 위성에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: '본부 북쪽 관문(한제 목표 뒤). 온도가 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
+    { t: '저기압 고원 행성에서 증류수 100 g을 얻으세요', ok: f => f.alpineW >= 100, hint: (HUB ? '본부 동쪽 관문에서 이륙(라면 목표 뒤). ' : '보급 모듈의 궤도 이동 단말에서 이륙(라면 목표 뒤). 돌아올 때는 착륙 캡슐의 패드(기지 귀환). ') + '착륙 캡슐 동굴에 화덕과 증류기를 지으세요. 같은 증류기가 낮은 기압에서 어떻게 달라지는지 기록에 남아요' },
+    { t: '얼음 위성에서 소금 뿌리개로 얼음 타일 1칸을 녹이세요', ok: f => f.polarMelt, hint: (HUB ? '본부 북쪽 관문(한제 목표 뒤). ' : '보급 모듈의 궤도 이동 단말(한제 목표 뒤). ') + '온도가 낮을수록 같은 얼음을 녹이는 데 소금이 더 들어요. 온도계로 재 보세요' },
   ];
   // 월드(16단계): 행성마다 단면 맵 하나. W × H는 칸 수(타일 16 px), off는 옛 한 줄 월드(폭 380)에서 이 행성 창이 시작하던 x(세이브 이전과 지형 생성에 쓴다).
   // 맵 크기는 가정(임의값)이고 17단계에서 불시착 행성을 800 × 110으로 키운다(DESIGN.md §4-22). L..R은 걸을 수 있는 범위(맵 안 타일 x, 접안 쪽 여유 포함).
@@ -81,7 +83,7 @@
     alpine: { island: 'alpine', anchor: 17, dir: -1 },  // 저기압 고원 행성 서쪽 접안 구역(옛 218 − 201)
     polar: { island: 'polar', anchor: 17, dir: -1 },    // 얼음 위성 서쪽 접안 구역(옛 308 − 291)
   };
-  const ARRIVE = { plaza: [25, 24], alpine: [14, 29], polar: [14, 29] };   // 가정(임의값) 도착 칸(x, 서 있는 줄): 허브 패드 옆 · 착륙 캡슐 동굴 (world.js와 같은 좌표)
+  const ARRIVE = { plaza: [25, 24], start: [29, 3], alpine: [14, 29], polar: [14, 29] };   // 가정(임의값) 도착 칸(x, 서 있는 줄): 허브 패드 옆 · 착륙 캡슐 동굴 (world.js와 같은 좌표)
   const SAIL_MIN = { start: 30, plaza: 30, alpine: 60, polar: 60 };   // 가정(임의값) 도착지별 궤도 이동 시간(게임 분)
   const UNLOCK = { alpine: 5, polar: 6 };                              // 가정(임의값) 해금 순서: 라면(목표 5) 뒤 저기압 고원 행성, 한제(목표 6) 뒤 얼음 위성
   // 허브 정거장의 사방 궤도 관문: 행선지(4단계에서 탐사 행성을 연다)
@@ -136,7 +138,13 @@
     const d = newState(), S = Object.assign(d, j, { inv: Object.assign(d.inv, asObject(j.inv, {})), f: Object.assign(d.f, asObject(j.f, {})), raft: Object.assign(d.raft, asObject(j.raft, {})) });
     for (const k of ['caps', 'packs', 'placed', 'mobs', 'log']) S[k] = asArray(S[k], []);
     for (const k of ['nodes', 'dug', 'melt']) S[k] = asObject(S[k], {});
-    migrateWorld(S, j); migrateRaft(S); return S;
+    migrateWorld(S, j); migrateRaft(S); migrateHubless(S); return S;
+  }
+  // 본부 배제(§4-30): 본부(plaza)에 있던 저장은 스위치가 꺼져 있으면 내 월드의 보급 모듈로 옮긴다. 인벤토리·캡슐·팩·목표·채집 기록·장치는 그대로이고 본부 판 칸 키는 지우지 않는다. 같은 저장을 다시 읽어도 두 번 옮기지 않는다
+  function migrateHubless(S) {
+    if (S.fp || hubOn() || !S.raft || S.raft.dock !== 'plaza') return;
+    S.raft.dock = 'start'; S.px = ARRIVE.start[0] * 16 + 3; S.py = ARRIVE.start[1] * 16 - 18; S.vx = S.vy = 0;
+    S.log.push({ day: S.day, t: clockText(S), type: '기지', text: '본부가 닫혀 있어서 내 월드의 보급 모듈로 옮겼습니다. 가방·장치·목표는 그대로입니다.' });
   }
   // 월드가 넓어지고(120 → 380칸) 목표가 하나 늘었고(ver 2), 월드가 행성별 맵으로 나뉘었다(ver 3, 16단계):
   // ver < 2: 땅 파기 기록의 타일 번호(y·120+x)를 폭 380으로 다시 매기고, 튜토리얼(목표 1~3)을 넘긴 세이브는 탐사정 잔해를 이미 고친 것으로 보며 qDone을 새 목록에 맞춘다.
@@ -401,7 +409,7 @@
     fuel(S, d, n) { n = Math.min(n, S.inv.stick); if (n <= 0) return say('나뭇가지가 없습니다.'); S.inv.stick -= n; d.s.fuel += n; },
     level(S, d, i) { if (i > 0 && d.s.fuel <= 0) return say('연료를 먼저 넣으세요.'); d.s.level = i; },
     load(S, d) {
-      if (S.inv.sea < 1) return say('바닷물이 없습니다. 염수 웅덩이나 본부 도킹 구역 물가에서 E.');
+      if (S.inv.sea < 1) return say(HUB ? '바닷물이 없습니다. 염수 웅덩이나 본부 도킹 구역 물가에서 E.' : '바닷물이 없습니다. 보급 모듈의 물웅덩이나 염수 웅덩이 물가에서 E.');
       if (d.s.w + SEA_BUCKET.water > 650) return say('증류기가 가득 찼습니다.');
       if (d.s.w <= 0) d.s.w0 = 0;   // 비었던 증류기에 새로 채우면 끝나는 기준도 새로
       S.inv.sea--; d.s.w += SEA_BUCKET.water; d.s.w0 = (d.s.w0 || 0) + SEA_BUCKET.water; d.s.ns += SEA_BUCKET.nacl / C.MW_NACL;
@@ -476,7 +484,7 @@
       for (const k of ['N2', 'N2', 'N2', 'O2', 'O2', 'O2', 'He']) S.caps.push({ k, n: nAir });
       S.inv.sugar += 100; S.inv.salt += 10;
       const gift = !S.stoneGift; if (gift) { S.stoneGift = true; S.inv.stone += 3; }
-      say('허브 보급품: 질소·산소 캡슐 3개씩, 헬륨 캡슐 1개, 설탕 100 g, 소금 10 g' + (gift ? ', 돌 3개(곡괭이 재료, 처음 한 번)' : ''));
+      say((HUB ? '허브 보급품' : '보급품') + ': 질소·산소 캡슐 3개씩, 헬륨 캡슐 1개, 설탕 100 g, 소금 10 g' + (gift ? ', 돌 3개(곡괭이 재료, 처음 한 번)' : ''));
     },
     craft(S, id) {
       const r = RECIPES.find(x => x.id === id);
@@ -526,6 +534,12 @@
     teleport(S, to) {
       const here = dockOf(S).island;
       if (to === here) return say('이미 이 곳에 있습니다.'), false;
+      if (!hubOn()) {   // 본부 배제(§4-30): 전송은 원정 행성에서 기지로 돌아올 때만 쓴다(보급 모듈의 궤도 이동 단말 옆으로 도착)
+        if (to !== 'start' || here === 'start') return say('전송 패드는 원정 행성에서 기지로 돌아올 때만 쓸 수 있습니다.'), false;
+        S.raft.dock = 'start'; S.px = ARRIVE.start[0] * 16 + 3; S.py = ARRIVE.start[1] * 16 - 18; S.vx = S.vy = 0;
+        say('기지로 돌아왔습니다.'); logEv(S, '전송', `${ISLANDS[here].name} → ${ISLANDS.start.name}`); emit({ t: 'moved' });
+        return true;
+      }
       if (to === 'start') { if (!S.base) return say('기지 코어를 먼저 설치하세요.'), false; if (here !== 'plaza') return say('기지로는 본부에서만 갈 수 있습니다.'), false; }
       else if (to === 'plaza') { /* 어디서든 본부로 */ }
       else return say('패드로는 본부와 내 기지만 오갈 수 있습니다.'), false;
@@ -568,7 +582,7 @@
 
   const Sim = {
     FIRE_T, FIRE_BURN, FIRE_NAME, WOLF, NIGHT_FROM, NIGHT_TO, SEA_BUCKET, DEV, RECIPES, QUESTS, VALVE, VALVE_NAME,
-    STILL, COOLER, ISLANDS, ENV, DOCKS, HARBORS, RAFT, SAIL_MIN, ARRIVE, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
+    STILL, COOLER, ISLANDS, ENV, hubOn, DOCKS, HARBORS, RAFT, SAIL_MIN, ARRIVE, UNLOCK, envOf, pAtm, dockOf, bounds, tutorial, raftAnchor, raftXs, devX, raftU, syncRaft, newState, merge, advance, checkQuests, heatOf, fireNear, geo, cookerState, airTemp, isNightHour, has, pay, unlocked, act,
     drain, emit, say, logEv, clockText,   // 화면 모듈(world.js·ui.js)이 같은 이벤트·기록 통로를 쓰도록 노출(계산은 바뀌지 않음)
     setRng(fn) { rngFn = fn || null; },
     setDev(d) { curDev = d || null; },   // 패널을 그릴 때 그 장치의 환경을 쓰게 한다(fp 10단계)
