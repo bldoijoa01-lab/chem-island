@@ -197,12 +197,71 @@ function PROP(g, i) { return Cells.PROP[g.kind[i]]; }
   ok('⑫ cells.js는 DOM·window·난수·네트워크를 쓰지 않고(주석 제외) 화학 식을 직접 쓰지 않는다(Chem만 호출)', !/Math\.random|document\.|window\.|fetch\(|localStorage|XMLHttpRequest/.test(src) && !/Math\.sqrt|Math\.exp|Math\.log|\*\*\s*\(?1\s*\/\s*3/.test(src));
 }
 
+// 19단계 보강 ⑭: 온도 차가 1e-9 K인 두 칸은 오버슈트·진동 없이 단조 수렴한다 (Argon 18단계 지적, 사용자 확인)
+{
+  const run = (mkA, mkB, label, tol = 1e-15) => {   // tol: 부동소수점 반올림 한계(고체는 온도를 직접 갱신해 1e-15 K, 기체는 E/C−273.15라 약 1e-12 K)
+    const g = new Grid(2, 1); mkA(g); mkB(g);
+    const E0 = g.energy(); let d = g.T[0] - g.T[1], d0 = d, mono = true, noCross = true, prev = d, hot = g.T[0], cold = g.T[1];
+    for (let k = 0; k < 300; k++) {
+      g.step(1e5); const dd = g.T[0] - g.T[1];
+      if (dd > prev + tol) mono = false;                       // 차이는 늘지 않는다(진동 없음)
+      if (dd < -tol) noCross = false;                          // 온도 순서가 뒤집히지 않는다(오버슈트 없음)
+      if (g.T[0] > hot + tol || g.T[1] < cold - tol) mono = false;   // 뜨거운 쪽은 오르지 않고 찬 쪽은 내리지 않는다
+      hot = g.T[0]; cold = g.T[1]; prev = dd; d = dd;
+    }
+    ok('⑭ ' + label + ': 온도 차 1e-9 K가 오버슈트·진동 없이 단조 수렴(처음 ' + d0.toExponential(2) + ' → ' + d.toExponential(2) + ' K), 에너지 보존', mono && noCross && Math.abs(d) <= Math.abs(d0) + tol && rel(g.energy(), E0) < 1e-12 && Number.isFinite(g.T[0]) && Number.isFinite(g.T[1]), 'mono ' + mono + ' noCross ' + noCross + ' diff ' + d);
+  };
+  run(g => g.set(0, 0, 'ROCK', 20 + 1e-9), g => g.set(1, 0, 'ROCK', 20), '고체(암석 두 칸)');
+  run(g => g.set(0, 0, 'METAL', 20 + 1e-9), g => g.set(1, 0, 'WATER', 20), '열용량이 다른 고체(철–물)');
+  run(g => g.set(0, 0, 'AIR', 20 + 1e-9, air(1, 20 + 1e-9)), g => g.set(1, 0, 'AIR', 20, air(1, 20)), '기체 칸 두 칸(반올림 한계 1e-12 K 안)', 1e-12);
+  const gg = new Grid(2, 1); gg.set(0, 0, 'AIR', 20 + 1e-9, air(1, 20 + 1e-9)); gg.set(1, 0, 'AIR', 20, air(1, 20)); const n0 = gg.moles(); gg.run(1e5, 300);
+  ok('⑭ 기체 두 칸(1e-9 K 차)에서 확산·층을 포함해도 몰수 보존, 두 칸의 압력 차가 늘지 않음', rel(gg.moles(), n0) < 1e-12 && Math.abs(gg.pressure(0) - gg.pressure(1)) < 1e-9);
+}
+
+// 19단계 ⑮: 땅 파기·블록 놓기 편집은 기체 몰수·내부 에너지를 보존하고 변한 양을 장부에 남긴다 (DESIGN §4-29)
+{
+  const room = () => { const g = new Grid(7, 3); g.fill(0, 0, 7, 3, 'ROCK', 20); g.fill(1, 1, 5, 1, 'AIR', 20, air(1, 20)); return g; };
+  // 기체 칸 → 고체(블록 놓기): 열린 이웃 두 칸에 나눠 옮김
+  let g = room(), n0 = g.moles(), E0 = g.energy(); const r = g.solidify(3, 1, 'ROCK');
+  ok('⑮ 블록 놓기: 가운데 기체 칸이 고체가 되면 기체 몰수가 보존되고(이웃 2칸에 분배) 방출 없음', rel(g.moles(), n0) < 1e-12 && r.receivers === 2 && r.lostMoles === 0 && r.dMoles === 0 && g.released.moles === 0, JSON.stringify(r));
+  ok('⑮ 블록 놓기: 총 에너지 변화 = 장부의 고체 에너지 증가(기체의 내부 에너지는 이웃으로 옮겨져 보존)', Math.abs((g.energy() - E0) - r.dSolidE) < 1e-6 * E0, `${g.energy() - E0} / ${r.dSolidE}`);
+  ok('⑮ 이웃 두 칸의 압력이 높아진다(같은 몰수가 더 작은 부피에)', g.pressure(g.idx(2, 1)) > 1.2 && g.pressure(g.idx(4, 1)) > 1.2, 'P=' + g.pressure(g.idx(2, 1)).toFixed(3));
+  // 갇힌 한 칸(열린 이웃 없음)을 고체로: 외기 방출 장부
+  g = new Grid(3, 3); g.fill(0, 0, 3, 3, 'ROCK', 20); g.set(1, 1, 'AIR', 20, air(1, 20));
+  n0 = g.moles(); E0 = g.energy(); const t = g.solidify(1, 1, 'ROCK');
+  ok('⑮ 갇힌 한 칸을 고체로 만들면 기체가 외기로 방출되고(몰수 4.16 mol) 방출 장부·기록에 남는다', Math.abs(t.lostMoles - n0) < 1e-12 && Math.abs(g.released.moles - n0) < 1e-12 && Math.abs(g.moles()) < 1e-12 && t.dMoles === -n0 && t.lostE > 0 && Math.abs(g.released.energy - t.lostE) < 1e-9, JSON.stringify(t));
+  ok('⑮ 방출 때 에너지 변화 = 고체 에너지 증가 − 방출한 기체 내부 에너지(장부와 일치)', Math.abs((g.energy() - E0) - (t.dSolidE - t.lostE)) < 1e-6 * E0);
+  // 고체 → 기체 칸(땅 파기): 진공, 몰수 불변, 압력 하락
+  g = room(); g.fill(1, 1, 5, 1, 'AIR', 20, air(1, 20)); g.fill(0, 0, 7, 3, 'ROCK', 20); g.fill(1, 1, 5, 1, 'AIR', 20, air(1, 20));
+  n0 = g.moles(); E0 = g.energy(); const p0 = g.pressure(g.idx(3, 1)); const e = g.excavate(6, 1, 20);   // 방 끝 벽을 파냄(진공 칸)
+  ok('⑮ 땅 파기: 새 기체 칸은 진공(몰수 0)이고 기체 몰수·내부 에너지가 새로 생기지 않는다', g.nTot(g.idx(6, 1)) === 0 && rel(g.moles(), n0) < 1e-15 && e.dMoles === 0 && e.dGasE === 0 && e.type === 'excavate', JSON.stringify(e));
+  ok('⑮ 땅 파기: 총 에너지 변화 = 파낸 고체의 열(음수, 장부)', e.dSolidE < 0 && Math.abs((g.energy() - E0) - e.dSolidE) < 1e-6 * E0, `${g.energy() - E0} / ${e.dSolidE}`);
+  g.opts.conduction = false; g.opts.layers = false; g.run(1e3, 3000);
+  ok('⑮ 땅 파기 뒤 기체가 새 칸까지 퍼져 압력이 보일 법칙대로 내려간다(5칸 → 6칸이라 5/6 atm)', rel(g.moles(), n0) < 1e-9 && Math.abs(g.pressure(g.idx(3, 1)) - 5 / 6 * p0) < 0.01 && Math.abs(g.pressure(g.idx(6, 1)) - 5 / 6 * p0) < 0.01, `P=${g.pressure(g.idx(3, 1)).toFixed(4)} (식 ${(5 / 6 * p0).toFixed(4)})`);
+  ok('⑮ 편집 장부가 기록된다(종류·좌표·변한 양)', g.ledger.length === 1 && g.ledger[0].type === 'excavate' && 'dMoles' in g.ledger[0] && 'dSolidE' in g.ledger[0]);
+  let bad = ''; try { g.solidify(0, 0, 'ROCK'); } catch (x) { bad = 'throw'; } ok('⑮ 고체 칸에 solidify, 기체 칸에 excavate는 거부', bad === 'throw');
+}
+
+// 19단계 ⑯: 고정 온도 칸(화덕 열원)과 열원 입력 장부
+{
+  const g = new Grid(5, 1); g.fill(0, 0, 5, 1, 'AIR', 20, air(1, 20)); g.pin[0] = 130;
+  const E0 = g.energy(); let held = true; for (let k = 0; k < 200; k++) { g.step(100); if (g.T[0] !== 130) held = false; }
+  ok('⑯ 고정 온도 칸은 매 걸음 그 온도(130 ℃)를 유지하고 이웃이 데워진다', held && g.T[1] > 21 && g.T[1] < 130 && g.T[4] > 20);
+  ok('⑯ 열원 입력 장부: 닫힌 계의 에너지 변화 = heaterJ (보존 + 입력)', g.heaterJ > 0 && Math.abs((g.energy() - E0) - g.heaterJ) < 1e-9 * g.energy(), `${g.energy() - E0} / ${g.heaterJ}`);
+  const h = new Grid(5, 1); h.fill(0, 0, 5, 1, 'AIR', 20, air(1, 20)); const he = h.energy(); h.run(100, 200);
+  ok('⑯ 고정 칸이 없으면 입력 0이고 에너지 보존', h.heaterJ === 0 && rel(h.energy(), he) < 1e-12);
+}
+
 // 문구 데이터(19단계가 화면에 쓴다)
 {
   const L = Cells.NOTES.layer;
   ok('밀도층 문구가 데이터(Cells.NOTES.layer)로 export된다: "게임 설정(가정)"·"확산으로 균일하게 섞여"·"영구히 나뉘지 않는다"', typeof L === 'string' && /게임 설정\(가정\)/.test(L) && /확산으로 균일하게 섞여/.test(L) && /영구히 나뉘지 않는다/.test(L) && Object.keys(Cells.NOTES).includes('heat') && Object.keys(Cells.NOTES).includes('diffusion') && Object.keys(Cells.NOTES).includes('scope'));
 }
 
+{
+  const N = Cells.NOTES;
+  ok('NOTES 보강: 분압 차 근사의 한계(diffusion)와 내부 에너지만 이동(energy, 엔탈피·pV)과 편집 규칙(edit: 진공·방출)이 각각 한 줄 있음', /분압 차 하나로 근사한다/.test(N.diffusion) && /엔탈피가 아니라 내부 에너지/.test(N.energy) && /pV/.test(N.energy) && /진공/.test(N.edit) && /방출/.test(N.edit) && /열린 이웃/.test(N.edit));
+}
 console.log(`\n${total - fail} / ${total} 통과`);
 if (fail) { console.error(`칸 시뮬 점검 실패 ${fail}건`); process.exit(1); }
 console.log('칸 시뮬 점검 모두 통과');

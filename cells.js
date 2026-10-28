@@ -29,7 +29,9 @@
   const NOTES = {
     layer: '게임 설정(가정): 기체는 충분한 시간이 지나면 확산으로 균일하게 섞여 평형에서 층이 영구히 나뉘지 않는다. 막 유입·생성된 짧은 시간에는 밀도 차에 의한 이동이 확산보다 빨라 무거운 기체는 아래에 고이고 가벼운 기체는 위로 뜬다. 이동 비율 G는 게임 설정(가정).',
     heat: '열은 온도가 높은 칸에서 낮은 칸으로만 흐르고 에너지 합은 보존된다. 전도도 K = 칸 한 변 × 두 칸 열전도율의 조화 평균, 재료 상수는 게임 설정(가정).',
-    diffusion: '기체는 분압이 높은 칸에서 낮은 칸으로 이동하고 같은 온도·분압에서는 가벼운 기체가 빠르다(∝ 1/√M, 그레이엄 법칙). 확산 계수의 크기와 온도가 다른 칸 사이를 분압 차로 근사하는 것은 게임 설정(가정)이고, 실제 공기 중 확산은 훨씬 느리다.',
+    diffusion: '기체는 분압이 높은 칸에서 낮은 칸으로 이동하고 같은 온도·분압에서는 가벼운 기체가 빠르다(∝ 1/√M, 그레이엄 법칙). 한계: 온도가 다른 칸 사이의 이동을 분압 차 하나로 근사한다(교과서의 그레이엄 법칙은 같은 T·P에서의 속도 비). 확산 계수의 크기는 게임 설정(가정)이고, 실제 공기 중 확산은 훨씬 느리다.',
+    energy: '한계(단순화): 이동하는 기체는 엔탈피가 아니라 내부 에너지(n·Cv·T)만 옮긴다(유동 일 pV 무시). 몰 열용량은 이상 기체의 자유도로 환산한 게임 설정(가정)이다.',
+    edit: '땅 파기·블록 놓기: 기체가 고체가 되면 그 칸의 기체(몰수와 내부 에너지)를 열린 이웃 칸에 나눠 옮기고, 이웃이 없으면 외기로 방출한 것으로 기록한다. 고체가 파여 빈 칸이 되면 진공(몰수 0)이라 이웃 기체가 퍼지며 압력이 내려간다(보일 법칙). 기체는 새로 생기지 않는다(게임 설정).',
     scope: '칸 시뮬은 열 전도·기체 확산·밀도층 세 가지만 계산한다. 증발·응축·녹음 같은 상변화와 증발열은 계산하지 않는다(수증기는 이동만 한다).',
   };
 
@@ -44,6 +46,10 @@
       this.dn = new Float64Array(this.N * NG);            // 한 단계에서 기체가 옮긴 몰수 누적
       this.opts = { conduction: true, diffusion: true, layers: true };   // 시험용 스위치(끄면 그 단계를 건너뜀)
       this.time = 0; this.steps = 0;
+      this.pin = new Float64Array(this.N).fill(NaN);      // 고정 온도 칸(화덕 열원 등): 값이 있으면 매 걸음 끝에 그 온도로 되돌리고 필요한 열을 heaterJ에 쌓는다
+      this.heaterJ = 0;                                    // 고정 온도 칸이 받아 간 누적 열량(J, 열원 입력 장부). 닫힌 계의 에너지 변화 = heaterJ + 편집 장부
+      this.ledger = [];                                    // 편집 장부(최근 100개)
+      this.released = { moles: 0, energy: 0 };             // 갇힌 칸이 고체가 될 때 외기로 방출된 누적 기체(mol)와 내부 에너지(J)
     }
     idx(x, y) { return y * this.w + x; }
     // 칸 하나 설정. gas는 {N2, O2, He, H2O}(mol). 기체 없는 종류에는 무시한다
@@ -69,12 +75,56 @@
     // 비트 단위 비교용 복사본(결정성 시험)
     state() { return { kind: this.kind.slice(), T: this.T.slice(), n: this.n.slice() }; }
 
+    // 열린 칸 j에 기체 nArr(종류별 mol)와 내부 에너지 e(J)를 더한다: 새 온도 = (원래 에너지 + e)/(새 열용량)
+    _addGas(j, nArr, e) {
+      const old = this.cap(j) * (this.T[j] + 273.15); let cn = 0;
+      for (let s = 0; s < NG; s++) { this.n[j * NG + s] += nArr[s]; cn += this.n[j * NG + s] * CV[s]; }
+      if (cn > 0) this.T[j] = (old + e) / cn - 273.15;
+    }
+    // 칸 하나의 종류를 바꾼다(땅 파기·블록 놓기·문 열고 닫기, DESIGN §4-29). 기체 몰수·내부 에너지를 보존한다:
+    //  기체 칸 → 고체: 기체와 내부 에너지를 열린(고정 아닌) 이웃에 같은 양씩 나눠 옮긴다. 이웃이 없으면 외기로 방출(released 장부).
+    //  고체 → 기체 칸: 진공(몰수 0). 기체는 새로 생기지 않는다. 고체가 가진 열(질량 × 비열 × T)은 고체 에너지 장부로만 변한다.
+    // 돌려주는 기록: { type, dMoles(총 기체 변화), dGasE(총 기체 내부 에너지 변화), dSolidE(고체 에너지 변화), lostMoles, lostE, to(받은 이웃 수) }
+    convert(x, y, kindName, T) {
+      const i = this.idx(x, y), oldK = this.kind[i], newK = KIND[kindName], po = PROP[oldK], pn = PROP[newK];
+      if (po.fixed || pn.fixed) throw new Error('고정 칸은 편집하지 않습니다.');
+      const rec = { type: po.open && !pn.open ? 'solidify' : !po.open && pn.open ? 'excavate' : 'swap', x, y, from: NAMES[oldK], to: kindName, dMoles: 0, dGasE: 0, dSolidE: 0, lostMoles: 0, lostE: 0, receivers: 0 };
+      const Tc = T === undefined ? this.T[i] : T;
+      const eOld = po.open ? 0 : po.cap * (this.T[i] + 273.15);                   // 사라지는 고체의 열(열린 칸이면 0)
+      if (po.open) {
+        const nArr = new Float64Array(NG); let n = 0, eGas = 0;
+        for (let s = 0; s < NG; s++) { nArr[s] = this.n[i * NG + s]; n += nArr[s]; eGas += nArr[s] * CV[s] * (this.T[i] + 273.15); }
+        if (!pn.open && n > 0) {                                                  // 기체 → 고체: 열린 이웃에 나눠 옮김
+          const nb = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].filter(([a, b]) => a >= 0 && b >= 0 && a < this.w && b < this.h && PROP[this.kind[this.idx(a, b)]].open && !PROP[this.kind[this.idx(a, b)]].fixed);
+          if (nb.length) { const part = new Float64Array(NG); for (let s = 0; s < NG; s++) part[s] = nArr[s] / nb.length; for (const [a, b] of nb) this._addGas(this.idx(a, b), part, eGas / nb.length); rec.receivers = nb.length; }
+          else { rec.lostMoles = n; rec.lostE = eGas; this.released.moles += n; this.released.energy += eGas; rec.dMoles = -n; rec.dGasE = -eGas; }
+        }
+        for (let s = 0; s < NG; s++) this.n[i * NG + s] = 0;
+      }
+      this.kind[i] = newK; this.T[i] = Tc; this.pin[i] = NaN;
+      if (pn.open) for (let s = 0; s < NG; s++) this.n[i * NG + s] = 0;           // 새 기체 칸은 진공
+      rec.dSolidE = (pn.open ? 0 : pn.cap * (Tc + 273.15)) - eOld;
+      this.ledger.push(rec); if (this.ledger.length > 100) this.ledger.shift();
+      return rec;
+    }
+    solidify(x, y, kindName, T) { if (!PROP[this.kind[this.idx(x, y)]].open) throw new Error('기체 칸이 아닙니다.'); return this.convert(x, y, kindName, T); }
+    excavate(x, y, T) { if (PROP[this.kind[this.idx(x, y)]].open) throw new Error('이미 기체 칸입니다.'); return this.convert(x, y, 'AIR', T); }
+    // 고정 온도 칸: 걸음 끝에 그 온도로 되돌리고 필요했던 열(J)을 장부에 쌓는다
+    _pins() {
+      for (let i = 0; i < this.N; i++) {
+        const p = this.pin[i]; if (!(p === p)) continue;                          // NaN이면 건너뜀
+        const c = this.cap(i); if (!(c > 0) || !Number.isFinite(c)) continue;
+        this.heaterJ += c * (p - this.T[i]); this.T[i] = p;
+      }
+    }
+
     // ---- 한 걸음 ----
     step(dt) {
       if (!(Number.isFinite(dt) && dt > 0)) throw new Error('dt는 유한한 양수여야 합니다.');
       if (this.opts.conduction) this._conduct(dt);
       if (this.opts.diffusion) this._diffuse(dt);
       if (this.opts.layers) this._layers(dt);
+      this._pins();
       this.time += dt; this.steps++;
     }
     run(dt, steps) { for (let s = 0; s < steps; s++) this.step(dt); }
