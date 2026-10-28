@@ -93,16 +93,42 @@
   C.L_CELL = Math.cbrt(C.V_CELL / 1000);    // m, 칸 한 변(파생). 이웃 칸 중심 거리 L, 접촉 면적 L²
   C.FLOW_MAX = 0.2;                         // 한 걸음에 한 경계로 옮기는 양의 상한(평형량 대비, 표 그대로). cells.js가 시작할 때 ≤ 0.2를 검사한다
   C.GASES = ['N2', 'O2', 'He', 'H2O'];      // 칸이 가지는 기체. H2O는 수증기 기체일 뿐 증발·응축은 하지 않는다(증발열 연결은 사용자 확인 뒤)
-  C.MOLAR_MASS = { N2: 28, O2: 32, He: 4, H2O: 18 };   // g/mol(표 그대로)                                                 [#12]
+  // ---- 기체 표(한 곳, 19단계 재료 도감·칸 값 읽기가 그대로 읽는다) ----
+  // M: 몰 질량 g/mol(표 그대로) [#12] · cv: 몰 열용량을 R_J의 몇 배로 보는지(이상 기체의 자유도로 환산, 진동 자유도 무시: 단원자 3/2, 이원자 5/2, 비선형 다원자 3) // 가정(임의값) [#4 #25]
+  C.GAS_TABLE = {
+    N2: { ko: '질소 N₂', M: 28, cv: 2.5 }, O2: { ko: '산소 O₂', M: 32, cv: 2.5 },
+    He: { ko: '헬륨 He', M: 4, cv: 1.5 }, H2O: { ko: '수증기 H₂O', M: 18, cv: 3 },
+  };
+  C.MOLAR_MASS = {}; for (const g of C.GASES) C.MOLAR_MASS[g] = C.GAS_TABLE[g].M;   // g/mol (표에서 나온 보기)
   // 몰 열용량 Cv(J/(mol·K)): 이상 기체의 자유도로 환산(진동 자유도 무시). 단원자 3/2·R, 이원자 5/2·R, 비선형 다원자 3·R     // 가정(임의값)   [#4 #25]
-  C.CV_GAS = { N2: 2.5 * C.R_J, O2: 2.5 * C.R_J, He: 1.5 * C.R_J, H2O: 3 * C.R_J };
+  C.CV_GAS = {}; for (const g of C.GASES) C.CV_GAS[g] = C.GAS_TABLE[g].cv * C.R_J;   // J/(mol·K) (표에서 나온 보기)
   C.K_GAS = 0.026;                          // W/(m·K), 공기의 열전도율(기체 칸은 조성과 무관하게 같은 값)                        // 가정(임의값)
   // 고체·액체 칸의 재료 표: 밀도 rho(g/cm³) · 비열 c(J/(g·K)) · 열전도율 k(W/(m·K)). 대표값을 반올림한 가정이다.      [#21 #25 #26 #27]
   // 얼음·물의 비열은 기존 C_ICE·C_W를 쓴다. 철(METAL)은 비열이 낮다(#27). 칸은 이 재료로 꽉 찬 100 L 덩어리로 본다.
-  C.MATERIAL = {
-    ROCK: { rho: 2.7, c: 0.84, k: 2.5 }, DIRT: { rho: 1.5, c: 0.90, k: 1.0 }, SAND: { rho: 1.6, c: 0.80, k: 0.3 },
-    ICE: { rho: 0.92, c: C.C_ICE, k: 2.2 }, METAL: { rho: 7.87, c: 0.45, k: 80 }, WATER: { rho: 1.0, c: C.C_W, k: 0.6 },
+  // ---- 재료 표(한 곳, 19단계): 땅 파기(world.js DIG)·칸 시뮬(cells.js)·재료 도감·칸 값 읽기가 모두 이 표 하나에서 읽는다 ----
+  // 행 = 타일 종류. cell: 칸 시뮬 종류(있으면 이 행이 물성의 원본) · like: 물성(밀도·비열·열전도율)을 빌려 오는 행 · rho g/cm³ · c J/(g·K) · k W/(m·K)
+  // t: 맨손·도구로 파는 데 걸리는 시간(초, null = 못 팜) · tier: 필요한 도구 단계(0 맨손, 1 곡괭이, 2 철 곡괭이, 3 아직 없음). 모든 값은 가정(임의값), 밀도·비열·열전도율은 대표값을 반올림.
+  C.MATERIALS = {
+    DIRT: { ko: '흙(퇴적토)', cell: 'DIRT', rho: 1.5, c: 0.90, k: 1.0, t: 0.5, tier: 0 }, GRASS: { ko: '풀 덮인 흙', like: 'DIRT', t: 0.5, tier: 0 },
+    SAND: { ko: '모래', cell: 'SAND', rho: 1.6, c: 0.80, k: 0.3, t: 0.4, tier: 0 },
+    ICE: { ko: '얼음', cell: 'ICE', rho: 0.92, c: C.C_ICE, k: 2.2, t: 1.0, tier: 0 }, SNOWTOP: { ko: '눈', like: 'ICE', t: 0.8, tier: 0 },
+    WATER: { ko: '물', cell: 'WATER', rho: 1.0, c: C.C_W, k: 0.6, t: null, tier: null },
+    STONE: { ko: '암석(돌)', cell: 'ROCK', rho: 2.7, c: 0.84, k: 2.5, t: 2.0, tier: 1 }, SALT: { ko: '암염 광맥', like: 'STONE', t: 2.0, tier: 1 },
+    HARD: { ko: '경암', like: 'STONE', t: 4.0, tier: 2 }, HOT: { ko: '뜨거운 바위', like: 'STONE', t: 4.0, tier: 2 }, RARE: { ko: '희귀 광물', like: 'STONE', t: 6.0, tier: 3 },
+    BEDROCK: { ko: '천장·가장자리 암반', like: 'STONE', t: null, tier: null }, RAFT: { ko: '탐사정 판', like: 'STONE', t: null, tier: null },
+    METAL: { ko: '철판(코어 선체)', cell: 'METAL', rho: 7.87, c: 0.45, k: 80, t: null, tier: null },
+    IRON: { ko: '철 광맥', like: 'METAL', t: 3.0, tier: 1 }, GOLD: { ko: '금 광맥', like: 'METAL', t: 5.0, tier: 2 },
+    VENT: { ko: '환기구(철망)', like: 'METAL', t: 0.6, tier: 0 }, DOOR: { ko: '문(닫힘)', like: 'METAL', t: 0.6, tier: 0 }, DOOR_OPEN: { ko: '문(열림)', like: 'METAL', t: 0.6, tier: 0 },
   };
+  C.TIER_NAME = ['맨손', '곡괭이', '철 곡괭이', '아직 없음'];
+  // 행 하나의 모든 속성(like를 따라가 물성을 채운다). from = 물성을 빌려 온 행의 키(자기 자신이면 null)
+  C.matProps = (key) => {
+    const row = C.MATERIALS[key]; if (!row) return null;
+    let base = row; while (base.like) base = C.MATERIALS[base.like];
+    return { key, ko: row.ko, cell: base.cell, rho: base.rho, c: base.c, k: base.k, t: row.t, tier: row.tier, from: row.like ? row.like : null };
+  };
+  // 칸 시뮬이 쓰는 종류별 물성(보기): ROCK·DIRT·SAND·ICE·METAL·WATER → 위 표의 원본 행
+  C.MATERIAL = {}; for (const key in C.MATERIALS) { const r = C.MATERIALS[key]; if (r.cell) C.MATERIAL[r.cell] = r; }
   // 확산 계수 D_GAS(mol·√(g/mol)/(atm·s)): 공기 중 N₂ 상호 확산 계수 D_AB = 2×10⁻⁵ m²/s, 칸 L_CELL, 293.15 K에서 환산한 값.      // 가정(임의값)
   //   Δn = (D_AB·L/(R_J·T))·Δp[Pa] 와 같아지도록 N₂(M = 28)에서 맞췄다. 실제 확산은 느려서 눈에 보이게 하려면 호출하는 쪽이 dt를 키운다.
   C.D_AB_AIR = 2e-5;

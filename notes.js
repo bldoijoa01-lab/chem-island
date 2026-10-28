@@ -60,9 +60,18 @@ window.Notes = (() => {
     A.set('n-fm', fm.toFixed(2) + ' mol/kg'); A.set('n-ft', C.coolTemp(ice, salt).toFixed(1) + ' ℃');
     A.set('n-fw', 'ΔTf = i·Kf·m (i=2, Kf=1.86). 이 계산기는 소금 상한 없이 식만 계산합니다(게임의 냉각 상자는 얼음 100 g당 30 g까지).');
   }
+  // 재료 도감(19단계): chem.js의 재료 표(MATERIALS)·기체 표(GAS_TABLE)를 그대로 보여 준다. 칸 값 읽기(cellsim.js)와 땅 파기(world.js)도 같은 표를 읽는다. 값은 여기서 다시 계산하지 않는다(밀도는 chem.js 함수)
+  function bookHtml() {
+    const rows = Object.keys(C.MATERIALS).map(key => { const p = C.matProps(key); return `<tr data-k="${key}"><td>${p.ko}</td><td data-f="rho">${p.rho}</td><td data-f="c">${(+p.c).toFixed(2)}</td><td data-f="k">${p.k}</td><td data-f="t">${p.t === null ? '못 팜' : p.t}</td><td data-f="tier">${p.tier === null ? '—' : C.TIER_NAME[p.tier]}</td><td>${p.cell}${p.from ? ' (물성: ' + C.MATERIALS[p.from].ko + ' 행)' : ''}</td></tr>`; }).join('');
+    const gas = C.GASES.map(g => { const t = C.GAS_TABLE[g]; return `<tr data-g="${g}"><td>${t.ko}</td><td data-f="M">${t.M}</td><td data-f="cv">${(t.cv * C.R_J).toFixed(2)}</td><td data-f="rho">${C.gasDensity(1, t.M, 20).toFixed(3)}</td></tr>`; }).join('');
+    return `<div class="warnbox">재료·기체의 모든 성질은 chem.js의 표 하나(MATERIALS·GAS_TABLE)에서 나옵니다. 모든 값은 <b>게임 설정(가정)</b>이고, 밀도·비열·열전도율은 대표값을 반올림했어요. '파는 시간'과 '필요한 도구'는 땅 파기 규칙의 값입니다(도구 단계 0 맨손, 1 곡괭이, 2 철 곡괭이, 3 아직 없음).</div>
+      <table class="ntab"><tr><th>재료</th><th>밀도 (g/cm³)</th><th>비열 (J/(g·K))</th><th>열전도율 (W/(m·K))</th><th>파는 시간 (초)</th><th>필요한 도구</th><th>칸 시뮬 종류</th></tr>${rows}</table>
+      <table class="ntab"><tr><th>기체</th><th>몰 질량 (g/mol)</th><th>몰 열용량 Cv (J/(mol·K))</th><th>밀도 (g/L, 1 atm·20 ℃)</th></tr>${gas}</table>
+      <div class="mut">기체 칸의 열전도율은 조성과 무관하게 ${C.K_GAS} W/(m·K), 칸 하나의 부피는 ${C.V_CELL} L입니다(게임 설정, 가정). 몰 열용량은 이상 기체의 자유도로 환산한 값(진동 무시)입니다.</div>`;
+  }
   function open(a) {
     A = a;
-    const tabs = { 연결도: linksHtml, 계산기: calcHtml };
+    const tabs = { 연결도: linksHtml, 계산기: calcHtml, '재료 도감': bookHtml };
     A.openModal('📖 연구 노트', `<div class="tabs">${Object.keys(tabs).map((k, n) => `<button class="${n ? '' : 'on'}" onclick="Notes.tab('${k}',this)">${k}</button>`).join('')}</div>
       <div id="n-body">${linksHtml()}</div>
       <div class="warnbox">‘구현’은 이 게임의 규칙에 실제로 반영되었는지를 뜻합니다. 모든 규칙은 chem.js 한 곳에서 계산됩니다.</div>`);

@@ -25,7 +25,9 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   // 허브 정거장(plaza)과 원정 행성(alpine·polar)은 옛 방식의 유한 맵(MAP 배열 + S.dug)이다. 모든 크기·확률·좌표는 가정(임의값)이다.
   const AIR = 0, GRASS = 1, DIRT = 2, STONE = 3, SAND = 4, SNOWTOP = 5, ICE = 6, WATER = 7, RAFT = 8, HULL = 9, HATCH = 10, BEDROCK = 11, HARD = 12, SALT = 13, IRON = 14, GOLD = 15, HOT = 16, RARE = 17;
   // HULL: 코어 선체(단단하고 못 판다) · HATCH: 코어 해치(지나갈 수 있음) · BEDROCK: 천장·가장자리 암반(못 판다) · HARD 경암 · SALT 암염 광맥 · IRON 철 광맥 · GOLD 금 광맥 · HOT 뜨거운 바위 · RARE 희귀 광물
-  const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1];
+  // 19단계 칸 시뮬: VENT 환기구(플레이어는 못 지나가고 기체·열은 지난다) · DOOR 닫힌 문 · DOOR_OPEN 열린 문(지나갈 수 있다). 저장은 기존 판 칸 RLE(타일 번호 + 1)라 형식은 그대로다
+  const VENT = 18, DOOR = 19, DOOR_OPEN = 20;
+  const SOLID = [0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0];
   // 유한 맵(허브·원정 행성): 크기 dim, 타일 MAP, 자연 지형 BASE, 열별 지표 높이 GY(지하 맵은 0), 자원 OBJS. 행성이 바뀌면 applyDug가 같은 배열을 제자리에서 다시 채운다.
   const dim = { W: 112, H: 56 };
   let MAP = new Uint8Array(dim.W * dim.H), BASE = MAP, loaded = '';
@@ -176,9 +178,11 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if ((dx < 0 && lx === 0) || (dx > 0 && lx === 31) || (dy < 0 && ly === 0) || (dy > 0 && ly === 31)) { const n = chunks.get((c.cx + dx) + ',' + (c.cy + dy)); if (n) n.dirty = true; }
   }
   // 구역 온도(가정(임의값)): 행성 암반 12 ℃(UNDER_T) + 행성 보정(ENV.dT), 얼음 광맥 방 −15 ℃, 뜨거운 바위 방 45 ℃. d가 없으면 플레이어가 서 있는 자리. 칸 시뮬(19단계)이 오면 칸 온도로 바뀐다
+  const cellHooks = { temp: null, edit: null };   // 19단계 칸 시뮬(cellsim.js)이 끼우는 고리: temp(x, y) = 칸 온도(없으면 undefined), edit(x, y, 옛 타일, 새 타일) = 칸이 바뀜
   function ambientAt(S, d, tx, ty) {
     const pl = d ? (d.pl || 'start') : Sim.dockOf(S).island;
     const x = d ? d.x : tx !== undefined ? tx : Math.floor((S.px + PW / 2) / T), y = d ? d.y : ty !== undefined ? ty : Math.floor((S.py + PH / 2) / T);
+    if (pl === 'start' && cellHooks.temp) { const v = cellHooks.temp(x, y); if (v !== undefined) return v; }   // 칸 시뮬이 켜져 있으면 그 자리의 칸 온도
     if (pl === 'start') { const f = getChunk(x >> 5, y >> 5).feat; if (f && x >= f.x0 && x <= f.x1 && y >= f.y0 && y <= f.y1 + 1) { if (f.kind === 'icecrystal') return ICE_ZONE_T; if (f.kind === 'geyser') return HOT_ZONE_T; } }
     else if (pl !== 'plaza') for (const z of FIN_ZONES[pl] || []) if (z.kind === 'icecrystal' && x >= z.x0 && x <= z.x1 && y >= z.y0 && y <= z.y1 + 1) return ICE_ZONE_T;
     return UNDER_T + Sim.ENV[pl].dT;
@@ -278,13 +282,16 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   // ---------- 땅 파기 · 블록 놓기 ----------
   // 타일별 [얻는 아이템, 1회 양, 파는 데 걸리는 시간(초, 꾹 누르기), 필요한 도구 단계]. 시간·단계는 가정(임의값), DESIGN.md §4-24 표.
   // 도구 단계: 0 맨손 · 1 곡괭이 · 2 철 곡괭이(기술 노드 T4가 여는 제작법) · 3 아직 없음
-  const DIG = {
-    [GRASS]: { item: 'dirt', t: 0.5, tier: 0 }, [DIRT]: { item: 'dirt', t: 0.5, tier: 0 }, [SAND]: { item: 'sand', t: 0.4, tier: 0 },
-    [SNOWTOP]: { item: 'ice', t: 0.8, tier: 0 }, [ICE]: { item: 'ice', t: 1.0, tier: 0 },
-    [STONE]: { item: 'stone', t: 2.0, tier: 1 }, [SALT]: { item: 'salt', n: 30, t: 2.0, tier: 1 }, [IRON]: { item: 'iron', t: 3.0, tier: 1 },
-    [HARD]: { item: 'stone', t: 4.0, tier: 2 }, [GOLD]: { item: 'gold', t: 5.0, tier: 2 }, [HOT]: { item: 'stone', t: 4.0, tier: 2 },
-    [RARE]: { item: 'rare', t: 6.0, tier: 3 },
-  };
+  // 파는 시간·도구 단계는 chem.js의 재료 표(Chem.MATERIALS: t, tier) 한 곳에서 읽는다(19단계 재료 도감과 같은 값). 여기서는 타일 → 표의 행 + 얻는 아이템(+1회 양)만 정한다
+  const DIG = {};
+  for (const [id, key, item, n] of [[GRASS, 'GRASS', 'dirt'], [DIRT, 'DIRT', 'dirt'], [SAND, 'SAND', 'sand'], [SNOWTOP, 'SNOWTOP', 'ice'], [ICE, 'ICE', 'ice'], [STONE, 'STONE', 'stone'], [SALT, 'SALT', 'salt', 30], [IRON, 'IRON', 'iron'],
+    [HARD, 'HARD', 'stone'], [GOLD, 'GOLD', 'gold'], [HOT, 'HOT', 'stone'], [RARE, 'RARE', 'rare'], [VENT, 'VENT', 'stone'], [DOOR, 'DOOR', 'stone'], [DOOR_OPEN, 'DOOR_OPEN', 'stone']]) {   // 놓은 환기구·문은 맨손으로 떼고 돌 1개를 돌려받는다(가정)
+    const m = Chem.MATERIALS[key]; DIG[id] = n ? { item, n, t: m.t, tier: m.tier } : { item, t: m.t, tier: m.tier };
+  }
+  // 타일 → 재료 표 행(칸 값 읽기·재료 도감용)
+  const TILE_KEY = { [AIR]: null, [GRASS]: 'GRASS', [DIRT]: 'DIRT', [STONE]: 'STONE', [SAND]: 'SAND', [SNOWTOP]: 'SNOWTOP', [ICE]: 'ICE', [WATER]: 'WATER', [RAFT]: 'RAFT', [HULL]: 'METAL', [HATCH]: null, [BEDROCK]: 'BEDROCK', [HARD]: 'HARD', [SALT]: 'SALT', [IRON]: 'IRON', [GOLD]: 'GOLD', [HOT]: 'HOT', [RARE]: 'RARE', [VENT]: 'VENT', [DOOR]: 'DOOR', [DOOR_OPEN]: 'DOOR_OPEN' };
+  // 19단계: 환기구·문은 가방 아이템이 아니라 재료를 바로 쓰는 특수 블록이다(칸 지도 창에서 고른다). 재료는 가정(임의값)
+  const SPECIAL = { vent: { id: VENT, name: '환기구', cost: { iron: 1, stone: 1 } }, door: { id: DOOR, name: '문', cost: { iron: 2, stone: 1 } } };
   const toolTier = (S) => S.inv.ironpick > 0 ? 2 : S.inv.pickaxe > 0 ? 1 : 0;
   const BLOCK = { dirt: DIRT, stone: STONE, sand: SAND };   // 가방에서 꺼내 놓을 수 있는 블록
   const TOOL = { shaker: 'salt', thermo: 'thermo' };        // 가방 슬롯을 누르면 켜지는 도구 모드
@@ -308,7 +315,8 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     return { ok: true, def };
   }
   function setTile(S, tx, ty, id) {
-    if (inf) { setInfTile(S, tx, ty, id); delete S.melt['start:' + tx + ',' + ty]; return; }
+    const old = tileAt(tx, ty);
+    if (inf) { setInfTile(S, tx, ty, id); delete S.melt['start:' + tx + ',' + ty]; if (cellHooks.edit && old !== id) cellHooks.edit(tx, ty, old, id); return; }
     const k = ty * dim.W + tx;
     MAP[k] = id; delete S.melt[DK(k)];
     if (BASE[k] === id) delete S.dug[DK(k)]; else S.dug[DK(k)] = id;
@@ -328,16 +336,38 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     say(`${ITEM[c.def.item][1]} +${n}`);
   }
   // 블록 놓기. 놓기 모드를 끝내야 하면 true(가방에 없을 때·다 썼을 때)
+  // 블록을 놓을 수 있는 자리인가: 안 되면 이유(문장), 되면 ''. 블록·환기구·문이 같이 쓴다
+  function placeCheck(S, tx, ty) {
+    if (tileAt(tx, ty) !== AIR || (!inf && (ty >= dim.H || tx < 0 || tx >= dim.W))) return '빈 공간에만 놓을 수 있습니다.';
+    if (!inReach(S, tx, ty)) return '너무 멉니다.';
+    if (inCore(S, tx, ty)) return '코어 자리에는 놓을 수 없습니다.';
+    if (tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) return '내가 서 있는 자리에는 놓을 수 없습니다.';
+    if (devHere(S).some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || objsNearTile(tx, ty).some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) return '장치나 자원 자리에는 놓을 수 없습니다.';
+    if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) return '땅에 닿은 곳에만 놓을 수 있습니다.';
+    return '';
+  }
   function placeBlock(S, item, tx, ty) {
     if (!(S.inv[item] >= 1)) { say(`${ITEM[item][1]}이(가) 없습니다.`); return true; }
-    if (tileAt(tx, ty) !== AIR || (!inf && (ty >= dim.H || tx < 0 || tx >= dim.W))) { say('빈 공간에만 놓을 수 있습니다.'); return false; }
-    if (!inReach(S, tx, ty)) { say('너무 멉니다.'); return false; }
-    if (inCore(S, tx, ty)) { say('코어 자리에는 놓을 수 없습니다.'); return false; }
-    if (tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) { say('내가 서 있는 자리에는 놓을 수 없습니다.'); return false; }
-    if (devHere(S).some(d => tx >= d.x && tx <= d.x + 1 && ty >= d.y && ty <= d.y + 1) || objsNearTile(tx, ty).some(o => ty >= o.y - 3 && ty < o.y && tx >= o.x - 1 && tx <= o.x + 2)) { say('장치나 자원 자리에는 놓을 수 없습니다.'); return false; }
-    if (!(solidAt(tx - 1, ty) || solidAt(tx + 1, ty) || solidAt(tx, ty - 1) || solidAt(tx, ty + 1))) { say('땅에 닿은 곳에만 놓을 수 있습니다.'); return false; }
+    const why = placeCheck(S, tx, ty); if (why) { say(why); return false; }
     S.inv[item]--; setTile(S, tx, ty, BLOCK[item]);
     return S.inv[item] < 1;
+  }
+  // 19단계: 환기구·문 놓기(재료를 바로 쓴다). 성공하면 true
+  function placeSpecial(S, kind, tx, ty) {
+    const sp = SPECIAL[kind]; if (!sp) return false;
+    if (!Object.entries(sp.cost).every(([k, v]) => (S.inv[k] || 0) >= v)) { say(`${sp.name}을(를) 놓을 재료가 부족합니다. (${Object.entries(sp.cost).map(([k, v]) => ITEM[k][1] + ' ' + v).join(' + ')})`); return false; }
+    const why = placeCheck(S, tx, ty); if (why) { say(why); return false; }
+    for (const [k, v] of Object.entries(sp.cost)) S.inv[k] -= v;
+    setTile(S, tx, ty, sp.id); say(`${sp.name}을(를) 놓았습니다.`);
+    return true;
+  }
+  // 19단계: 문 열고 닫기. 닫을 때 내가 서 있으면 거절. 바뀌었으면 true
+  function toggleDoor(S, tx, ty) {
+    const id = tileAt(tx, ty); if (id !== DOOR && id !== DOOR_OPEN) return false;
+    if (!inReach(S, tx, ty)) { say('너무 멉니다.'); return false; }
+    if (id === DOOR_OPEN && tx * T < S.px + PW && tx * T + T > S.px && ty * T < S.py + PH && ty * T + T > S.py) { say('문 자리에 서 있는 동안은 닫을 수 없어요.'); return false; }
+    setTile(S, tx, ty, id === DOOR ? DOOR_OPEN : DOOR); say(id === DOOR ? '문을 열었습니다.' : '문을 닫았습니다.');
+    return true;
   }
 
   // ---------- 도구: 소금 뿌리개 · 온도계 (곡괭이는 돌을 팔 때 자동으로 쓰인다) ----------
@@ -499,8 +529,8 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   const planet = () => loaded;
   return {
     T, dim, genPlanet, PW, PH, REACH, ITEM, ICE_TILE_G, SHAKE_G, UNDER_T, ICE_ZONE_T, HOT_ZONE_T, CHUNK, LIMIT, CEIL, SEED, SAVE_CAP,
-    AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, BEDROCK, HARD, SALT, IRON, GOLD, HOT, RARE, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
-    tileAt, solidAt, isOpen, applyDug, DIG, BLOCK, TOOL, UG_NAME, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock, toolTier,
+    AIR, GRASS, DIRT, STONE, SAND, SNOWTOP, ICE, WATER, RAFT, HULL, HATCH, BEDROCK, HARD, SALT, IRON, GOLD, HOT, RARE, VENT, DOOR, DOOR_OPEN, SPECIAL, cellHooks, placeSpecial, toggleDoor, placeCheck, SOLID, get MAP() { return MAP; }, GY, OBJS, NODE,
+    tileAt, solidAt, isOpen, applyDug, DIG, TILE_KEY, BLOCK, TOOL, UG_NAME, dig, inReach, holdsThing, digCheck, setTile, stepDig, placeBlock, toolTier,
     CORE, coreTile, inCore, ambientAt, tileTemp, devHere, mobHere, useThermo, useShaker, objCenter, nearWater, wolfPos, targets, ghostCheck, deviceAt, collides, stepPlayer,
     getChunk, objsIn, featureAt, applyWorldDelta, resetWorldState, thumb, worldSize, isInfinite, planet, rleEncode, rleDecode, pickFeature, ZONES, STARTERS,
   };

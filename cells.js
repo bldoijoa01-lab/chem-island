@@ -1,6 +1,6 @@
 // 칸 시뮬레이션 코어 (18단계, DESIGN.md §4-28): 열 전도(A) · 기체 확산(B) · 밀도에 따른 층(C).
 // window·DOM·캔버스·난수를 쓰지 않는다(같은 입력이면 같은 결과, Node에서도 같다). 화학 식과 상수는 모두 chem.js(Chem)에서 부르고 여기서 새로 만들지 않는다.
-// 화면에는 아직 연결하지 않는다(19단계). index.html도 이 파일을 불러오지 않는다.
+// 화면 연결은 cellsim.js(19단계)가 한다. 이 파일은 DOM 없이 Node에서도 돈다.
 // 한 걸음 `step(dt)` = ① 열 전도 → ② 기체 확산 → ③ 밀도층. 각 단계는 그 시점의 스냅샷에서 모든 경계의 이동량을 먼저 구한 뒤 한꺼번에 적용한다(순서 의존 없음).
 (function (root) {
   const C = (typeof module !== 'undefined' && module.exports) ? require('./chem.js') : root.Chem;
@@ -72,6 +72,12 @@
     // 보존량(고정 칸 제외): 총 몰수(gas 이름을 주면 그 기체만), 총 열에너지 Σ C·T(K)
     moles(gas) { let s = 0; for (let i = 0; i < this.N; i++) { const p = PROP[this.kind[i]]; if (!p.open || p.fixed) continue; if (gas === undefined) s += this.nTot(i); else s += this.n[i * NG + G.indexOf(gas)]; } return s; }
     energy() { let s = 0; for (let i = 0; i < this.N; i++) { if (PROP[this.kind[i]].fixed) continue; s += this.cap(i) * (this.T[i] + 273.15); } return s; }
+    // 칸 하나를 읽는다(19단계 칸 값 읽기·지도 색이 모두 이 함수를 거친다): 종류, 열린 칸 여부, 온도 ℃, 총압 atm, 기체별 분압 atm·몰분율, 총 몰수
+    probe(x, y) {
+      const i = this.idx(x, y), p = PROP[this.kind[i]], o = { kind: NAMES[this.kind[i]], open: p.open, fixed: p.fixed, T: this.T[i], P: 0, n: 0, partial: {}, frac: {} };
+      if (p.open) { o.n = this.nTot(i); o.P = this.pressure(i); for (let k = 0; k < NG; k++) { o.partial[G[k]] = this.partial(i, k); o.frac[G[k]] = o.n > 0 ? this.n[i * NG + k] / o.n : 0; } }
+      return o;
+    }
     // 비트 단위 비교용 복사본(결정성 시험)
     state() { return { kind: this.kind.slice(), T: this.T.slice(), n: this.n.slice() }; }
 
