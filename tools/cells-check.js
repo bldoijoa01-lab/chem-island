@@ -262,6 +262,36 @@ function PROP(g, i) { return Cells.PROP[g.kind[i]]; }
   const N = Cells.NOTES;
   ok('NOTES 보강: 분압 차 근사의 한계(diffusion)와 내부 에너지만 이동(energy, 엔탈피·pV)과 편집 규칙(edit: 진공·방출)이 각각 한 줄 있음', /분압 차 하나로 근사한다/.test(N.diffusion) && /엔탈피가 아니라 내부 에너지/.test(N.energy) && /pV/.test(N.energy) && /진공/.test(N.edit) && /방출/.test(N.edit) && /열린 이웃/.test(N.edit));
 }
+
+// ---- 12-a 호흡 최소판 (DESIGN §4-32): remove·inject·식·반응열 ----
+{
+  const air = (T = 20) => Cells.airMoles(1, T);
+  const g = new Cells.Grid(2, 1); g.fill(0, 0, 2, 1, 'AIR', 20, air()); g.set(1, 0, 'ROCK', 20);
+  const n0 = g.n[1 * 0 + 1], T0 = g.T[0];   // O2는 가스 순서의 둘째
+  const took = g.remove(0, 0, 'O2', 0.1), nO2 = g.n[1];
+  ok('remove: 열린 칸에서 O₂를 mol만큼 빼고 온도는 그대로, sunk 장부에 쌓인다', Math.abs(took - 0.1) < 1e-15 && Math.abs(n0 - nO2 - 0.1) < 1e-12 && g.T[0] === T0 && Math.abs(g.sunk.O2 - 0.1) < 1e-15);
+  ok('remove: 있는 만큼만 뺀다(없으면 0), 고체 칸은 0', Math.abs(g.remove(0, 0, 'O2', 1e6) - nO2) < 1e-12 && g.n[1] === 0 && g.remove(1, 0, 'O2', 1) === 0);
+  const h = new Cells.Grid(1, 1); h.set(0, 0, 'AIR', 12, air(12));
+  const E0 = h.energy(), mol = Chem.OXY_MOL_O2, heat = Chem.oxyHeatJ(), Cv = Chem.CV_GAS.O2;
+  h.inject(0, 0, 'O2', mol, heat);
+  const dE = h.energy() - E0, want = mol * Cv * (12 + 273.15) + heat;
+  ok('inject: 에너지 변화 = n·Cv·T + 반응열, sourced·chemJ 장부', Math.abs(dE - want) < 1e-6 * want && Math.abs(h.sourced.O2 - mol) < 1e-15 && Math.abs(h.chemJ - heat) < 1e-9, dE + ' vs ' + want);
+  ok('inject: 넣은 칸의 온도가 올라가고 O₂ 몰분율이 커진다', h.T[0] > 12 && h.probe(0, 0).frac.O2 > Cells.AIR_MIX.O2);
+  ok('산소석 반응열: 2 NaClO₃ → 2 NaCl + 3 O₂, O₂ 1 mol당 30.27 kJ(생성 엔탈피 −365.8·−411.2에서 손계산)', Math.abs(Chem.oxyHeatPerMol() - 30266.667) < 0.01 && Math.abs(Chem.oxyHeatJ() - 0.3 * 30266.667) < 0.01);
+  // 닫힌 방(8칸)에 주입 → 전도·확산으로 균일해진 온도 = (처음 에너지 + 넣은 에너지)/(새 열용량)
+  const r = new Cells.Grid(4, 2); r.fill(0, 0, 4, 2, 'AIR', 12, air(12));
+  const Er0 = r.energy(), n0O = r.moles('O2');
+  r.inject(0, 0, 'O2', mol, heat); r.run(1800, 400);
+  let mn = 1e9, mx = -1e9, cap = 0; for (let i = 0; i < r.N; i++) { mn = Math.min(mn, r.T[i]); mx = Math.max(mx, r.T[i]); cap += r.cap(i); }
+  ok('방에 산소석을 넣으면 열이 퍼져 온도가 균일해지고(최대 − 최소 < 1e-6 K), 에너지는 넣은 만큼만 늘어난다', mx - mn < 1e-6 && Math.abs((r.energy() - Er0) - want) < 1e-6 * want && Math.abs(r.moles('O2') - n0O - mol) < 1e-12, [mx - mn, r.energy() - Er0, want].join(' '));
+  // 호흡 소비로 방 평균 P_O₂가 기준 아래로 내려가는 시간 = 식 C.minutesToPO2
+  const room = new Cells.Grid(4, 3); room.fill(0, 0, 4, 3, 'AIR', 12, air(12));
+  const V = 12 * Chem.V_CELL, nO2Room = room.moles('O2'), tPred = Chem.minutesToPO2(nO2Room, V, 12);
+  let minutes = 0, meanP = () => { let n = 0; for (let i = 0; i < room.N; i++) n += room.n[i * 4 + 1]; return Chem.partial(n, V, 12 + 273.15); };
+  while (meanP() >= Chem.BREATH_PO2 && minutes < 1000) { room.remove(0, 0, 'O2', Chem.BREATH_O2_MOL_PER_MIN * 0.1); room.step(60 * 0.1 * 60); minutes += 0.1; }
+  ok('호흡 소비: 방 평균 P_O₂가 0.16 atm 아래로 내려가는 시간이 식(minutesToPO2)과 1 % 안에서 같다', Math.abs(minutes - tPred) / tPred < 0.01, minutes.toFixed(2) + ' vs ' + tPred.toFixed(2));
+  ok('식의 경계: 이미 기준 미만이면 0분, 소비율이 두 배면 시간이 절반', Chem.minutesToPO2(0.5, V, 12) === 0 && Math.abs(Chem.minutesToPO2(nO2Room, V, 12, 0.04) * 2 - tPred) < 1e-9);
+}
 console.log(`\n${total - fail} / ${total} 통과`);
 if (fail) { console.error(`칸 시뮬 점검 실패 ${fail}건`); process.exit(1); }
 console.log('칸 시뮬 점검 모두 통과');

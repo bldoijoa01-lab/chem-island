@@ -9,7 +9,7 @@ window.World = (() => {
   const fmt = (v, d = 1) => Number(v).toFixed(d);
 // 아이템: [아이콘 키, 이름, 단위]
 const ITEM = {
-  stick: ['stick', '나뭇가지', '개'], sand: ['sand', '모래', '개'], sea: ['sea', '바닷물(200 g)', '통'],
+  stick: ['stick', '나뭇가지', '개'], oxystone: ['oxystone', '산소석', '개'], sand: ['sand', '모래', '개'], sea: ['sea', '바닷물(200 g)', '통'],
   ice: ['ice', '얼음(100 g)', '개'], bottle: ['bottle', '유리병', '개'], syringe: ['syringe', '주사기', '개'],
   sugar: ['sugar', '설탕', 'g'], salt: ['salt', '소금', 'g'], water: ['water', '증류수', 'g'],
   noodle: ['noodle', '면', '개'], ramen: ['ramen', '라면', '개'],
@@ -178,7 +178,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
     for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) if ((dx < 0 && lx === 0) || (dx > 0 && lx === 31) || (dy < 0 && ly === 0) || (dy > 0 && ly === 31)) { const n = chunks.get((c.cx + dx) + ',' + (c.cy + dy)); if (n) n.dirty = true; }
   }
   // 구역 온도(가정(임의값)): 행성 암반 12 ℃(UNDER_T) + 행성 보정(ENV.dT), 얼음 광맥 방 −15 ℃, 뜨거운 바위 방 45 ℃. d가 없으면 플레이어가 서 있는 자리. 칸 시뮬(19단계)이 오면 칸 온도로 바뀐다
-  const cellHooks = { temp: null, edit: null };   // 19단계 칸 시뮬(cellsim.js)이 끼우는 고리: temp(x, y) = 칸 온도(없으면 undefined), edit(x, y, 옛 타일, 새 타일) = 칸이 바뀜
+  const cellHooks = { temp: null, edit: null, speed: null };   // 19단계 칸 시뮬(cellsim.js)이 끼우는 고리: temp(x, y) = 칸 온도(없으면 undefined), edit(x, y, 옛 타일, 새 타일) = 칸이 바뀜
   function ambientAt(S, d, tx, ty) {
     const pl = d ? (d.pl || 'start') : Sim.dockOf(S).island;
     const x = d ? d.x : tx !== undefined ? tx : Math.floor((S.px + PW / 2) / T), y = d ? d.y : ty !== undefined ? ty : Math.floor((S.py + PH / 2) / T);
@@ -458,7 +458,7 @@ const ICE_TILE_G = 100;   // 가정(임의값) 얼음·눈 타일 1칸의 질량
   function stepPlayer(S, dt, input, st) {
     const { ax, jump } = input;
     const inW = tileAt(Math.floor((S.px + PW / 2) / T), Math.floor((S.py + PH / 2) / T)) === WATER;
-    S.vx = ax * (inW ? 42 : 72);
+    S.vx = ax * (inW ? 42 : 72) * (cellHooks.speed ? cellHooks.speed() : 1);   // 12-a: 호흡 기준 미만이면 느려진다(칸 시뮬이 켜져 있을 때만)
     if (ax) S.face = ax;
     if (jump) {
       if (st.onGround) { S.vy = -270; st.onGround = false; }   // 바닥을 딛고 있으면 물속에서도 뛴다(자동 오르기가 없으니 물가 한 칸 턱을 넘으려면 필요)

@@ -186,6 +186,25 @@
   C.CELL_TICK_MS = 250;                     // 칸 시뮬 한 걸음의 실제 주기(4 Hz)
   C.CELL_SECONDS_PER_REAL = 120;            // 게임 속도 x1에서 실제 1초 = 게임 120초(1분이 0.5초)
 
+  // ---- 12-a 호흡 최소판 (DESIGN §4-32): 방의 O₂ 분압으로 숨 쉴 수 있는지 판정, 산소석(NaClO₃ 분해) ----
+  C.BREATH_PO2 = 0.16;                      // atm, 호흡 기준 O₂ 분압(해수면 0.21). 게임 설정(가정): 사람마다 다르며 약 0.16 atm(1 atm 기준 O₂ 약 16 %) 아래부터 저산소 증상      [#9~#12]
+  C.BREATH_SLOW = 0.5;                      // 기준 미만일 때 걷는 속도 배율(가정)
+  C.BREATH_O2_MOL_PER_MIN = 0.02;           // mol/min, 한 사람의 호흡 O₂ 소비(게임 시간 기준). 실제 성인은 활동에 따라 약 0.01~0.02 mol/min, 게임 시계가 시간을 압축한다(가정). 생성되는 CO₂는 12-b에서
+  C.OXY_MOL_O2 = 0.30;                      // mol, 산소석 한 개가 내는 O₂(가정)
+  C.OXY_GIFT = 4; C.OXY_QUIZ_REWARD = 2;    // 칸 지도를 처음 켤 때 받는 개수, 예측 퀴즈 보상(가정)
+  C.QUIZ_TOL = 0.05;                        // 예측 오차 허용 5 %(가정, 20단계 기술 트리의 예측 검증과 같은 값)
+  // 2 NaClO₃(s) → 2 NaCl(s) + 3 O₂(g): 표준 생성 엔탈피 ΔHf(kJ/mol)는 교과서 대표값을 반올림한 값(NaClO₃ −365.8, NaCl −411.2, O₂ 0)     [#25]
+  C.DHF = { NaClO3: -365.8, NaCl: -411.2 };
+  C.oxyHeatPerMol = () => -(2 * C.DHF.NaCl - 2 * C.DHF.NaClO3) / 3 * 1000;   // J per mol O₂ 방출(발열이라 양수) = (2ΔHf(NaClO₃) − 2ΔHf(NaCl))/3
+  C.oxyHeatJ = (molO2 = C.OXY_MOL_O2) => molO2 * C.oxyHeatPerMol();           // J
+  C.breathable = (pO2) => pO2 >= C.BREATH_PO2;
+  C.poO2 = (nO2, V, Tc) => C.partial(nO2, V, Tc + 273.15);   // atm, 부피 V(L)·온도 Tc(℃) 방의 O₂ 분압 P = nRT/V
+  // 닫힌 방(부피 V L, 온도 Tc ℃, O₂ nO2 mol)에서 호흡 소비율 rate(mol/min)로 O₂ 분압이 thr 아래로 내려가기까지 걸리는 게임 시간(분). P_O₂ = n·R·T/V (일정한 T·V)
+  C.minutesToPO2 = (nO2, V, Tc, rate = C.BREATH_O2_MOL_PER_MIN, thr = C.BREATH_PO2) => {
+    const nThr = thr * V / (C.R * (Tc + 273.15));
+    return nO2 <= nThr ? 0 : (nO2 - nThr) / rate;
+  };
+
   if (typeof module !== 'undefined' && module.exports) module.exports = C;
   root.Chem = C;
 })(typeof window !== 'undefined' ? window : globalThis);

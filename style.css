@@ -120,3 +120,11 @@ textarea { width: 100%; min-height: 60px; background: #0a0f1d; color: var(--text
 #cells-legend .cnote { margin-top: 4px; color: #c9d3ee; }
 #cells-modes[hidden], #cells-legend[hidden], #cells-tip[hidden] { display: none; }
 #cells-tip { position: fixed; z-index: 6; pointer-events: none; background: rgba(10, 16, 36, .94); border: 2px solid #ffd84a; padding: 4px 8px; font-size: 12px; line-height: 1.4; max-width: 280px; }
+
+/* 12-a 호흡 */
+#cells-modes .po2 { padding: 1px 6px; border: 1px solid #5b6b94; }
+#cells-modes .po2.ok { color: #9be58f; }
+#cells-modes .po2.bad { color: #fff; background: #b02a2a; border-color: #ff8a8a; }
+#cells-legend .ruler { position: relative; }
+#cells-legend .mark { position: absolute; left: 22px; font-size: 10px; color: #ffd84a; transform: translateY(50%); white-space: nowrap; }
+#cells-tip .warn { color: #ff9a9a; }

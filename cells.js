@@ -49,6 +49,7 @@
       this.pin = new Float64Array(this.N).fill(NaN);      // 고정 온도 칸(화덕 열원 등): 값이 있으면 매 걸음 끝에 그 온도로 되돌리고 필요한 열을 heaterJ에 쌓는다
       this.heaterJ = 0;                                    // 고정 온도 칸이 받아 간 누적 열량(J, 열원 입력 장부). 닫힌 계의 에너지 변화 = heaterJ + 편집 장부
       this.ledger = [];                                    // 편집 장부(최근 100개)
+      this.sunk = {}; this.sourced = {}; this.chemJ = 0;   // 12-a 장부: 호흡으로 뺀 기체, 산소석 등이 넣은 기체(mol), 화학 반응열(J)
       this.released = { moles: 0, energy: 0 };             // 갇힌 칸이 고체가 될 때 외기로 방출된 누적 기체(mol)와 내부 에너지(J)
     }
     idx(x, y) { return y * this.w + x; }
@@ -77,6 +78,18 @@
       const i = this.idx(x, y), p = PROP[this.kind[i]], o = { kind: NAMES[this.kind[i]], open: p.open, fixed: p.fixed, T: this.T[i], P: 0, n: 0, partial: {}, frac: {} };
       if (p.open) { o.n = this.nTot(i); o.P = this.pressure(i); for (let k = 0; k < NG; k++) { o.partial[G[k]] = this.partial(i, k); o.frac[G[k]] = o.n > 0 ? this.n[i * NG + k] / o.n : 0; } }
       return o;
+    }
+    // 12-a 호흡·산소석(DESIGN §4-32): 열린 칸에서 기체를 mol만큼 뺀다(온도는 그대로, 있는 만큼만). 뺀 몰수를 돌려주고 sunk 장부에 쌓는다
+    remove(x, y, gas, mol) {
+      const i = this.idx(x, y), s = G.indexOf(gas); if (s < 0 || !PROP[this.kind[i]].open || PROP[this.kind[i]].fixed || !(mol > 0)) return 0;
+      const take = Math.min(mol, this.n[i * NG + s]); this.n[i * NG + s] -= take; this.sunk[gas] = (this.sunk[gas] || 0) + take; return take;
+    }
+    // 열린 칸에 기체 mol(그 칸의 온도)과 화학 반응열 heatJ(J)를 넣는다. 새 온도 = (원래 에너지 + 넣은 기체의 내부 에너지 + 반응열)/(새 열용량). sourced·chemJ 장부에 기록
+    inject(x, y, gas, mol, heatJ = 0) {
+      const i = this.idx(x, y), s = G.indexOf(gas); if (s < 0 || !PROP[this.kind[i]].open || PROP[this.kind[i]].fixed || !(mol > 0)) return false;
+      const nArr = new Float64Array(NG); nArr[s] = mol;
+      this._addGas(i, nArr, mol * CV[s] * (this.T[i] + 273.15) + heatJ);
+      this.sourced[gas] = (this.sourced[gas] || 0) + mol; this.chemJ += heatJ; return true;
     }
     // 비트 단위 비교용 복사본(결정성 시험)
     state() { return { kind: this.kind.slice(), T: this.T.slice(), n: this.n.slice() }; }

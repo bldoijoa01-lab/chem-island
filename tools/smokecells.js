@@ -33,6 +33,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   // ---- 2. 켜기: 지도 모드 단추·눈금자·문구 ----
   await ev(() => CellSim.setOn(true)); await sleep(700);
   ok('켜면 모드 단추 줄이 보이고 시간 배율 ×60(게임 설정, 가정)이 적혀 있다', await ev(() => !document.getElementById('cells-modes').hidden && /×60/.test(document.getElementById('cells-modes').innerText) && /가정/.test(document.getElementById('cells-modes').innerText)));
+  ok('칸 지도를 처음 켜면 산소석 4개를 받는다(가정, 한 번만)', await ev(() => G.debug().inv.oxystone === 4 && G.debug().f.oxyGift === true));
   ok('일반 모드에서는 눈금자가 없다', await ev(() => document.getElementById('cells-legend').hidden));
   const legend = () => ev(() => ({ hidden: document.getElementById('cells-legend').hidden, text: document.getElementById('cells-legend').innerText, mode: CellSim.st.mode, bar: document.getElementById('cells-modes').innerText }));
   await page.click('#cells-modes button[data-m="temp"]'); await sleep(300);
@@ -66,6 +67,7 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   const room = await ev(() => { const g = CellSim.grid(), { ox, oy } = CellSim.win(), cells = []; for (let y = 1; y <= 2; y++) for (let x = 0; x <= 5; x++) cells.push([x, y]); const sealed = cells.every(([x, y]) => [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]].every(([a, b]) => cells.some(([c, d]) => c === a && d === b) || !g.probe(a - ox, b - oy).open)); return { sealed, n: cells.length, P: g.probe(2 - ox, 1 - oy).P, T: g.probe(2 - ox, 1 - oy).T }; });
   ok('코어(선체 + 해치 6×2칸)는 밀폐된 방이다(열린 이웃이 없음)', room.sealed, JSON.stringify(room));
   ok('처음 방: 1 atm, 12 ℃(구역 온도)', Math.abs(room.P - 1) < 0.01 && Math.abs(room.T - 12) < 0.01, JSON.stringify(room));
+  await ev(() => CellSim.setBreath(false));   // 12-a: 가열·보존 시험은 호흡 소비 없이(호흡은 아래 12-a 구역에서 따로 시험)
   await ev(() => { const S = G.debug(); Object.assign(S.inv, { stick: 40, sand: 30, bottle: 4 }); Sim.act.placeFree(S, 'fire', 1, 1, 'start'); const f = S.placed.find(d => d.id === 'fire'); Sim.act.fuel(S, f, 12); Sim.act.level(S, f, 3); });
   const spread = () => ev(() => { const g = CellSim.grid(), { ox, oy } = CellSim.win(), P = [], T = []; for (let y = 1; y <= 2; y++) for (let x = 0; x <= 5; x++) { const p = g.probe(x - ox, y - oy); P.push(p.P); T.push(p.T); } return { P: [Math.min(...P), Math.max(...P)], T: [Math.min(...T), Math.max(...T)] }; });
   const e0 = await ev(() => CellSim.grid().heaterJ), m0 = await ev(() => CellSim.grid().moles());
@@ -132,6 +134,62 @@ try { ({ chromium } = require('playwright')); } catch (e) { console.error('playw
   const msg2 = await ev(() => document.getElementById('cells-modes').innerText);
   ok('팀에서 시계 담당이 아니면 계산하지 않는다(걸음 수 불변) + "시계 담당 팀원이 계산해요"', team.steps === 0 && /시계 담당 팀원이 계산해요/.test(msg2), JSON.stringify([team, msg2]));
   await ev(() => { delete window.Team; });
+
+  // ---- 8-b. 12-a 호흡 최소판: 호흡 소비·기준 미만 감속·산소석·P_O₂ 지도·예측 퀴즈 ----
+  await ev(() => { CellSim.setOn(false); CellSim.setOn(true); CellSim.setBreath(true); window.__noteTick = () => { Sim.advance(G.debug(), 10); CellSim.tick(); }; });
+  await sleep(300);
+  await ev(() => { CellSim.tick(); });
+  const b0 = await ev(() => ({ sunk: CellSim.grid().sunk.O2 || 0, hook: World.cellHooks.speed(), ok: CellSim.breath.ok, po2: CellSim.breath.po2, r: CellSim.roomInfo() }));
+  ok('호흡 시작: 닫힌 방(12칸 1200 L), P_O₂ 0.21 atm 근처, 숨 쉴 수 있고 속도 배율 1', b0.r && b0.r.closed && Math.abs(b0.r.V - 1200) < 1e-6 && Math.abs(b0.po2 - 0.2115) < 0.005 && b0.ok && b0.hook === 1, JSON.stringify(b0));
+  await ev(() => { window.__noteTick(); });
+  const b1 = await ev(() => ({ sunk: CellSim.grid().sunk.O2 || 0 }));
+  ok('호흡 소비: 게임 10분에 O₂ 0.2 mol(0.02 mol/min × 10 min)이 소비 장부에 쌓인다', Math.abs((b1.sunk - b0.sunk) - 0.2) < 1e-6, JSON.stringify([b0.sunk, b1.sunk]));
+  const rr = await ev(() => CellSim.roomInfo());
+  ok('방 정보: 식(minutesToPO2)이 같은 값을 돌려준다(방 부피·O₂·온도·소비율에서)', await ev(() => { const r = CellSim.roomInfo(); return Math.abs(r.pred - Chem.minutesToPO2(r.nO2, r.V, r.Tc)) < 1e-9 && r.pred > 90 && r.pred < 130; }), JSON.stringify(rr));
+  // P_O₂ 지도 모드
+  await page.click('#cells-modes button[data-m="po2"]'); await sleep(300);
+  const lg = await legend();
+  ok('P_O₂ 지도 모드: 눈금자 0 ~ 0.3 atm, 호흡 기준 0.16 atm 표시선, 호흡 가정 문구', lg.mode === 'po2' && /O₂ 분압\(호흡\)/.test(lg.text) && /0\.30 atm|0\.3 atm/.test(lg.text) && /호흡 기준 0\.16 atm/.test(lg.text) && /게임 설정\(가정\)/.test(lg.text) && /CO₂는 아직 세지 않아/.test(lg.text), lg.text.slice(0, 200));
+  ok('모드 줄에 현재 P_O₂ 표시', await ev(() => /P_O₂ 0\.\d{3} atm/.test(document.getElementById('cells-modes').innerText)));
+  await hoverTile(3, 1);
+  ok('칸 값 말풍선에 호흡 판정(기준 0.16 atm, 가정)이 나온다', await ev(() => /호흡: 숨 쉴 수 있음 \(P_O₂ ≥ 0\.16 atm, 게임 설정\(가정\)\)/.test(document.getElementById('cells-tip').innerText)), await ev(() => document.getElementById('cells-tip').innerText));
+  await page.click('#cells-modes button[data-m="normal"]');
+  // 기준 미만: 방의 O₂를 줄이면 숨이 차고 걷는 속도가 절반
+  await ev(() => { const g = CellSim.grid(), w = CellSim.win(); for (let y = 1; y <= 2; y++) for (let x = 0; x <= 5; x++) { g.remove(x - w.ox, y - w.oy, 'O2', g.n[(g.idx(x - w.ox, y - w.oy)) * 4 + 1] * 0.3); } CellSim.tick(); });
+  const lowS = await ev(() => { const S = G.debug(); const v0 = { x: 0 }; S.vx = 0; World.stepPlayer(S, 0.016, { ax: 1, jump: false }, { onGround: true }); return { ok: CellSim.breath.ok, po2: CellSim.breath.po2, hook: World.cellHooks.speed(), vx: S.vx, txt: document.getElementById('cells-modes').innerText }; });
+  ok('기준(0.16 atm) 미만: 숨이 차요 경고, 걷는 속도 36 (= 72 × 0.5)', !lowS.ok && lowS.po2 < 0.16 && lowS.hook === 0.5 && Math.abs(lowS.vx) === 36 && /숨이 차요/.test(lowS.txt), JSON.stringify(lowS));
+  // 산소석으로 회복(반응열과 O₂ 몰수가 장부와 같다)
+  const ox0 = await ev(() => { const g = CellSim.grid(); return { n: g.moles('O2'), E: g.energy(), stones: G.debug().inv.oxystone, chem: g.chemJ }; });
+  await ev(() => { CellSim.useOxystone(); });
+  const ox1 = await ev(() => { const g = CellSim.grid(); return { n: g.moles('O2'), E: g.energy(), stones: G.debug().inv.oxystone, chem: g.chemJ, src: g.sourced.O2, T: g.probe(2 - CellSim.win().ox, 1 - CellSim.win().oy).T, want: Chem.oxyHeatJ(), wantE: 0.3 * Chem.CV_GAS.O2 * (12 + 273.15) + Chem.oxyHeatJ() }; });
+  ok('산소석 사용: 개수 −1, 방 O₂ +0.30 mol, 반응열 장부 9.08 kJ(2 NaClO₃ → 2 NaCl + 3 O₂)', ox1.stones === ox0.stones - 1 && Math.abs(ox1.n - ox0.n - 0.3) < 1e-9 && Math.abs(ox1.chem - ox0.chem - 9080) < 1e-6 && Math.abs(ox1.src - 0.3) < 1e-9, JSON.stringify([ox0, ox1]));
+  ok('산소석: 에너지 증가 = 넣은 O₂의 내부 에너지 + 반응열(보존)', Math.abs((ox1.E - ox0.E) - ox1.wantE) < 1e-3 * 9080, String(ox1.E - ox0.E));
+  await ev(() => { G.debug().inv.oxystone += 5; for (let k = 0; k < 6; k++) CellSim.useOxystone(); for (let i = 0; i < 4; i++) { Sim.advance(G.debug(), 5); CellSim.tick(); } });
+  ok('산소석을 더 쓰면(총 7개, 0.30 mol씩) 방 P_O₂가 기준 이상으로 돌아와 걷는 속도가 원래대로', await ev(() => CellSim.breath.ok && World.cellHooks.speed() === 1), JSON.stringify(await ev(() => [CellSim.breath.po2, CellSim.roomInfo().po2])));
+  ok('산소석 아이템: 이름·아이콘이 있다', await ev(() => World.ITEM.oxystone[1] === '산소석' && !!Art.icon.oxystone));
+  // 예측 퀴즈: 새 방(환경에서 다시 시작)에서 식 값으로 맞히면 성공(+2), 크게 틀리면 실패
+  await ev(() => { CellSim.setOn(false); CellSim.setOn(true); CellSim.setBreath(true); CellSim.tick(); });
+  const q0 = await ev(() => { const r = CellSim.roomInfo(); return { pred: r.pred, st: G.debug().inv.oxystone }; });
+  const bad = await ev(() => CellSim.startQuiz(-3));
+  ok('퀴즈: 양수가 아니면 거절한다', !bad.ok, JSON.stringify(bad));
+  const qs = await ev((g) => CellSim.startQuiz(g), Math.round(q0.pred));
+  ok('퀴즈 시작: 닫힌 방에서 예측(분)을 기록한다', qs.ok, JSON.stringify(qs));
+  await ev(() => { for (let i = 0; i < 40 && CellSim.quiz().status === 'running'; i++) { Sim.advance(G.debug(), 5); CellSim.tick(); } });
+  const qr = await ev(() => ({ q: CellSim.quiz(), st: G.debug().inv.oxystone, log: G.debug().log.filter(l => l.type === '예측 퀴즈').length }));
+  ok('퀴즈 결과: 실제 시간이 식 값과 같고(오차 5 % 이하) 성공 → 산소석 +2, 자동 기록', qr.q.status === 'done' && qr.q.result.ok && Math.abs(qr.q.result.elapsed - q0.pred) / q0.pred < 0.02 && qr.st === q0.st + 2 && qr.log === 1, JSON.stringify([qr.q.result, q0, qr.st]));
+  await ev(() => { CellSim.setOn(false); CellSim.setOn(true); CellSim.setBreath(true); CellSim.tick(); });
+  await ev((g) => CellSim.startQuiz(g), Math.round(q0.pred * 1.5));
+  await ev(() => { for (let i = 0; i < 60 && CellSim.quiz().status === 'running'; i++) { Sim.advance(G.debug(), 5); CellSim.tick(); } });
+  const qf = await ev(() => ({ r: CellSim.quiz().result, st: G.debug().inv.oxystone }));
+  ok('퀴즈: 50 % 틀리면 실패(보상 없음)하고 오차가 표시된다', qf.r && !qf.r.ok && qf.r.err > 0.2 && qf.st === qr.st, JSON.stringify(qf));
+  await ev(() => { World.setTile(G.debug(), 6, 1, 0); CellSim.tick(); });
+  const wide = await ev(() => { const r = CellSim.roomInfo(); World.setTile(G.debug(), 6, 1, World.DIRT); CellSim.tick(); return { cells: r.cells, V: r.V, closed: r.closed, back: CellSim.roomInfo().cells }; });
+  ok('방을 파서 넓히면 방 부피가 늘고(13칸 1300 L) 다시 막으면 12칸으로 돌아온다', wide.cells === 13 && wide.V === 1300 && wide.closed && wide.back === 12, JSON.stringify(wide));
+  // 호흡 끄기
+  await ev(() => { CellSim.setBreath(false); CellSim.tick(); });
+  const nb = await ev(() => { const g = CellSim.grid(), s0 = g.sunk.O2 || 0; Sim.advance(G.debug(), 10); CellSim.tick(); return { d: (g.sunk.O2 || 0) - s0, ok: CellSim.breath.ok, hook: World.cellHooks.speed() }; });
+  ok('호흡을 끄면 소비가 없고 속도 배율 1', nb.d === 0 && nb.ok && nb.hook === 1, JSON.stringify(nb));
+  await ev(() => CellSim.setBreath(true));
 
   // ---- 9. 칸 지도 창 문구 ----
   await ev(() => CellSim.open());

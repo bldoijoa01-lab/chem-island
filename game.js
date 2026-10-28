@@ -445,6 +445,7 @@ function drawHUD(t) {
     const x = 4 + (i % per) * SL, y = 4 + Math.floor(i / per) * SL, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);
     const s = String(it.n); drawText(s, x + 15 - textW(s), y + 10);
+    if (it.k === 'oxystone') HUD.hits.push({ x, y, w: 16, h: 16, fn: () => window.CellSim ? CellSim.useOxystone() : say('산소석은 칸 지도를 켠 뒤에 쓸 수 있어요.') });   // 12-a
     if (BLOCK[it.k]) HUD.hits.push({ x, y, w: 16, h: 16, fn: () => { mode = mode === 'block:' + it.k ? null : 'block:' + it.k; say(mode ? `${it.name}을(를) 놓을 곳을 클릭하세요. (ESC 취소)` : '취소'); } });
     if (TOOL[it.k]) HUD.hits.push({ x, y, w: 16, h: 16, fn: () => { const m = 'tool:' + TOOL[it.k]; mode = mode === m ? null : m; say(mode ? `${it.name}: 쓸 대상을 클릭하세요. (ESC 취소)` : '취소'); } });
     if (hov) HUD.tip = `${it.name} ${it.n}` + (BLOCK[it.k] ? ' (클릭: 놓기)' : TOOL[it.k] ? ' (클릭: 사용)' : it.k === 'pickaxe' ? ' (돌을 팔 때 자동 사용)' : '');
