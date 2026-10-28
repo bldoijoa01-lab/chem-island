@@ -106,3 +106,17 @@ textarea { width: 100%; min-height: 60px; background: #0a0f1d; color: var(--text
 #tut .row { margin-top: 6px; } #tut button { padding: 2px 8px; font-size: 12px; }
 #tut-chip { position: fixed; left: 12px; bottom: 96px; z-index: 4; padding: 2px 8px; font-size: 12px; }
 #hatch-sign { position: fixed; z-index: 3; transform: translate(0, -100%); background: rgba(10, 16, 36, .85); border: 2px solid #ffd84a; padding: 2px 6px; font-size: 12px; color: #ffe27a; pointer-events: none; white-space: nowrap; }
+
+/* 19단계 칸 지도: 모드 단추 줄 · 색 눈금자 · 칸 값 말풍선 */
+#cells-modes { position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%); z-index: 4; display: flex; gap: 4px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: 96vw; background: rgba(10, 16, 36, .88); border: 2px solid #5b6b94; padding: 3px 6px; font-size: 12px; }
+#cells-modes button { padding: 2px 8px; font-size: 12px; }
+#cells-modes button.on, .cs-m.on, .cs-s.on { background: #ffd84a; color: #1a1a2e; }
+#cells-modes .sep { width: 8px; }
+#cells-modes .st { margin-left: 6px; }
+#cells-legend { position: fixed; right: 6px; top: 74px; z-index: 4; width: 210px; max-height: calc(100vh - 140px); overflow: auto; background: rgba(10, 16, 36, .9); border: 2px solid #5b6b94; padding: 6px 8px; font-size: 11px; line-height: 1.4; }
+#cells-legend .ruler { display: flex; gap: 6px; height: 120px; margin: 4px 0; }
+#cells-legend .ruler i { display: block; width: 14px; border: 1px solid #fff6; }
+#cells-legend .ticks { display: flex; flex-direction: column; justify-content: space-between; }
+#cells-legend .cnote { margin-top: 4px; color: #c9d3ee; }
+#cells-modes[hidden], #cells-legend[hidden], #cells-tip[hidden] { display: none; }
+#cells-tip { position: fixed; z-index: 6; pointer-events: none; background: rgba(10, 16, 36, .94); border: 2px solid #ffd84a; padding: 4px 8px; font-size: 12px; line-height: 1.4; max-width: 280px; }

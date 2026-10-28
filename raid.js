@@ -252,7 +252,7 @@ window.Raid = (() => {
   function p3Add(k) {
     const caps = S().caps, i = caps.findIndex(c => c.k === k); if (i < 0) return;
     const c = caps.splice(i, 1)[0];
-    if (k === 'air') for (const g in C.AIR) R.n[g] += c.n * C.AIR[g]; else R.n[k] += c.n;
+    if (k === 'air') { const m = c.mix || C.AIR; for (const g in m) if (g in R.n) R.n[g] += c.n * m[g]; } else R.n[k] += c.n;   // 칸 시뮬이 담은 방 조성(mix)이 있으면 그것으로
     const { tot } = p3P();
     if (tot > C.PBURST) {
       A.logEv('대기 처리 코어 P3 폭발', `전체 압력 ${A.fmt(tot, 2)} atm > ${C.PBURST} atm`);

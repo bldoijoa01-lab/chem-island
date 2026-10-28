@@ -232,3 +232,8 @@ Argon은 **읽고 제안만 하는 검증 보조**다(비용 때문에 Flash 모
 - 맡길 일: (1) `sim.js`의 `migrateHubless`(본부에 있던 저장 → 내 월드 보급 모듈)가 재료·장치·목표·채집 기록을 잃지 않고 **두 번 실행돼도 같은 결과**인지 diff 리뷰. (2) 목표 1·4·6·8·10·11의 문구·힌트를 "본부" → "보급 모듈"로 바꾼 치환에서 **화학 설명(증류수 150 g + 소금 20 g, 한제 −10 ℃ 등)이 달라지지 않았는지**와 옛 표현이 남은 곳이 없는지 검토. (3) `game.js`의 팀 월드 위치 공유가 `x`에 +10000을 더해 규칙 범위(0..20000 px)를 지키는지.
 - 같이 붙일 파일(직접 첨부): `sim.js`, `world.js`(`MODULE_OBJS`·`moduleTile`), `game.js`(`mapNow`·`posPacket`), `tutorial.js`, `DESIGN.md` §4-30, `database.rules.json`(변경 없음)
 - 사람이 확인할 방법: `node tools/migrate-check.js`, `node tools/smokenew.js`(실제 키·마우스 입력으로 첫 목표까지), `node tools/smokeinvite.js`(team-{pid} 채널), `node tools/sim-check.js`(11개 그대로).
+
+### [2026-10-28] 19단계: 칸 시뮬 연결 — `sim.js` 교체 고리 diff, 편집 보존 규칙, 재료 표 통합의 정확성 (새 화학 식 없음)
+- 맡길 일: (1) `sim.js`의 고리 두 개(`Sim.geo.pressure`, `Sim.geo.airMix`)와 `world.js`의 `cellHooks`가 **꺼진 상태에서 옛 계산과 완전히 같은지** diff 리뷰. (2) `cells.js` `Grid.convert`(기체 → 고체: 열린 이웃에 몰수·내부 에너지를 같은 양씩 분배, 이웃이 없으면 외기 방출 장부 / 고체 → 기체: 진공)가 몰수·에너지를 보존하는지, "진공으로 두면 압력이 내려간다(보일 법칙)"의 설명이 과학적으로 맞는지. (3) `chem.js`의 재료·기체 표 통합(`MATERIALS`·`GAS_TABLE`)이 옛 값을 바꾸지 않았는지(밀도·비열·열전도율·몰 질량·몰 열용량 대조). (4) 지도 눈금자 범위(−20~100 ℃, 0~3 atm, 0~1.5 atm)와 시간 배율(×10/×60/×300)이 "게임 설정(가정)"으로만 표시되고 화학 법칙처럼 보이지 않는지.
+- 같이 붙일 파일(직접 첨부): `cellsim.js`, `cells.js`, `chem.js`(재료·기체 표), `sim.js`(`pAtm`·`cap`), `world.js`(`cellHooks`·`DIG`), `raid.js`(`p3Add`), `DESIGN.md` §4-29
+- 사람이 확인할 방법: `node tools/smokecells.js`, `node tools/cells-check.js`, `node tools/sim-check.js`(11개 그대로). 게임에서 오른쪽 위 [칸 지도] → 켜기 → 코어에서 화덕을 피우고 온도 지도로 방이 데워지는 것, 연구 노트 [재료 도감] 확인.

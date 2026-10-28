@@ -19,7 +19,7 @@ applyDug();
 let lastPlanet = Sim.dockOf(S).island, warp = null;
 Sim.geo.ambient = World.ambientAt;   // 17-a′: 장치·플레이어 자리의 구역 온도(낮밤 없음). 옆면 화면만 켠다(fp/td·시험은 옛 식 그대로)
 const applyWorld = () => { applyDug(); const h = Sim.dockOf(S).island; if (h !== lastPlanet) { lastPlanet = h; warp = { at: performance.now(), name: h === 'plaza' ? '본부' : h === 'start' ? '내 월드' : Sim.ISLANDS[h].name }; if (window.Net && Net.user) { const m = mapNow(); if (m) Net.joinMap(m, posPacket()); else Net.leaveMap(); } } };
-window.SideGame = { applyWorld: () => applyWorld(), cam: () => cam, scale: () => K };   // 17-b: 옆면 팀 모듈(team.js)이 팀 상태를 받은 뒤 지도를 다시 맞춘다
+window.SideGame = { applyWorld: () => applyWorld(), setMode: (m, msg) => { mode = m; $('modal').hidden = true; if (msg) say(msg); }, mouseTile: () => mouseTile(), cam: () => cam, scale: () => K };   // 17-b: 옆면 팀 모듈(team.js)이 팀 상태를 받은 뒤 지도를 다시 맞춘다
 
 // ---------- 땅 파기 · 블록 놓기 · 도구 (규칙은 world.js, 여기는 마우스 → 칸/대상 변환) ----------
 const mouseTile = () => [Math.floor((cam.x + mouse.x) / T), Math.floor((cam.y + mouse.y) / T)];
@@ -58,6 +58,7 @@ function placeAtMouse() { if (window.Team && Team.inParty()) Team.guard(placeNow
 function placeNow() {
   if (!mode) return;
   if (mode.startsWith('block:')) return placeBlock();
+  if (mode.startsWith('special:')) { const [tx, ty] = mouseTile(); if (World.placeSpecial(S, mode.slice(8), tx, ty)) mode = null; return flush(); }   // 19단계: 환기구·문(칸 지도 창)
   if (mode.startsWith('tool:')) return mode === 'tool:salt' ? useShaker() : useThermo();
   if (mode === 'demolish') {
     const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
@@ -107,6 +108,7 @@ cv.addEventListener('click', e => {
   const hit = HUD.hits.find(h => mouse.x >= h.x && mouse.x < h.x + h.w && mouse.y >= h.y && mouse.y < h.y + h.h);
   if (hit) return hit.fn();
   if (mode) return placeAtMouse();
+  { const [dx, dy] = mouseTile(), tid = World.tileAt(dx, dy); if ((tid === World.DOOR || tid === World.DOOR_OPEN) && !targets().some(o => Math.hypot(o.x - (cam.x + mouse.x), o.y - (cam.y + mouse.y)) < 26)) { const f = () => { World.toggleDoor(S, dx, dy); flush(); }; return window.Team && Team.inParty() ? Team.guard(f) : f(); } }   // 19단계: 문을 클릭해 열고 닫는다
   const wx = cam.x + mouse.x, wy = cam.y + mouse.y;
   const t = targets().filter(o => Math.hypot(o.x - wx, o.y - wy) < 26).sort((a, b) => Math.hypot(a.x - wx, a.y - wy) - Math.hypot(b.x - wx, b.y - wy))[0];
   if (t) doInteract(t);
@@ -215,11 +217,12 @@ const hash = (x, y) => (Math.imul(x, 73856093) ^ Math.imul(y, 19349663)) >>> 0;
 // 타일 하나를 g(메인 캔버스 또는 덩어리 캐시 캔버스)의 (sx, sy)에 그린다. 무한 월드(불시착)는 모든 빈 칸이 동굴 배경이고 깊을수록 어둡다
 function paintTile(g, tx, ty, sx, sy, V, waters) {
   const id = tileAt(tx, ty), v = (((tx * 7 + ty * 13) % 3) + 3) % 3, inf = World.isInfinite();
-  if (id === AIR) {
+  if (id === AIR || id === World.DOOR_OPEN) {
     if (inf || (tx >= 0 && tx < dim.W && ty > GY[tx])) {
       g.drawImage(Art.tiles.wall[v], sx, sy); g.fillStyle = `rgba(0,0,0,${inf ? Math.min(0.6, 0.25 + Math.max(0, ty) * 0.004) : Math.max(0.2, Math.min(0.55, (ty - 28) * 0.04))})`; g.fillRect(sx, sy, T, T);
       if (World.inCore(S, tx, ty)) { g.fillStyle = 'rgba(150,200,230,.22)'; g.fillRect(sx, sy, T, T); }
     }
+    if (id === World.DOOR_OPEN) g.drawImage(Art.tiles.dooropen[0], sx, sy);   // 19단계: 열린 문(문틀)
     return;
   }
   if (id === WATER) {
@@ -229,7 +232,7 @@ function paintTile(g, tx, ty, sx, sy, V, waters) {
     return;
   }
   const hub = V.hub && (id === GRASS || id === SAND || id === DIRT);   // 허브 정거장: 풀·모래·흙 자리에 금속 바닥판과 선체
-  const TS = Art.tiles, tset = hub ? (id === DIRT ? TS.hubhull : TS.hubtop) : id === GRASS ? TS.grass : id === DIRT ? TS.dirt : id === STONE ? TS.stone : id === SAND ? TS.sand : id === SNOWTOP ? TS.snowtop : id === RAFT ? TS.raft : id === HULL ? TS.hull : id === HATCH ? TS.hatch : id === BEDROCK ? TS.bedrock : id === HARD ? TS.hard : id === SALT ? TS.salt : id === IRON ? TS.iron : id === GOLD ? TS.gold : id === HOT ? TS.hot : id === RARE ? TS.rare : TS.ice;
+  const TS = Art.tiles, tset = hub ? (id === DIRT ? TS.hubhull : TS.hubtop) : id === GRASS ? TS.grass : id === DIRT ? TS.dirt : id === STONE ? TS.stone : id === SAND ? TS.sand : id === SNOWTOP ? TS.snowtop : id === RAFT ? TS.raft : id === HULL ? TS.hull : id === HATCH ? TS.hatch : id === BEDROCK ? TS.bedrock : id === HARD ? TS.hard : id === SALT ? TS.salt : id === IRON ? TS.iron : id === GOLD ? TS.gold : id === HOT ? TS.hot : id === RARE ? TS.rare : id === World.VENT ? TS.vent : id === World.DOOR ? TS.door : TS.ice;
   g.drawImage(tset[v % tset.length], sx, sy);
   if (V.tint && !hub && id !== RAFT && id !== HULL && id !== HATCH) { g.fillStyle = `rgba(${V.tint},.2)`; g.fillRect(sx, sy, T, T); }   // 행성 지형 색조
   const dark = inf ? Math.min(0.5, Math.max(0, ty) * 0.004) : ty > 26 ? Math.min(0.6, (ty - 26) * 0.03) : 0;
@@ -287,6 +290,7 @@ function draw(t) {
   } else {
     for (let ty = y0; ty <= y0 + Math.ceil(VH / T) + 1; ty++) for (let tx = x0; tx <= x0 + Math.ceil(VW / T) + 1; tx++) paintTile(ctx, tx, ty, tx * T - cam.x, ty * T - cam.y, V, drawW);
   }
+  if (window.CellSim) CellSim.draw(ctx, cam, VW, VH, t);   // 19단계: 칸 지도(온도·압력·분압) 덧칠. 꺼져 있으면 아무것도 안 한다
   if (window.Tutorial) Tutorial.draw(ctx, cam, t);   // 튜토리얼 첫 5분 안내: 해치 화살표·표지판 위치(DESIGN.md §4-30)
   // 오브젝트
   for (const o of World.objsIn(x0 - 3, y0 - 4, x0 + Math.ceil(VW / T) + 3, y0 + Math.ceil(VH / T) + 4)) {
@@ -426,7 +430,8 @@ const HUD = { hits: [], tip: '', bottom: 0, quest: -1 };
 const hudMenu = [
   ['hammer', '건설', () => openBuild()], ['gear', '제작', () => openCraft()], ['book', '연구 노트', () => window.Notes && Notes.open(api)],
   ['scroll', '기록', () => openLog()], ['team', '팀', () => window.TeamUI ? TeamUI.open() : say('팀 기능은 웹 주소(http)로 접속해야 쓸 수 있어요.')],
-  ['invite', '친구 초대', () => window.Invite ? Invite.open() : say('친구 초대는 웹 주소(http)로 접속해야 쓸 수 있어요.')], ['disk', '저장/계정', () => openSave()],
+  ['invite', '친구 초대', () => window.Invite ? Invite.open() : say('친구 초대는 웹 주소(http)로 접속해야 쓸 수 있어요.')],
+  ['cells', '칸 지도', () => window.CellSim ? CellSim.open() : say('칸 지도를 불러오지 못했어요.')], ['disk', '저장/계정', () => openSave()],
 ];
 function drawHUD(t) {
   HUD.hits = []; HUD.tip = '';
@@ -435,7 +440,7 @@ function drawHUD(t) {
   const items = Object.entries(S.inv).filter(([, v]) => v >= 1).map(([k, v]) => ({ k, icon: ITEM[k][0], name: ITEM[k][1], n: Math.floor(v) }));
   if (S.caps.length) items.push({ icon: 'cap', name: '기체 캡슐 (' + capText() + ')', n: S.caps.length });
   if (S.packs.length) items.push({ icon: 'pack', name: '한제 팩', n: S.packs.length });
-  const SL = 17, per = Math.max(4, Math.floor((VW - 126) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
+  const SL = 17, per = Math.max(4, Math.floor((VW - 143) / SL)), rows = Math.max(1, Math.ceil(items.length / per));
   items.forEach((it, i) => {
     const x = 4 + (i % per) * SL, y = 4 + Math.floor(i / per) * SL, hov = over(x, y, 16, 16);
     hudBox(x, y, 16, 16, hov); ctx.drawImage(Art.icon[it.icon], x + 3, y + 2);

@@ -276,6 +276,7 @@ window.Art = (() => {
   A.icon.shaker = I(['..wwww..', '.wkkkkw.', '..wwww..', '.gGGGGg.', 'gGGwGGGg', 'gGGGGwGg', 'gGGGGGGg', '.gggggg.'], { w: '#e4ecf2', k: '#667587', g: '#6fb7a6', G: '#c4ece0' });
   A.icon.thermo = I(['...ww...', '...wr...', '...wr...', '...wr...', '...wr...', '..wrrw..', '..wrrw..', '...ww...'], { w: '#e8ecf4', r: '#ff5a4a' });
   A.icon.hammer = I(['.hhhh...', 'hHHHHh..', 'hHHHHh.b', '.hhhhbB.', '....bB..', '...bB...', '..bB....', '..B.....'], { h: '#8f949e', H: '#d0d6e0', b: '#b9834a', B: '#7a4f25' });
+  A.icon.cells = I(['rrbbbbgg', 'rrbbbbgg', 'yybbbbpp', 'yybbbbpp', 'ggrryybb', 'ggrryybb', 'bbppggrr', 'bbppggrr'], { r: '#e8541c', b: '#3f9be0', g: '#4cd964', y: '#ffd84a', p: '#c792ff' });   // 19단계 칸 지도(온도·압력·분압 색 칸)
   A.icon.invite = I(['.pp..y..', '.pp.yyy.', 'bbbb.y..', 'bBbb....', 'bbbb....', '.bb.....', '.bb.....', '........'], { p: '#f0c8a0', b: '#4a7bd8', B: '#8fb4ff', y: '#ffd84a' });   // 친구 초대(사람 + 더하기)
   A.icon.team = I(['.pp..pp.', '.pp..pp.', 'bbbbbbbb', 'bBbbbbBb', 'bbbbbbbb', '.bb..bb.', '.bb..bb.', '........'], { p: '#f0c8a0', b: '#4a7bd8', B: '#8fb4ff' });   // 17-b 팀 버튼
   A.icon.gear = I(['...gg...', '.g.gg.g.', '..gGGg..', 'ggGggGgg', 'ggGggGgg', '..gGGg..', '.g.gg.g.', '...gg...'], { g: '#9aa3b0', G: '#dde3ec' });
@@ -387,6 +388,25 @@ window.Art = (() => {
   A.tiles.hatch = variants(i => {
     const c = mk(16, 16), p = painter(c);
     p(0, 0, 16, 16, '#3a4256'); p(3, 0, 10, 16, '#59647d'); p(4, 1, 8, 14, '#2d3550'); p(7, 1, 2, 14, '#7d889f'); p(5, 7, 1, 3, '#ffb347'); p(10, 7, 1, 3, '#ffb347');
+    return c;
+  }, 1);
+  // 19단계 칸 시뮬: 환기구(철망, 기체만 지난다)·닫힌 문(철문)·열린 문(문틀만 남음)
+  A.tiles.vent = variants(i => {
+    const c = mk(16, 16), p = painter(c);
+    p(0, 0, 16, 16, '#2c3347'); p(0, 0, 16, 2, '#a9b4cb'); p(0, 14, 16, 2, '#4d5872'); p(0, 0, 2, 16, '#8f9bb3'); p(14, 0, 2, 16, '#59647d');
+    for (let y = 4; y < 13; y += 3) p(3, y, 10, 1, '#c3cde0');
+    for (let x = 4; x < 13; x += 3) p(x, 3, 1, 10, '#6f7a93');
+    return c;
+  }, 1);
+  A.tiles.door = variants(i => {
+    const c = mk(16, 16), p = painter(c);
+    p(0, 0, 16, 16, '#5d6a86'); p(2, 0, 12, 16, '#8f9bb3'); p(2, 0, 12, 1, '#dfe6f5'); p(2, 0, 1, 16, '#c3cde0'); p(13, 0, 1, 16, '#59647d');
+    p(4, 2, 8, 5, '#6f7a93'); p(4, 9, 8, 5, '#6f7a93'); p(10, 7, 2, 2, '#ffb347'); p(0, 0, 2, 16, '#3a4256'); p(14, 0, 2, 16, '#3a4256');
+    return c;
+  }, 1);
+  A.tiles.dooropen = variants(i => {
+    const c = mk(16, 16), p = painter(c);
+    p(0, 0, 2, 16, '#3a4256'); p(14, 0, 2, 16, '#3a4256'); p(2, 0, 1, 16, '#8f9bb3'); p(0, 0, 16, 1, '#59647d'); p(12, 3, 2, 10, '#6f7a93'); p(13, 7, 1, 2, '#ffb347');
     return c;
   }, 1);
   // 하늘의 먼 행성(원반): kind = gas(고리 있는 가스 행성) · ocean(바다 행성) · ice(얼음 띠 행성) · violet(보랏빛 행성). r = 반지름(px). 빛은 왼쪽 위에서

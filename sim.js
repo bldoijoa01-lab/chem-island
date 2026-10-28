@@ -210,7 +210,8 @@
   }
   let curDev = null;   // 지금 계산·표시 중인 장치(환경을 장치마다 다르게 정하는 고리용). 기본(2D)은 항상 탐사정/탐사정이 있는 행성
   const envOf = (S) => ENV[geo.island(S, curDev)];
-  const pAtm = (S) => envOf(S).P;
+  // geo.pressure(S, d)(19단계 칸 시뮬): 있으면 d 자리(없으면 플레이어 자리)의 칸 압력(atm)을 돌려주고, 없거나 undefined면 옛 환경 상수(ENV.P)다.
+  const pAtm = (S) => { const p = geo.pressure ? geo.pressure(S, curDev) : undefined; return p !== undefined ? p : envOf(S).P; };
   // geo.ambient(S, d): 지하 개편(17-a′)의 구역 온도 고리. 있으면 d 자리(없으면 플레이어 자리)의 온도를 돌려주고, 없으면(시험·fp/td) 옛 식 그대로다.
   const airTemp = (S) => { const a = geo.ambient ? geo.ambient(S, curDev) : undefined; return a !== undefined ? a : C.airTemp(S.min) + envOf(S).dT; };   // ℃, 옛 식: 불시착 행성 기준 오후 3시 최고(28) · 새벽 3시 최저(−15) + 행성별 보정
 
@@ -463,7 +464,8 @@
       if (S.inv.sand < 1) return say('모래가 필요합니다.');
       S.inv.sand--; advance(S, 10);
       const n = C.moles(pAtm(S), 0.5, airTemp(S));   // 외기 압력이 낮은 행성에서는 같은 주사기에 모이는 기체가 적다   [#4 #6]
-      S.caps.push({ k: 'air', n });
+      const mix = geo.airMix ? geo.airMix(S, curDev) : undefined;   // 19단계 칸 시뮬: 그 칸의 기체 몰분율. 없으면 옛 캡슐({k, n})
+      S.caps.push(mix ? { k: 'air', n, mix } : { k: 'air', n });
       S.f.caps++;
       logEv(S, '공기 캡슐', `n = ${fmt(n, 4)} mol [${envOf(S).name}: ${pAtm(S)} atm, ${fmt(airTemp(S), 1)}℃]`);
       say('공기 캡슐 1개를 만들었습니다.');
